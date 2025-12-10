@@ -4,6 +4,7 @@ import "./globals.css";
 import Header from "./components/Header";
 import { SidebarProvider } from "./components/LayoutContent";
 import MainContent from "./components/MainContent";
+import { AuthProviderWrapper } from "./components/AuthProviderWrapper";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,10 +31,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-50`}
       >
-        <SidebarProvider>
-          <Header />
-          <MainContent>{children}</MainContent>
-        </SidebarProvider>
+        <AuthProviderWrapper>
+          <SidebarProvider>
+            <Header />
+            <MainContent>{children}</MainContent>
+          </SidebarProvider>
+        </AuthProviderWrapper>
       </body>
     </html>
   );

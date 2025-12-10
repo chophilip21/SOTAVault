@@ -5,9 +5,11 @@ import Image from "next/image";
 import Link from "next/link";
 import Sidebar from "./Sidebar";
 import AuthModal from "./AuthModal";
+import { useAuth } from "@/lib/authContext";
 
 export default function Header() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const { user, userProfile, loading, logout } = useAuth();
 
   return (
     <>
@@ -52,14 +54,60 @@ export default function Header() {
               </div>
             </div>
 
-            {/* Login Button */}
-            <div className="flex items-center pr-4 sm:pr-6 lg:pr-8">
-              <button
-                onClick={() => setIsAuthModalOpen(true)}
-                className="px-4 py-2 text-sm font-semibold text-white bg-green-500 rounded-full hover:bg-green-600 transition-colors"
-              >
-                Login
-              </button>
+            {/* User Info / Login Button */}
+            <div className="flex items-center gap-3 pr-4 sm:pr-6 lg:pr-8">
+              {loading ? (
+                <div className="px-4 py-2 text-sm text-gray-500">Loading...</div>
+              ) : user && userProfile ? (
+                <>
+                  {/* User Info */}
+                  <div className="flex items-center gap-2">
+                    <div className="relative w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                      {userProfile.photo_url ? (
+                        <Image
+                          src={userProfile.photo_url}
+                          alt="User"
+                          width={32}
+                          height={32}
+                          className="object-cover"
+                        />
+                      ) : (
+                        <Image
+                          src="/user.svg"
+                          alt="User"
+                          width={20}
+                          height={20}
+                          className="object-contain"
+                        />
+                      )}
+                    </div>
+                    <span className="text-sm font-medium text-gray-700 hidden sm:inline">
+                      {userProfile.display_name || userProfile.email?.split("@")[0] || "User"}
+                    </span>
+                  </div>
+                  {/* Logout Button */}
+                  <button
+                    onClick={async () => {
+                      try {
+                        await logout();
+                      } catch (error) {
+                        console.error("Logout failed:", error);
+                        // You could show an error toast here if needed
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                  >
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-green-500 rounded-full hover:bg-green-600 transition-colors"
+                >
+                  Login
+                </button>
+              )}
             </div>
           </div>
         </div>

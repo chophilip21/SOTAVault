@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { config } from "@/lib/config";
+import { getUserFriendlyAuthError, getUserFriendlyRegistrationError } from "@/lib/authErrors";
+import { useAuth } from "@/lib/authContext";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -18,6 +20,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const [username, setUsername] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { refreshUserProfile } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,19 +30,24 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     try {
       if (isLogin) {
         // Login: 1. Sign in with Firebase Auth
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
+        try {
+          const userCredential = await signInWithEmailAndPassword(auth, email, password);
+          const user = userCredential.user;
 
-        // 2. Get the Secure Token
-        const token = await user.getIdToken();
+          // 2. Get the Secure Token
+          const token = await user.getIdToken();
 
-        // 3. Optionally verify with backend (if needed)
-        // You can call your backend here if you need to sync user state
-        
-        onClose();
-        // Reset form
-        setEmail("");
-        setPassword("");
+          // 3. Refresh user profile to update the header
+          await refreshUserProfile();
+          
+          onClose();
+          // Reset form
+          setEmail("");
+          setPassword("");
+        } catch (loginError: any) {
+          // Use user-friendly error message
+          throw new Error(getUserFriendlyAuthError(loginError, "login"));
+        }
       } else {
         // Signup
         if (password !== confirmPassword) {
@@ -59,34 +67,123 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         }
 
         // 1. Create Identity in Firebase Auth
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-
-        // 2. Get the Secure Token
-        const token = await user.getIdToken();
-
-        // 3. Call your Python Backend to create the Profile
+        // This creates the Auth user first - if backend fails, we'll clean it up
+        let user: any = null;
+        let authUserCreated = false;
+        
         try {
-          const response = await fetch(`${config.backendUrl}/users/register`, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`, // Send token in header
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ username: username.trim() }),
-          });
+          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+          user = userCredential.user;
+          authUserCreated = true;
+          console.log("Firebase Auth user created:", user.uid);
 
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ message: "Backend registration failed" }));
-            throw new Error(errorData.message || "Failed to create user profile");
+          // 2. Get the Secure Token
+          const token = await user.getIdToken();
+
+          // 3. Call backend to create Firestore profile (idempotent - safe to retry)
+          // Retry logic with exponential backoff for transient failures
+          let lastError: Error | null = null;
+          const maxRetries = 3;
+          const baseDelay = 1000; // 1 second
+          let currentToken = token;
+
+          for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+              const response = await fetch(`${config.backendUrl}/users/register`, {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${currentToken}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ username: username.trim() }),
+              });
+
+              if (response.ok) {
+                console.log("User fully registered! Profile created in Firestore.");
+                // Success - break out of retry loop
+                lastError = null;
+                break;
+              }
+
+              // If 401, don't retry (auth issue)
+              if (response.status === 401) {
+                const errorData = await response.json().catch(() => ({ message: "Authentication failed" }));
+                // Sanitize backend error message
+                const sanitizedMessage = getUserFriendlyAuthError(
+                  { message: errorData.message || "Authentication failed" },
+                  "signup"
+                );
+                throw new Error(sanitizedMessage);
+              }
+
+              // For other errors, prepare to retry
+              const errorData = await response.json().catch(() => ({ message: "Backend registration failed" }));
+              // Sanitize backend error message
+              const sanitizedBackendMessage = getUserFriendlyAuthError(
+                { message: errorData.message || "Backend registration failed" },
+                "signup"
+              );
+              lastError = new Error(sanitizedBackendMessage);
+
+              // If not the last attempt, wait before retrying
+              if (attempt < maxRetries - 1) {
+                const delay = baseDelay * Math.pow(2, attempt); // Exponential backoff
+                console.warn(`Registration attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                // Refresh token before retry
+                currentToken = await user.getIdToken(true);
+              }
+            } catch (fetchError: any) {
+              // Sanitize error message before storing
+              const sanitizedMessage = getUserFriendlyAuthError(
+                { message: fetchError.message || "Network error occurred" },
+                "signup"
+              );
+              lastError = new Error(sanitizedMessage);
+              
+              // If it's a network error and not the last attempt, retry
+              if (attempt < maxRetries - 1 && !fetchError.message?.includes("Authentication failed")) {
+                const delay = baseDelay * Math.pow(2, attempt);
+                console.warn(`Registration attempt ${attempt + 1} failed with network error, retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                // Refresh token before retry
+                currentToken = await user.getIdToken(true);
+              } else {
+                // Don't retry on auth errors or last attempt - throw sanitized error
+                throw lastError;
+              }
+            }
           }
 
-          console.log("User fully registered!");
-        } catch (backendError: any) {
-          // If backend fails, we might want to delete the Firebase user
-          // or handle it differently based on your requirements
-          console.error("Backend registration error:", backendError);
-          throw new Error(backendError.message || "Failed to create user profile");
+          // If we still have an error after all retries, throw it
+          if (lastError) {
+            throw lastError;
+          }
+
+          // Registration successful - refresh user profile
+          await refreshUserProfile();
+        } catch (error: any) {
+          // If backend registration failed and we created an Auth user, clean it up
+          if (authUserCreated && user) {
+            try {
+              await deleteUser(user);
+              console.log("Cleaned up Auth user after registration failure");
+            } catch (deleteError: any) {
+              // Log the cleanup failure but don't mask the original error
+              console.error(
+                "CRITICAL: Failed to delete Auth user after registration failure. " +
+                "User may be orphaned. UID:",
+                user.uid,
+                "Error:",
+                deleteError
+              );
+              // In production, you might want to send this to an error tracking service
+              // or trigger an alert for manual cleanup
+            }
+          }
+          // Create user-friendly error message with context
+          const friendlyError = getUserFriendlyRegistrationError(error, authUserCreated);
+          throw new Error(friendlyError);
         }
 
         onClose();
@@ -97,7 +194,8 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         setUsername("");
       }
     } catch (err: any) {
-      setError(err.message || "An error occurred");
+      // Error message is already user-friendly from getUserFriendlyAuthError or getUserFriendlyRegistrationError
+      setError(err.message || "An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
