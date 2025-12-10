@@ -21,8 +21,9 @@ if (!getApps().length) {
 // Initialize Auth
 const auth = getAuth(app);
 
-// Connect to Firebase Emulator in local environment
-if (config.isLocal && config.useFirebaseEmulator && typeof window !== "undefined") {
+// Connect to Firebase Emulator if we are on localhost
+// (This matches the pattern: check window.location.hostname === "localhost")
+if (typeof window !== "undefined" && window.location.hostname === "localhost") {
   try {
     // Connect Auth Emulator (only if not already connected)
     const authConfig = (auth as any)._delegate?._config;
@@ -42,4 +43,5 @@ if (config.isLocal && config.useFirebaseEmulator && typeof window !== "undefined
 
 const db = getFirestore(app);
 
-export { db, auth };
+// Export app for potential use elsewhere
+export { db, auth, app };
