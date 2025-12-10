@@ -1,0 +1,163 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useSidebar } from "./LayoutContent";
+
+const navItems = [
+  { 
+    name: "Home", 
+    href: "/",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+      </svg>
+    )
+  },
+  { 
+    name: "Popular", 
+    href: "/popular",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+      </svg>
+    )
+  },
+  { 
+    name: "Benchmark", 
+    href: "/benchmark",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+      </svg>
+    )
+  },
+  { 
+    name: "Models", 
+    href: "/models",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+      </svg>
+    )
+  },
+  { 
+    name: "Tasks", 
+    href: "/tasks",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+      </svg>
+    )
+  },
+];
+
+export default function Sidebar() {
+  const pathname = usePathname();
+  const { isSidebarOpen, setIsSidebarOpen } = useSidebar();
+  
+  const isOpen = isSidebarOpen;
+  const onClose = () => setIsSidebarOpen(false);
+
+  return (
+    <>
+      {/* Overlay - Only on mobile */}
+      {isOpen && (
+        <div
+          className="fixed top-16 left-0 right-0 bottom-0 bg-black bg-opacity-50 z-40 transition-opacity duration-300 md:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      {/* Toggle Button - Always visible at the edge, positioned based on sidebar state */}
+      <button
+        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+        className={`fixed z-50 bg-white border border-green-300 rounded-full p-1.5 shadow-md hover:bg-green-50 transition-all duration-300 ease-in-out
+          top-1/2 -translate-y-1/2
+          ${isOpen ? "left-[calc(16rem-0.75rem)]" : "left-0"}
+        `}
+        aria-label="Toggle navigation menu"
+      >
+        <svg
+          className={`w-4 h-4 text-green-600 transition-transform duration-300 ${isOpen ? "" : "rotate-180"}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M15 19l-7-7 7-7"
+          />
+        </svg>
+      </button>
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed left-0 w-64 bg-white border-r border-gray-200 z-30 transform transition-transform duration-300 ease-in-out
+          top-16 h-[calc(100vh-4rem)]
+          ${isOpen ? "translate-x-0" : "-translate-x-full"}
+        `}
+      >
+        <div className="flex flex-col h-full">
+          {/* Sidebar Header - Only on mobile */}
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 md:hidden">
+            <h2 className="text-lg font-semibold text-gray-900">Navigation</h2>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-md hover:bg-gray-100 transition-colors"
+              aria-label="Close sidebar"
+            >
+              <svg
+                className="w-6 h-6 text-gray-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+
+          {/* Navigation Items */}
+          <nav className="flex-1 p-4">
+            <ul className="space-y-2">
+              {navItems.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <li key={item.name}>
+                    <Link
+                      href={item.href}
+                      onClick={() => {
+                        // Only close on mobile
+                        if (window.innerWidth < 768) {
+                          onClose();
+                        }
+                      }}
+                      className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                        isActive
+                          ? "bg-green-50 text-green-600 border-l-4 border-green-500"
+                          : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                      }`}
+                    >
+                      <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
+                        {item.icon}
+                      </span>
+                      <span>{item.name}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+        </div>
+      </aside>
+    </>
+  );
+}

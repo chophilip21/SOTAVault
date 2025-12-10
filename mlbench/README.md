@@ -2,36 +2,54 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
+- Node.js installed
+- Firebase emulators running (for local development)
+- Backend Docker container running on port 8080 (for local development)
+
+### Environment Setup
+
+1. Copy the example environment file:
+```bash
+cp .env.local.example .env.local
+```
+
+2. Update `.env.local` with your configuration:
+   - Firebase API keys and project ID
+   - Backend URL (defaults to `http://localhost:8080` for local)
+   - Firebase Auth Emulator host (defaults to `127.0.0.1:9099` for local)
+
+### Running Locally
+
+1. Start Firebase emulators:
+```bash
+firebase emulators:start
+```
+
+2. Start the backend Docker container (port 8080)
+
+3. Install dependencies and run the development server:
 ```bash
 npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+4. Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Environment Configuration
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The application uses environment-based configuration:
+- **Local Development** (`npm run dev`): Uses `.env.local` file
+  - Firebase Auth Emulator: `127.0.0.1:9099`
+  - Backend API: `http://localhost:8080`
+- **Production**: Uses production environment variables
 
-## Learn More
+All ports and URLs are configurable via environment variables - nothing is hardcoded.
 
-To learn more about Next.js, take a look at the following resources:
+### Authentication
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The login/signup flow uses Firebase Authentication:
+- Click the "Login" button in the header to open the auth modal
+- Toggle between Login and Sign Up modes
+- In local development, authentication uses the Firebase Auth Emulator
