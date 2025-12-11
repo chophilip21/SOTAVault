@@ -21,9 +21,16 @@ if (!getApps().length) {
 // Initialize Auth
 const auth = getAuth(app);
 
-// Connect to Firebase Emulator if we are on localhost
-// (This matches the pattern: check window.location.hostname === "localhost")
-if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+// Decide when to use the Firebase Auth emulator
+const shouldUseEmulator =
+  config.useFirebaseEmulator ||
+  (typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.hostname === "[::1]"));
+
+// Connect to Firebase Auth Emulator for local development (localhost/127.0.0.1)
+if (shouldUseEmulator) {
   try {
     // Connect Auth Emulator (only if not already connected)
     const authConfig = (auth as any)._delegate?._config;
