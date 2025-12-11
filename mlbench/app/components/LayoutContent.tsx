@@ -10,15 +10,22 @@ interface SidebarContextType {
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
-  // Open by default on desktop, closed on mobile
-  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
-    if (typeof window !== "undefined") {
-      return window.innerWidth >= 768; // md breakpoint
+  // Start with false to avoid hydration mismatch, then set correct state after mount
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Set initial state after hydration to avoid mismatch
+  useEffect(() => {
+    setIsMounted(true);
+    // Set initial state based on screen size
+    if (window.innerWidth >= 768) {
+      setIsSidebarOpen(true);
     }
-    return true; // Default to open for SSR
-  });
+  }, []);
 
   useEffect(() => {
+    if (!isMounted) return;
+
     const handleResize = () => {
       // On desktop, keep current state; on mobile, close if open
       if (window.innerWidth < 768 && isSidebarOpen) {
@@ -30,7 +37,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [isSidebarOpen]);
+  }, [isSidebarOpen, isMounted]);
 
   return (
     <SidebarContext.Provider value={{ isSidebarOpen, setIsSidebarOpen }}>

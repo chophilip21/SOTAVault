@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { useSidebar } from "./LayoutContent";
 
 const navItems = [
@@ -59,27 +60,78 @@ export default function Sidebar() {
   const isOpen = isSidebarOpen;
   const onClose = () => setIsSidebarOpen(false);
 
+  // Prevent body scroll when sidebar is open on mobile
+  useEffect(() => {
+    if (isOpen && typeof window !== "undefined") {
+      // Check if mobile
+      if (window.innerWidth < 768) {
+        const scrollY = window.scrollY;
+        document.body.style.overflow = "hidden";
+        document.body.style.position = "fixed";
+        document.body.style.top = `-${scrollY}px`;
+        document.body.style.width = "100%";
+        document.body.style.left = "0";
+        document.body.style.right = "0";
+      }
+    } else {
+      const scrollY = document.body.style.top;
+      document.body.style.overflow = "";
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.width = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+      if (scrollY) {
+        window.scrollTo(0, parseInt(scrollY || "0") * -1);
+      }
+    }
+
+    return () => {
+      const scrollY = document.body.style.top;
+      document.body.style.overflow = "";
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.width = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+      if (scrollY) {
+        window.scrollTo(0, parseInt(scrollY || "0") * -1);
+      }
+    };
+  }, [isOpen]);
+
   return (
     <>
-      {/* Overlay - Only on mobile */}
+      {/* Overlay - Only on mobile, behind sidebar but above content */}
       {isOpen && (
         <div
-          className="fixed top-16 left-0 right-0 bottom-0 bg-black bg-opacity-50 z-40 transition-opacity duration-300 md:hidden"
+          className="fixed bg-black bg-opacity-50 z-[35] transition-opacity duration-300 md:hidden"
           onClick={onClose}
+          style={{ 
+            top: '4rem', // Start below header (h-16 = 4rem)
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100%',
+            minWidth: '100vw'
+          }}
         />
       )}
 
       {/* Toggle Button - Always visible at the edge, positioned based on sidebar state */}
       <button
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className={`fixed z-50 bg-white border border-green-300 rounded-full p-1.5 shadow-md hover:bg-green-50 transition-all duration-300 ease-in-out
-          top-1/2 -translate-y-1/2
-          ${isOpen ? "left-[calc(16rem-0.75rem)]" : "left-0"}
-        `}
+        className="fixed z-[45] bg-white border border-green-300 rounded-full p-1.5 shadow-md hover:bg-green-50 transition-all duration-300 ease-in-out top-20 md:top-1/2 md:-translate-y-1/2"
+        style={{
+          left: isOpen ? 'calc(16rem - 0.75rem)' : '0.5rem'
+        }}
         aria-label="Toggle navigation menu"
       >
         <svg
-          className={`w-4 h-4 text-green-600 transition-transform duration-300 ${isOpen ? "" : "rotate-180"}`}
+          className="w-4 h-4 text-green-600 transition-transform duration-300"
+          style={{
+            transform: isOpen ? 'none' : 'rotate(180deg)'
+          }}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -95,10 +147,10 @@ export default function Sidebar() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 w-64 bg-white border-r border-gray-200 z-30 transform transition-transform duration-300 ease-in-out
-          top-16 h-[calc(100vh-4rem)]
-          ${isOpen ? "translate-x-0" : "-translate-x-full"}
-        `}
+        className="fixed left-0 w-64 max-w-[85vw] bg-white border-r border-gray-200 z-[40] transform transition-transform duration-300 ease-in-out top-16 h-[calc(100vh-4rem)] overflow-y-auto"
+        style={{
+          transform: isOpen ? 'translateX(0)' : 'translateX(-100%)'
+        }}
       >
         <div className="flex flex-col h-full">
           {/* Sidebar Header - Only on mobile */}
@@ -126,8 +178,8 @@ export default function Sidebar() {
           </div>
 
           {/* Navigation Items */}
-          <nav className="flex-1 p-4">
-            <ul className="space-y-2">
+          <nav className="flex-1 p-4 flex flex-col">
+            <ul className="space-y-2 flex-1">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
                 return (
@@ -154,6 +206,47 @@ export default function Sidebar() {
                   </li>
                 );
               })}
+            </ul>
+
+            {/* Divider */}
+            <div className="border-t border-gray-200 my-4"></div>
+
+            {/* Second-tier Navigation */}
+            <ul className="space-y-1">
+              <li>
+                <Link
+                  href="/terms"
+                  onClick={() => {
+                    if (window.innerWidth < 768) {
+                      onClose();
+                    }
+                  }}
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    pathname === "/terms"
+                      ? "bg-gray-50 text-gray-900"
+                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  }`}
+                >
+                  <span>Terms and Conditions</span>
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/privacy"
+                  onClick={() => {
+                    if (window.innerWidth < 768) {
+                      onClose();
+                    }
+                  }}
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    pathname === "/privacy"
+                      ? "bg-gray-50 text-gray-900"
+                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  }`}
+                >
+                  <span>Privacy Policy</span>
+                </Link>
+              </li>
             </ul>
           </nav>
         </div>

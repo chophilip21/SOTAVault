@@ -13,33 +13,33 @@ export default function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-200">
+      <header className="sticky top-0 z-50 bg-white border-b border-gray-200">
         <div className="w-full">
           <div className="flex items-center justify-between h-16">
-            {/* Logo - Moved to the right, 50% bigger */}
-            <div className="flex items-center pl-8 sm:pl-12 lg:pl-16">
+            {/* Logo */}
+            <div className="flex items-center pl-4 sm:pl-8 lg:pl-16">
               <Link href="/" className="flex items-center">
                 <Image
                   src="/mltree.png"
                   alt="MLBench Logo"
                   width={120}
                   height={120}
-                  className="object-contain h-[72px] w-[72px] md:h-[120px] md:w-[120px]"
+                  className="object-contain h-[60px] w-[60px] sm:h-[80px] sm:w-[80px] md:h-[100px] md:w-[100px] lg:h-[120px] lg:w-[120px]"
                   priority
                 />
               </Link>
             </div>
 
             {/* Search Box */}
-            <div className="flex-1 max-w-xl mx-4">
+            <div className="flex-1 max-w-xl mx-2 sm:mx-4">
               <div className="relative">
                 <input
                   type="text"
                   placeholder="Search..."
-                  className="w-full px-4 py-2 pl-10 pr-4 text-sm bg-gray-100 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  className="w-full px-3 sm:px-4 py-1.5 sm:py-2 pl-8 sm:pl-10 pr-4 text-sm bg-gray-100 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 />
                 <svg
-                  className="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
+                  className="absolute left-2 sm:left-3 top-1.5 sm:top-2.5 h-4 w-4 sm:h-5 sm:w-5 text-gray-400"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -55,7 +55,7 @@ export default function Header() {
             </div>
 
             {/* User Info / Login Button */}
-            <div className="flex items-center gap-3 pr-4 sm:pr-6 lg:pr-8">
+            <div className="flex items-center gap-2 sm:gap-3 pr-4 sm:pr-6 lg:pr-8">
               {loading ? (
                 <div className="px-4 py-2 text-sm text-gray-500">Loading...</div>
               ) : user && userProfile ? (
