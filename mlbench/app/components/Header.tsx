@@ -61,7 +61,7 @@ export default function Header() {
               ) : user && userProfile ? (
                 <>
                   {/* User Info */}
-                  <div className="flex items-center gap-2">
+                  <Link href="/profile" className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer">
                     <div className="relative w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
                       {userProfile.photo_url ? (
                         <Image
@@ -84,7 +84,7 @@ export default function Header() {
                     <span className="text-sm font-medium text-gray-700 hidden sm:inline">
                       {userProfile.display_name || userProfile.email?.split("@")[0] || "User"}
                     </span>
-                  </div>
+                  </Link>
                   {/* Logout Button */}
                   <button
                     onClick={async () => {

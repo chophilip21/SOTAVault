@@ -9,7 +9,12 @@ interface UserProfile {
   uid: string;
   email: string;
   display_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  affiliation: string | null;
   photo_url: string | null;
+  bio: string | null;
+  job_title: string | null;
 }
 
 interface AuthContextType {
@@ -18,6 +23,7 @@ interface AuthContextType {
   loading: boolean;
   logout: () => Promise<void>;
   refreshUserProfile: () => Promise<void>;
+  updateUserProfileOptimistic: (profile: UserProfile) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -102,7 +108,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           uid: profile.uid,
           email: profile.email,
           display_name: profile.display_name,
+          first_name: profile.first_name,
+          last_name: profile.last_name,
+          affiliation: profile.affiliation,
           photo_url: profile.photo_url,
+          bio: profile.bio,
+          job_title: profile.job_title,
         };
         saveCachedProfile(userProfile);
         return userProfile;
@@ -112,7 +123,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           uid,
           email,
           display_name: null,
+          first_name: null,
+          last_name: null,
+          affiliation: null,
           photo_url: null,
+          bio: null,
+          job_title: null,
         };
         saveCachedProfile(minimalProfile);
         return minimalProfile;
@@ -124,7 +140,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         uid,
         email,
         display_name: null,
+        first_name: null,
+        last_name: null,
+        affiliation: null,
         photo_url: null,
+        bio: null,
+        job_title: null,
       };
       return minimalProfile;
     }
@@ -198,8 +219,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Update user profile optimistically (for optimistic UI updates)
+  const updateUserProfileOptimistic = (profile: UserProfile) => {
+    setUserProfile(profile);
+    saveCachedProfile(profile);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, logout, refreshUserProfile }}>
+    <AuthContext.Provider value={{ user, userProfile, loading, logout, refreshUserProfile, updateUserProfileOptimistic }}>
       {children}
     </AuthContext.Provider>
   );
