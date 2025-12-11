@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useSidebar } from "./LayoutContent";
 
 const navItems = [
@@ -56,9 +56,21 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { isSidebarOpen, setIsSidebarOpen } = useSidebar();
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth < 768 : false
+  );
   
   const isOpen = isSidebarOpen;
   const onClose = () => setIsSidebarOpen(false);
+
+  // Track mobile/desktop to position the toggle button safely
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   // Prevent body scroll when sidebar is open on mobile
   useEffect(() => {
@@ -72,6 +84,8 @@ export default function Sidebar() {
         document.body.style.width = "100%";
         document.body.style.left = "0";
         document.body.style.right = "0";
+        document.documentElement.style.overflowX = "hidden";
+        document.documentElement.style.width = "100%";
       }
     } else {
       const scrollY = document.body.style.top;
@@ -81,6 +95,8 @@ export default function Sidebar() {
       document.body.style.width = "";
       document.body.style.left = "";
       document.body.style.right = "";
+      document.documentElement.style.overflowX = "";
+      document.documentElement.style.width = "";
       if (scrollY) {
         window.scrollTo(0, parseInt(scrollY || "0") * -1);
       }
@@ -94,6 +110,8 @@ export default function Sidebar() {
       document.body.style.width = "";
       document.body.style.left = "";
       document.body.style.right = "";
+      document.documentElement.style.overflowX = "";
+      document.documentElement.style.width = "";
       if (scrollY) {
         window.scrollTo(0, parseInt(scrollY || "0") * -1);
       }
@@ -105,25 +123,19 @@ export default function Sidebar() {
       {/* Overlay - Only on mobile, behind sidebar but above content */}
       {isOpen && (
         <div
-          className="fixed bg-black bg-opacity-50 z-[35] transition-opacity duration-300 md:hidden"
+          className="fixed inset-x-0 top-16 bottom-0 bg-black bg-opacity-50 z-[35] transition-opacity duration-300 md:hidden"
           onClick={onClose}
-          style={{ 
-            top: '4rem', // Start below header (h-16 = 4rem)
-            left: 0,
-            right: 0,
-            bottom: 0,
-            width: '100%',
-            minWidth: '100vw'
-          }}
         />
       )}
 
       {/* Toggle Button - Always visible at the edge, positioned based on sidebar state */}
       <button
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className="fixed z-[45] bg-white border border-green-300 rounded-full p-1.5 shadow-md hover:bg-green-50 transition-all duration-300 ease-in-out top-20 md:top-1/2 md:-translate-y-1/2"
+        className="fixed z-[45] bg-white border border-green-300 rounded-full p-1.5 shadow-md hover:bg-green-50 transition-all duration-300 ease-in-out top-20 md:top-1/2 md:-translate-y-1/2 flex"
         style={{
-          left: isOpen ? 'calc(16rem - 0.75rem)' : '0.5rem'
+          left: isOpen
+            ? (isMobile ? '0.75rem' : 'calc(16rem - 0.75rem)')
+            : '0.75rem'
         }}
         aria-label="Toggle navigation menu"
       >
@@ -147,10 +159,8 @@ export default function Sidebar() {
 
       {/* Sidebar */}
       <aside
-        className="fixed left-0 w-64 max-w-[85vw] bg-white border-r border-gray-200 z-[40] transform transition-transform duration-300 ease-in-out top-16 h-[calc(100vh-4rem)] overflow-y-auto"
-        style={{
-          transform: isOpen ? 'translateX(0)' : 'translateX(-100%)'
-        }}
+        className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-screen md:w-64 bg-white border-r border-gray-200 z-[40] transform transition-transform duration-300 ease-in-out overflow-y-auto"
+        style={{ transform: isOpen ? 'translateX(0)' : 'translateX(-100%)' }}
       >
         <div className="flex flex-col h-full">
           {/* Sidebar Header - Only on mobile */}

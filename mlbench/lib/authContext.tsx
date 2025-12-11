@@ -155,12 +155,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cachedProfile) {
           setUserProfile(cachedProfile);
           setLoading(false);
-          // Optionally refresh in background
-          fetchUserProfile(firebaseUser.uid, firebaseUser.email || "").then((profile) => {
-            if (profile) {
-              setUserProfile(profile);
-            }
-          });
+          
+          // Only refresh in background if cache is older than 5 seconds
+          const cacheTimestamp = localStorage.getItem(USER_PROFILE_CACHE_TIMESTAMP_KEY);
+          const cacheAge = cacheTimestamp ? Date.now() - parseInt(cacheTimestamp, 10) : Infinity;
+          
+          if (cacheAge > 5000) { // 5 seconds
+            fetchUserProfile(firebaseUser.uid, firebaseUser.email || "").then((profile) => {
+              if (profile) {
+                setUserProfile(profile);
+              }
+            });
+          }
         } else {
           // Fetch from backend if not cached
           const profile = await fetchUserProfile(firebaseUser.uid, firebaseUser.email || "");
