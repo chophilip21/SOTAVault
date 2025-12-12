@@ -131,60 +131,60 @@ export default function PapersPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col md:flex-row gap-4 items-center">
-          <div className="flex-1 flex flex-col gap-3">
-            <div className="max-w-2xl">
+        <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
+          <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3">
+            <div>
               <h1 className={`text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>Papers</h1>
               <p className="text-gray-600 text-base mt-3 break-words">
                 Discover the latest papers and groundbreaking research in machine learning and AI.
               </p>
             </div>
-            <div className="relative max-w-2xl">
-              <input
-                type="text"
-                placeholder="Search papers..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-              <svg
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            <div className="flex flex-col gap-4">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search papers..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 />
-              </svg>
+                <svg
+                  className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+              </div>
+              <button
+                onClick={handleSortToggle}
+                className={`inline-flex items-center px-4 py-2 text-sm rounded-full border ${
+                  sortDir === "desc"
+                    ? "bg-gray-200 border-gray-300 text-gray-800"
+                    : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                } max-w-fit`}
+              >
+                Sort by newest
+              </button>
             </div>
           </div>
-          <div className="flex-shrink-0">
+          <div className="flex-1 flex items-center justify-center min-h-[280px]">
             <Image
-              src="/paper.png"
+              src="/papers.png"
               alt="Research papers illustration"
-              width={180}
-              height={180}
-              className="opacity-80"
+              width={350}
+              height={350}
+              className="opacity-80 max-w-full h-auto"
             />
           </div>
         </div>
-        <div className="flex flex-col gap-2">
-          <button
-            onClick={handleSortToggle}
-            className={`inline-flex items-center px-4 py-2 text-sm rounded-full border ${
-              sortDir === "desc"
-                ? "bg-gray-200 border-gray-300 text-gray-800"
-                : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
-            } max-w-fit`}
-          >
-            Sort by newest
-          </button>
-          <Pager align="center" />
-        </div>
+        <Pager align="center" />
       </div>
 
       {loading && (
@@ -203,14 +203,14 @@ export default function PapersPage() {
         <div className="text-gray-500">No papers match your search.</div>
       )}
 
-      <div className="space-y-4">
+      <div className="space-y-5">
         {filteredPapers.map((paper) => (
           <div
             key={paper.id}
-            className="border border-gray-200 rounded-lg p-4 hover:shadow-sm transition"
+            className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-gray-200 transition-all duration-200"
           >
             <div className="flex justify-between items-start gap-4">
-              <div className="flex-shrink-0 w-24 h-24 relative rounded border border-gray-200 overflow-hidden bg-gray-50">
+              <div className="flex-shrink-0 w-24 h-24 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
                 <Image
                   src="/ArXiv_logo_2022.png"
                   alt="Paper thumbnail"

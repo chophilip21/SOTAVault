@@ -117,15 +117,15 @@ export default function BenchmarkPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col md:flex-row gap-4 items-center">
-          <div className="flex-1 flex flex-col gap-3">
-            <div className="max-w-2xl">
+        <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
+          <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3">
+            <div>
               <h1 className={`text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>Benchmarks</h1>
               <p className="text-gray-600 text-base mt-3 break-words">
                 Discover the latest benchmarks and datasets in machine learning and AI.
               </p>
             </div>
-            <div className="relative max-w-2xl">
+            <div className="relative">
               <input
                 type="text"
                 placeholder="Search benchmarks..."
@@ -148,13 +148,13 @@ export default function BenchmarkPage() {
               </svg>
             </div>
           </div>
-          <div className="flex-shrink-0">
+          <div className="flex-1 flex items-center justify-center min-h-[280px]">
             <Image
               src="/benchmark.png"
               alt="Benchmarks illustration"
-              width={180}
-              height={180}
-              className="opacity-80"
+              width={350}
+              height={350}
+              className="opacity-80 max-w-full h-auto"
             />
           </div>
         </div>
@@ -182,11 +182,11 @@ export default function BenchmarkPage() {
         <div className="text-gray-500">No benchmarks match your search.</div>
       )}
 
-      <div className="space-y-4">
+      <div className="space-y-5">
         {filteredBenchmarks.map((benchmark) => (
           <div
             key={benchmark.id}
-            className="border border-gray-200 rounded-lg p-4 hover:shadow-sm transition"
+            className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-gray-200 transition-all duration-200"
           >
             <div className="flex justify-between items-start gap-4">
               <div className="flex-1">
