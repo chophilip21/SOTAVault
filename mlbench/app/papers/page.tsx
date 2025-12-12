@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { Playfair_Display } from "next/font/google";
 import { config } from "@/lib/config";
+
+const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
 interface Paper {
   id: string;
@@ -32,6 +35,7 @@ export default function PapersPage() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fetchPage = async (cursor: string | null) => {
     setLoading(true);
@@ -113,16 +117,62 @@ export default function PapersPage() {
     </div>
   );
 
+  // Filter papers based on search query
+  const filteredPapers = papers.filter((paper) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      paper.title?.toLowerCase().includes(query) ||
+      paper.abstract?.toLowerCase().includes(query) ||
+      paper.authors?.some((author) => author.toLowerCase().includes(query))
+    );
+  });
+
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold text-gray-900">Papers</h1>
-          <p className="text-gray-600 text-sm">
-            Sorted by {sortDir === "desc" ? "newest" : "oldest"}
-          </p>
+        <div className="flex flex-col md:flex-row gap-4 items-center">
+          <div className="flex-1 flex flex-col gap-3">
+            <div className="max-w-2xl">
+              <h1 className={`text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>Papers</h1>
+              <p className="text-gray-600 text-base mt-3 break-words">
+                Discover the latest papers and groundbreaking research in machine learning and AI.
+              </p>
+            </div>
+            <div className="relative max-w-2xl">
+              <input
+                type="text"
+                placeholder="Search papers..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              />
+              <svg
+                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+            </div>
+          </div>
+          <div className="flex-shrink-0">
+            <Image
+              src="/paper.png"
+              alt="Research papers illustration"
+              width={180}
+              height={180}
+              className="opacity-80"
+            />
+          </div>
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="flex flex-col gap-2">
           <button
             onClick={handleSortToggle}
             className={`inline-flex items-center px-4 py-2 text-sm rounded-full border ${
@@ -133,7 +183,7 @@ export default function PapersPage() {
           >
             Sort by newest
           </button>
-          <Pager align="right" />
+          <Pager align="center" />
         </div>
       </div>
 
@@ -149,8 +199,12 @@ export default function PapersPage() {
         <div className="text-gray-500">No papers found.</div>
       )}
 
+      {!loading && !error && papers.length > 0 && filteredPapers.length === 0 && (
+        <div className="text-gray-500">No papers match your search.</div>
+      )}
+
       <div className="space-y-4">
-        {papers.map((paper) => (
+        {filteredPapers.map((paper) => (
           <div
             key={paper.id}
             className="border border-gray-200 rounded-lg p-4 hover:shadow-sm transition"
