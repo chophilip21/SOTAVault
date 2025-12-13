@@ -43,11 +43,20 @@ const navItems = [
     )
   },
   { 
-    name: "Tasks", 
-    href: "/tasks",
+    name: "Conference", 
+    href: "/conference",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+    )
+  },
+  { 
+    name: "Bookmarks", 
+    href: "/bookmarks",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
       </svg>
     )
   },
@@ -123,7 +132,7 @@ export default function Sidebar() {
       {/* Overlay - Only on mobile, behind sidebar but above content */}
       {isOpen && (
         <div
-          className="fixed inset-x-0 top-16 bottom-0 bg-black bg-opacity-50 z-[35] transition-opacity duration-300 md:hidden"
+          className="fixed inset-x-0 top-20 bottom-0 bg-black bg-opacity-50 z-[35] transition-opacity duration-300 md:hidden"
           onClick={onClose}
         />
       )}
@@ -131,7 +140,11 @@ export default function Sidebar() {
       {/* Toggle Button - Always visible at the edge, positioned based on sidebar state */}
       <button
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className="fixed z-[45] bg-white border border-green-300 rounded-full p-1.5 shadow-md hover:bg-green-50 transition-all duration-300 ease-in-out top-20 md:top-1/2 md:-translate-y-1/2 flex"
+        className={`fixed z-[45] border-2 rounded-full p-2.5 transition-all duration-300 ease-in-out top-20 md:top-1/2 md:-translate-y-1/2 flex ${
+          isOpen
+            ? 'bg-white border-gray-300 shadow-md hover:bg-gray-50'
+            : 'bg-green-500 border-green-600 shadow-lg shadow-green-500/50 hover:bg-green-600 hover:shadow-xl hover:shadow-green-600/60 hover:scale-110'
+        }`}
         style={{
           left: isOpen
             ? (isMobile ? '0.75rem' : 'calc(16rem - 0.75rem)')
@@ -140,7 +153,7 @@ export default function Sidebar() {
         aria-label="Toggle navigation menu"
       >
         <svg
-          className="w-4 h-4 text-green-600 transition-transform duration-300"
+          className={`w-6 h-6 transition-transform duration-300 ${isOpen ? 'text-gray-600' : 'text-white'}`}
           style={{
             transform: isOpen ? 'none' : 'rotate(180deg)'
           }}
@@ -151,7 +164,7 @@ export default function Sidebar() {
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeWidth={2}
+            strokeWidth={2.5}
             d="M15 19l-7-7 7-7"
           />
         </svg>
@@ -159,7 +172,7 @@ export default function Sidebar() {
 
       {/* Sidebar */}
       <aside
-        className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-screen md:w-64 bg-white border-r border-gray-200 z-[40] transform transition-transform duration-300 ease-in-out overflow-y-auto"
+        className="fixed left-0 top-20 h-[calc(100vh-5rem)] w-screen md:w-64 bg-white border-r border-gray-200 z-[40] transform transition-transform duration-300 ease-in-out overflow-y-auto"
         style={{ transform: isOpen ? 'translateX(0)' : 'translateX(-100%)' }}
       >
         <div className="flex flex-col h-full">

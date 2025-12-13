@@ -310,8 +310,9 @@ export default function BenchmarkPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
+      <div className="bg-gray-50 rounded-2xl p-6 shadow-sm border border-gray-100">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
           <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3">
             <div>
               <h1 className={`text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>Benchmarks</h1>
@@ -441,7 +442,7 @@ export default function BenchmarkPage() {
                 </button>
                 <button
                   onClick={handleClearFilters}
-                  className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
+                  className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition"
                 >
                   Clear
                 </button>
@@ -457,9 +458,10 @@ export default function BenchmarkPage() {
               className="opacity-80 max-w-full h-auto"
             />
           </div>
-        </div>
-        <div className="flex flex-col gap-2">
-          <Pager align="center" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Pager align="center" />
+          </div>
         </div>
       </div>
 

@@ -16,7 +16,7 @@ export default function MainContent({ children }: { children: React.ReactNode })
 
   return (
     <main
-      className={`transition-all duration-300 min-h-screen pt-16 ${marginClass}`}
+      className={`transition-all duration-300 min-h-screen pt-20 ${marginClass}`}
     >
       {children}
     </main>

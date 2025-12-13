@@ -15,7 +15,7 @@ export default function Header() {
     <>
       <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-200">
         <div className="w-full">
-          <div className="flex items-center justify-between h-16">
+          <div className="flex items-center justify-between h-20">
             {/* Logo */}
             <div className="flex items-center pl-4 sm:pl-8 lg:pl-16">
               <Link href="/" className="flex items-center">
@@ -32,7 +32,7 @@ export default function Header() {
 
             {/* Search Box */}
             <div className="flex-1 max-w-xl mx-2 sm:mx-4">
-              <div className="relative">
+              <div className="relative rounded-full border-2 border-green-500 shadow-lg shadow-green-50">
                 <input
                   type="text"
                   placeholder="Search..."
