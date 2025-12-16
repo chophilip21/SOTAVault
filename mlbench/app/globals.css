@@ -37,3 +37,31 @@ body {
   margin: 0;
   padding: 0;
 }
+
+/* Leaflet custom styles */
+.custom-marker {
+  background: none;
+  border: none;
+}
+
+/* Custom popup styling for light map */
+.leaflet-popup-content-wrapper {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+  border: 1px solid #e5e7eb !important;
+}
+
+.leaflet-popup-tip {
+  background: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+}
+
+.leaflet-popup-close-button {
+  color: #6b7280 !important;
+}
+
+.leaflet-popup-close-button:hover {
+  color: #111827 !important;
+}

@@ -306,7 +306,7 @@ export default function ConferencePage() {
                                   type="checkbox"
                                   checked={checked}
                                   onChange={() => toggleCategory(tag)}
-                                  className="h-4 w-4"
+                                  className="h-4 w-4 shrink-0 accent-green-600"
                                 />
                                 <span className={`${checked ? "text-green-700" : "text-gray-800"}`}>{tag}</span>
                               </label>
@@ -322,7 +322,7 @@ export default function ConferencePage() {
                       type="checkbox"
                       checked={selectedUpcomingOnly}
                       onChange={(e) => setSelectedUpcomingOnly(e.target.checked)}
-                      className="h-4 w-4"
+                      className="h-4 w-4 shrink-0 accent-green-600"
                     />
                     Upcoming only
                   </label>
