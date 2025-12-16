@@ -65,3 +65,19 @@ body {
 .leaflet-popup-close-button:hover {
   color: #111827 !important;
 }
+
+/* Login button animation */
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.02);
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}

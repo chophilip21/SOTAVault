@@ -59,7 +59,7 @@ const ConferenceMap = ({ markers }: ConferenceMapProps) => {
                 font-weight: bold;
                 font-size: 12px;
               ">
-                ${marker.venues.length > 1 ? marker.venues.length : ''}
+                ${marker.venues.length}
               </div>
             `,
             iconSize: [32, 32],

@@ -103,7 +103,7 @@ export default function Header() {
               ) : (
                 <button
                   onClick={() => setIsAuthModalOpen(true)}
-                  className="px-4 py-2 text-sm font-semibold text-white bg-green-500 rounded-full hover:bg-green-600 transition-colors"
+                  className="px-4 py-2 text-sm font-semibold text-white bg-green-500 rounded-full hover:bg-green-600 transition-all animate-pulse-subtle shadow-lg shadow-green-500/50 hover:shadow-xl hover:shadow-green-500/70 hover:scale-105"
                 >
                   Login
                 </button>
@@ -114,7 +114,7 @@ export default function Header() {
       </header>
 
       {/* Sidebar */}
-      <Sidebar />
+      <Sidebar onLoginRequired={() => setIsAuthModalOpen(true)} />
 
       {/* Auth Modal */}
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />

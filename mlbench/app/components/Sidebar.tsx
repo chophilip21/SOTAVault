@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useSidebar } from "./LayoutContent";
+import { useAuth } from "@/lib/authContext";
 
 const navItems = [
   { 
@@ -62,9 +63,17 @@ const navItems = [
   },
 ];
 
-export default function Sidebar() {
+// Essential tabs that require login
+const protectedRoutes = ['/papers', '/benchmark', '/models', '/conference', '/bookmarks', '/datasets'];
+
+interface SidebarProps {
+  onLoginRequired: () => void;
+}
+
+export default function Sidebar({ onLoginRequired }: SidebarProps) {
   const pathname = usePathname();
   const { isSidebarOpen, setIsSidebarOpen } = useSidebar();
+  const { user } = useAuth();
   const [isMobile, setIsMobile] = useState(
     typeof window !== "undefined" ? window.innerWidth < 768 : false
   );
@@ -205,27 +214,52 @@ export default function Sidebar() {
             <ul className="space-y-2 flex-1">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
+                const requiresAuth = protectedRoutes.includes(item.href);
+                
                 return (
                   <li key={item.name}>
-                    <Link
-                      href={item.href}
-                      onClick={() => {
-                        // Only close on mobile
-                        if (window.innerWidth < 768) {
-                          onClose();
-                        }
-                      }}
-                      className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                        isActive
-                          ? "bg-green-50 text-green-600 border-l-4 border-green-500"
-                          : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                      }`}
-                    >
-                      <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
-                        {item.icon}
-                      </span>
-                      <span>{item.name}</span>
-                    </Link>
+                    {requiresAuth && !user ? (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          onLoginRequired();
+                          // Close sidebar on mobile
+                          if (window.innerWidth < 768) {
+                            onClose();
+                          }
+                        }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                          isActive
+                            ? "bg-green-50 text-green-600 border-l-4 border-green-500"
+                            : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                        }`}
+                      >
+                        <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
+                          {item.icon}
+                        </span>
+                        <span>{item.name}</span>
+                      </button>
+                    ) : (
+                      <Link
+                        href={item.href}
+                        onClick={() => {
+                          // Only close on mobile
+                          if (window.innerWidth < 768) {
+                            onClose();
+                          }
+                        }}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                          isActive
+                            ? "bg-green-50 text-green-600 border-l-4 border-green-500"
+                            : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                        }`}
+                      >
+                        <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
+                          {item.icon}
+                        </span>
+                        <span>{item.name}</span>
+                      </Link>
+                    )}
                   </li>
                 );
               })}

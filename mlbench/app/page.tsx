@@ -6,6 +6,9 @@ import Link from "next/link";
 import { Playfair_Display } from "next/font/google";
 import dynamic from "next/dynamic";
 import { config } from "@/lib/config";
+import ProtectedLink from "./components/ProtectedLink";
+import AuthModal from "./components/AuthModal";
+import { useAuth } from "@/lib/authContext";
 
 const ConferenceMap = dynamic(() => import("./components/ConferenceMap"), { ssr: false });
 
@@ -259,6 +262,8 @@ export default function Home() {
   const [upcomingVenues, setUpcomingVenues] = useState<Venue[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -420,12 +425,13 @@ export default function Home() {
           <h2 className={`text-3xl font-bold text-gray-900 ${playfairDisplay.className}`}>
             Upcoming Conferences
           </h2>
-          <Link 
+          <ProtectedLink 
             href="/conference" 
             className="text-green-600 hover:text-green-700 text-sm font-medium transition"
+            onLoginRequired={() => setIsAuthModalOpen(true)}
           >
             View all →
-          </Link>
+          </ProtectedLink>
         </div>
 
         {/* Featured Conferences with Closest Deadlines */}
@@ -526,20 +532,22 @@ export default function Home() {
           <h2 className={`text-3xl font-bold text-gray-900 ${playfairDisplay.className}`}>
             Popular Papers
           </h2>
-          <Link 
+          <ProtectedLink 
             href="/papers" 
             className="text-green-600 hover:text-green-700 text-sm font-medium transition"
+            onLoginRequired={() => setIsAuthModalOpen(true)}
           >
             View all →
-          </Link>
+          </ProtectedLink>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {popularPapers.map((paper) => (
-            <Link
+            <ProtectedLink
               key={paper.id}
               href={`/papers/${paper.id}`}
               className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 group"
+              onLoginRequired={() => setIsAuthModalOpen(true)}
             >
               <div className="flex items-start gap-3 mb-3">
                 <div className="flex-shrink-0 w-12 h-12 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
@@ -588,7 +596,7 @@ export default function Home() {
                   </span>
                 )}
               </div>
-            </Link>
+            </ProtectedLink>
           ))}
         </div>
         
@@ -603,20 +611,22 @@ export default function Home() {
           <h2 className={`text-3xl font-bold text-gray-900 ${playfairDisplay.className}`}>
             Popular Datasets
           </h2>
-          <Link 
+          <ProtectedLink 
             href="/benchmark" 
             className="text-green-600 hover:text-green-700 text-sm font-medium transition"
+            onLoginRequired={() => setIsAuthModalOpen(true)}
           >
             View all →
-          </Link>
+          </ProtectedLink>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {popularDatasets.slice(0, 3).map((dataset) => (
-            <Link
+            <ProtectedLink
               key={dataset.id}
               href={`/datasets/${dataset.id}`}
               className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 group"
+              onLoginRequired={() => setIsAuthModalOpen(true)}
             >
               <div className="flex items-start gap-3 mb-3">
                 <div className="flex-shrink-0 w-12 h-12 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
@@ -664,7 +674,7 @@ export default function Home() {
                   </span>
                 )}
               </div>
-            </Link>
+            </ProtectedLink>
           ))}
         </div>
         
@@ -672,6 +682,9 @@ export default function Home() {
           <div className="text-gray-500 text-center py-8">No popular datasets found.</div>
         )}
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
     </div>
   );
 }
