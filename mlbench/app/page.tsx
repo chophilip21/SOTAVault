@@ -47,6 +47,10 @@ interface DatasetsResponse {
   has_more: boolean;
 }
 
+interface VenueTimeline {
+  pdf_deadline?: string | null;
+}
+
 interface Venue {
   id: string;
   name: string;
@@ -55,6 +59,9 @@ interface Venue {
   place?: string | null;
   conference_start_date?: string | null;
   conference_end_date?: string | null;
+  timeline?: VenueTimeline[];
+  website?: string | null;
+  tags?: string[];
 }
 
 interface VenuesResponse {
@@ -313,6 +320,27 @@ export default function Home() {
     fetchData();
   }, []);
 
+  // Get conferences with closest submission deadlines
+  const featuredDeadlineConferences = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Filter venues with upcoming deadlines
+    const withDeadlines = upcomingVenues
+      .filter(venue => {
+        if (!venue.timeline || venue.timeline.length === 0) return false;
+        const deadline = venue.timeline[0]?.pdf_deadline;
+        return deadline && deadline >= today;
+      })
+      .map(venue => ({
+        ...venue,
+        deadline: venue.timeline![0].pdf_deadline!
+      }))
+      .sort((a, b) => a.deadline.localeCompare(b.deadline))
+      .slice(0, 3);
+    
+    return withDeadlines;
+  }, [upcomingVenues]);
+
   // Group venues by place and geocode them
   const conferenceMarkers = useMemo(() => {
     const placeMap = new Map<string, Venue[]>();
@@ -399,6 +427,71 @@ export default function Home() {
             View all →
           </Link>
         </div>
+
+        {/* Featured Conferences with Closest Deadlines */}
+        {featuredDeadlineConferences.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {featuredDeadlineConferences.map((venue) => {
+              const deadline = new Date(venue.deadline);
+              const today = new Date();
+              const daysUntil = Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              
+              return (
+                <div
+                  key={venue.id}
+                  className="bg-gradient-to-br from-green-50 to-blue-50 border border-green-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-gray-900 text-base line-clamp-1">
+                        {venue.short_name || venue.acronym || venue.name}
+                      </h3>
+                      {venue.place && (
+                        <p className="text-xs text-gray-600 mt-1">
+                          📍 {venue.place}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="mt-3 pt-3 border-t border-green-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">
+                          Deadline
+                        </p>
+                        <p className="text-sm font-semibold text-green-700 mt-0.5">
+                          {deadline.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-gray-500">
+                          {daysUntil === 0 ? 'Today!' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil} days`}
+                        </p>
+                        {venue.conference_start_date && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            📅 {new Date(venue.conference_start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {venue.website && (
+                    <a
+                      href={venue.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 block text-center text-xs text-green-600 hover:text-green-700 font-medium"
+                    >
+                      Visit Website →
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
         
         <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
           {conferenceMarkers.length > 0 ? (

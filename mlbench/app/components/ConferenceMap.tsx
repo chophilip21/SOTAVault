@@ -1,8 +1,10 @@
 'use client';
 
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import { MapContainer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
+import { MapLibreTileLayer } from './MapLibreTileLayer';
 
 interface Venue {
   id?: string;
@@ -34,9 +36,9 @@ const ConferenceMap = ({ markers }: ConferenceMapProps) => {
         style={{ height: '100%', width: '100%' }}
         scrollWheelZoom={false}
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+        <MapLibreTileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://tiles.openfreemap.org/styles/positron"
         />
         
         {markers.map((marker, idx) => {
