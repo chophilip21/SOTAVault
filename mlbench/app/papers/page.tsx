@@ -79,11 +79,11 @@ export default function PapersPage() {
   
   // Temporary filter states (not yet applied)
   const [selectedDomain, setSelectedDomain] = useState("");
-  const [selectedTask, setSelectedTask] = useState("");
+  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
   
   // Applied filter states (used for actual filtering)
   const [appliedDomain, setAppliedDomain] = useState("");
-  const [appliedTask, setAppliedTask] = useState("");
+  const [appliedTasks, setAppliedTasks] = useState<string[]>([]);
   
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -91,7 +91,7 @@ export default function PapersPage() {
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
   const taskDropdownRef = useRef<HTMLDivElement>(null);
 
-  const fetchPage = async (cursor: string | null, taskId?: string) => {
+  const fetchPage = async (cursor: string | null, taskIds?: string[]) => {
     setLoading(true);
     setError(null);
     try {
@@ -101,10 +101,13 @@ export default function PapersPage() {
       url.searchParams.set("sort_dir", sortDir);
       if (cursor) url.searchParams.set("cursor", cursor);
       
-      const taskToUse = taskId !== undefined ? taskId : appliedTask;
-      if (taskToUse) {
-        url.searchParams.set("task_id", taskToUse);
+      const taskToUse = taskIds !== undefined ? taskIds : appliedTasks;
+      if (taskToUse && taskToUse.length > 0) {
+        taskToUse.forEach((t) => url.searchParams.append("task_id", t));
       }
+
+      const q = searchQuery.trim();
+      if (q) url.searchParams.set("q", q);
 
       const res = await fetch(url.toString());
       if (!res.ok) throw new Error("Failed to load papers");
@@ -167,6 +170,17 @@ export default function PapersPage() {
     setCurrentCursor(null);
   }, [sortDir]);
 
+  // Debounce server-side search to avoid excessive calls while typing
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      fetchPage(null);
+      setPrevCursors([null]);
+      setCurrentCursor(null);
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -183,28 +197,32 @@ export default function PapersPage() {
 
   const handleApplyFilters = () => {
     setAppliedDomain(selectedDomain);
-    setAppliedTask(selectedTask);
-    fetchPage(null, selectedTask);
+    setAppliedTasks(selectedTasks);
+    fetchPage(null, selectedTasks);
     setPrevCursors([null]);
     setCurrentCursor(null);
   };
 
   const handleClearFilters = () => {
     setSelectedDomain("");
-    setSelectedTask("");
+    setSelectedTasks([]);
     setAppliedDomain("");
-    setAppliedTask("");
+    setAppliedTasks([]);
     setSearchQuery("");
     setTaskSearchQuery("");
-    fetchPage(null, "");
+    fetchPage(null, []);
     setPrevCursors([null]);
     setCurrentCursor(null);
   };
 
-  const handleTaskSelect = (taskId: string) => {
-    setSelectedTask(taskId);
-    setTaskSearchOpen(false);
-    setTaskSearchQuery("");
+  const toggleTask = (taskId: string) => {
+    // Firestore array_contains_any supports up to 10 values.
+    setSelectedTasks((prev) => {
+      const exists = prev.includes(taskId);
+      if (exists) return prev.filter((t) => t !== taskId);
+      if (prev.length >= 10) return prev;
+      return [...prev, taskId];
+    });
   };
 
   const formatTaskName = (name: string) => {
@@ -212,9 +230,12 @@ export default function PapersPage() {
   };
 
   const getSelectedTaskName = () => {
-    if (!selectedTask) return "All Tasks";
-    const task = tasks.find(t => t.id === selectedTask);
-    return task ? formatTaskName(task.name) : "All Tasks";
+    if (selectedTasks.length === 0) return "All Tasks";
+    if (selectedTasks.length === 1) {
+      const task = tasks.find((t) => t.id === selectedTasks[0]);
+      return task ? formatTaskName(task.name) : "1 task";
+    }
+    return `${selectedTasks.length} tasks`;
   };
 
   const getFilteredTasks = () => {
@@ -282,19 +303,8 @@ export default function PapersPage() {
     </div>
   );
 
-  // Filter papers based on search query and applied domain
+  // Filter papers based on applied domain (search is handled server-side via `q`)
   const filteredPapers = papers.filter((paper) => {
-    // Search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      const matchesSearch = (
-        paper.title?.toLowerCase().includes(query) ||
-        paper.abstract?.toLowerCase().includes(query) ||
-        paper.authors?.some((author) => author.toLowerCase().includes(query))
-      );
-      if (!matchesSearch) return false;
-    }
-
     // Domain filter (client-side) - filter based on task domains
     if (appliedDomain && paper.task_ids) {
       const paperTasks = tasks.filter(t => paper.task_ids?.includes(t.id));
@@ -321,7 +331,7 @@ export default function PapersPage() {
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Search papers..."
+                  placeholder="Search papers by title..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
@@ -344,7 +354,7 @@ export default function PapersPage() {
                 <select
                   value={selectedDomain}
                   onChange={(e) => setSelectedDomain(e.target.value)}
-                  className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                  className="w-48 px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
                 >
                   {DOMAIN_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -358,7 +368,7 @@ export default function PapersPage() {
                   <button
                     onClick={() => setTaskSearchOpen(!taskSearchOpen)}
                     disabled={tasksLoading}
-                    className="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white disabled:bg-gray-100 text-left flex items-center justify-between"
+                    className="w-48 px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white disabled:bg-gray-100 text-left flex items-center justify-between"
                   >
                     <span className="truncate">{getSelectedTaskName()}</span>
                     <svg
@@ -383,6 +393,17 @@ export default function PapersPage() {
                           autoFocus
                         />
                       </div>
+
+                      <div className="p-2 border-b border-gray-200 flex items-center justify-between gap-2">
+                        <p className="text-xs text-gray-500">Select up to 10 tasks</p>
+                        <button
+                          onClick={() => setSelectedTasks([])}
+                          className="text-xs text-gray-700 hover:text-gray-900 underline"
+                          type="button"
+                        >
+                          Clear
+                        </button>
+                      </div>
                       
                       {!taskSearchQuery && (
                         <div className="p-2 border-b border-gray-200">
@@ -391,11 +412,14 @@ export default function PapersPage() {
                             {PRESET_TASKS.map((taskId) => {
                               const task = tasks.find(t => t.id === taskId);
                               if (!task) return null;
+                              const active = selectedTasks.includes(taskId);
                               return (
                                 <button
                                   key={taskId}
-                                  onClick={() => handleTaskSelect(taskId)}
-                                  className="px-3 py-1 text-xs bg-green-50 text-green-700 rounded-full hover:bg-green-100 transition"
+                                  onClick={() => toggleTask(taskId)}
+                                  className={`px-3 py-1 text-xs rounded-full transition ${
+                                    active ? "bg-green-100 text-green-800" : "bg-green-50 text-green-700 hover:bg-green-100"
+                                  }`}
                                 >
                                   {formatTaskName(task.name)}
                                 </button>
@@ -406,23 +430,25 @@ export default function PapersPage() {
                       )}
                       
                       <div className="overflow-y-auto max-h-64">
-                        <button
-                          onClick={() => handleTaskSelect("")}
-                          className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 transition"
-                        >
-                          All Tasks
-                        </button>
-                        {getFilteredTasks().map((task) => (
-                          <button
-                            key={task.id}
-                            onClick={() => handleTaskSelect(task.id)}
-                            className={`w-full px-3 py-2 text-sm text-left hover:bg-gray-50 transition ${
-                              selectedTask === task.id ? 'bg-green-50 text-green-700' : ''
-                            }`}
-                          >
-                            {formatTaskName(task.name)}
-                          </button>
-                        ))}
+                        {getFilteredTasks().map((task) => {
+                          const checked = selectedTasks.includes(task.id);
+                          return (
+                            <label
+                              key={task.id}
+                              className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleTask(task.id)}
+                                className="h-4 w-4 shrink-0 accent-green-600"
+                              />
+                              <span className={`${checked ? "text-green-700" : "text-gray-800"}`}>
+                                {formatTaskName(task.name)}
+                              </span>
+                            </label>
+                          );
+                        })}
                         {getFilteredTasks().length === 0 && (
                           <div className="px-3 py-2 text-sm text-gray-500">No tasks found</div>
                         )}
@@ -431,21 +457,27 @@ export default function PapersPage() {
                   )}
                 </div>
                 
-                <button
-                  onClick={handleApplyFilters}
-                  className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition"
-                >
-                  Apply
-                </button>
-                <button
-                  onClick={handleClearFilters}
-                  className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition"
-                >
-                  Clear
-                </button>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleApplyFilters}
+                    className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition"
+                  >
+                    Apply
+                  </button>
+                  <button
+                    onClick={handleClearFilters}
+                    className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition"
+                  >
+                    Clear
+                  </button>
+                </div>
                 <button
                   onClick={handleSortToggle}
-                  className="inline-flex items-center px-4 py-2 text-sm rounded-lg border bg-white border-gray-300 text-gray-700 hover:bg-gray-50 transition"
+                  className={`inline-flex items-center px-4 py-2 text-sm rounded-full border transition ${
+                    sortDir === "desc"
+                      ? "bg-blue-100 border-blue-300 text-blue-800"
+                      : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+                  }`}
                 >
                   Sort by newest
                 </button>
@@ -479,7 +511,7 @@ export default function PapersPage() {
       )}
 
       {!loading && !error && papers.length > 0 && filteredPapers.length === 0 && (
-        <div className="text-gray-500">No papers match your search.</div>
+        <div className="text-gray-500">No papers match your filters.</div>
       )}
 
       <div className="space-y-5">

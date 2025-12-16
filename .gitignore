@@ -38,3 +38,4 @@ mlbench/firebase.json
 mlbench/.firebaserc
 *.log
 instructions.md
+dev.sh

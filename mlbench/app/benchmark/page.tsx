@@ -434,18 +434,20 @@ export default function BenchmarkPage() {
                   )}
                 </div>
                 
-                <button
-                  onClick={handleApplyFilters}
-                  className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition"
-                >
-                  Apply
-                </button>
-                <button
-                  onClick={handleClearFilters}
-                  className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition"
-                >
-                  Clear
-                </button>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleApplyFilters}
+                    className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition"
+                  >
+                    Apply
+                  </button>
+                  <button
+                    onClick={handleClearFilters}
+                    className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
             </div>
           </div>
