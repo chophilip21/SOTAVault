@@ -39,3 +39,6 @@ mlbench/.firebaserc
 *.log
 instructions.md
 dev.sh
+mlc-llm
+tvm
+jetson-containers

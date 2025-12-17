@@ -61,10 +61,20 @@ const navItems = [
       </svg>
     )
   },
+  { 
+    name: "AI Chat", 
+    href: "/ai-chat",
+    beta: true,
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+      </svg>
+    )
+  },
 ];
 
 // Essential tabs that require login
-const protectedRoutes = ['/papers', '/benchmark', '/models', '/conference', '/bookmarks', '/datasets'];
+const protectedRoutes = ['/papers', '/benchmark', '/models', '/conference', '/bookmarks', '/datasets', '/ai-chat'];
 
 interface SidebarProps {
   onLoginRequired: () => void;
@@ -237,7 +247,14 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                         <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
                           {item.icon}
                         </span>
-                        <span>{item.name}</span>
+                        <span className="flex items-center gap-2">
+                          {item.name}
+                          {item.beta && (
+                            <span className="text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+                              BETA
+                            </span>
+                          )}
+                        </span>
                       </button>
                     ) : (
                       <Link
@@ -257,7 +274,14 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                         <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
                           {item.icon}
                         </span>
-                        <span>{item.name}</span>
+                        <span className="flex items-center gap-2">
+                          {item.name}
+                          {item.beta && (
+                            <span className="text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+                              BETA
+                            </span>
+                          )}
+                        </span>
                       </Link>
                     )}
                   </li>

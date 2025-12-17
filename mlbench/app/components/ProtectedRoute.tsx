@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/lib/authContext";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import AuthModal from "./AuthModal";
 
 interface ProtectedRouteProps {
@@ -10,7 +10,7 @@ interface ProtectedRouteProps {
 }
 
 // Routes that require authentication
-const protectedRoutes = ['/papers', '/benchmark', '/models', '/conference', '/bookmarks', '/datasets'];
+const protectedRoutes = ['/papers', '/benchmark', '/models', '/conference', '/bookmarks', '/datasets', '/ai-chat'];
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
@@ -19,15 +19,16 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [hasChecked, setHasChecked] = useState(false);
 
-  const requiresAuth = protectedRoutes.some(route => pathname.startsWith(route));
+  const requiresAuth = useMemo(() => 
+    protectedRoutes.some(route => pathname.startsWith(route)),
+    [pathname]
+  );
 
   useEffect(() => {
-    if (!loading && requiresAuth) {
-      if (!user) {
+    if (!loading) {
+      if (requiresAuth && !user) {
         setShowAuthModal(true);
       }
-      setHasChecked(true);
-    } else if (!loading) {
       setHasChecked(true);
     }
   }, [user, loading, requiresAuth]);

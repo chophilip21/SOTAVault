@@ -39,7 +39,8 @@ export default function ProfilePage() {
     if (user && !authLoading) {
       fetchProfile();
     }
-  }, [user, authLoading, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading]);
 
   const fetchProfile = async () => {
     try {
