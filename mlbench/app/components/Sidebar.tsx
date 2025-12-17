@@ -343,6 +343,23 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                   <span>Github</span>
                 </a>
               </li>
+              <li>
+                <Link
+                  href="/acknowledgement"
+                  onClick={() => {
+                    if (window.innerWidth < 768) {
+                      onClose();
+                    }
+                  }}
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    pathname === "/acknowledgement"
+                      ? "bg-gray-50 text-gray-900"
+                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  }`}
+                >
+                  <span>Acknowledgements</span>
+                </Link>
+              </li>
             </ul>
           </nav>
         </div>
