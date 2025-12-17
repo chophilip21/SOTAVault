@@ -12,24 +12,38 @@ interface VenueTimeline {
   pdf_deadline?: string | null;
 }
 
-interface Venue {
+// Conference series - shared metadata across all yearly editions
+interface ConferenceSeries {
   id: string;
   name: string;
-  short_name?: string | null;
-  acronym?: string | null;
+  full_name?: string | null;
   type?: string | null;
-  year?: number | null;
-  website?: string | null;
   description?: string | null;
   sub?: string | null;
+  rank?: Record<string, string> | null;
+  dblp?: string | null;
   tags?: string[];
+}
+
+// Venue - yearly conference edition
+interface Venue {
+  id: string;
+  series_id: string;
+  year?: number | null;
+  website?: string | null;
+  timezone?: string | null;
+  place?: string | null;
   conference_start_date?: string | null;
   conference_end_date?: string | null;
   timeline?: VenueTimeline[];
-  place?: string | null;
   paper_count?: number;
   created_at?: string;
   updated_at?: string;
+}
+
+// Combined venue with series data for display
+interface VenueWithSeries extends Venue {
+  series?: ConferenceSeries;
 }
 
 interface VenuesResponse {
@@ -37,6 +51,10 @@ interface VenuesResponse {
   limit: number;
   next_cursor?: string | null;
   has_more: boolean;
+}
+
+interface SeriesResponse {
+  items: ConferenceSeries[];
 }
 
 const CATEGORY_TAGS = [
@@ -59,9 +77,9 @@ const toISODate = (d: Date) => {
   return `${y}-${m}-${day}`;
 };
 
-const getVenueSortName = (venue: Venue) => {
-  // Prefer base names over the year-appended `name`.
-  return (venue.short_name || venue.acronym || venue.name || "").trim();
+const getVenueSortName = (venue: VenueWithSeries) => {
+  // Use series name for sorting
+  return (venue.series?.name || venue.series_id || "").trim();
 };
 
 const hashString = (s: string) => {
@@ -80,11 +98,9 @@ const GRADIENTS = [
   "from-teal-50 to-teal-100 text-teal-800",
 ];
 
-const getVenueMark = (venue: Venue) => {
-  const preferred =
-    (venue.acronym || "").trim() ||
-    (venue.short_name || "").trim() ||
-    (venue.name || "").trim();
+const getVenueMark = (venue: VenueWithSeries) => {
+  const seriesName = venue.series?.name || venue.series_id || "";
+  const preferred = seriesName.trim();
 
   if (!preferred) return "VENUE";
 
@@ -102,15 +118,16 @@ const getVenueMark = (venue: Venue) => {
   return (initials || token.slice(0, 6)).toUpperCase();
 };
 
-const VenueThumbnail = ({ venue }: { venue: Venue }) => {
+const VenueThumbnail = ({ venue }: { venue: VenueWithSeries }) => {
   const mark = getVenueMark(venue);
-  const gradient = GRADIENTS[hashString(venue.id || venue.name || mark) % GRADIENTS.length];
+  const seriesName = venue.series?.name || venue.series_id;
+  const gradient = GRADIENTS[hashString(venue.series_id || venue.id || mark) % GRADIENTS.length];
 
   return (
     <div
       className={`absolute inset-0 flex items-center justify-center bg-gradient-to-br ${gradient}`}
       aria-label={`Venue thumbnail: ${mark}`}
-      title={venue.acronym || venue.short_name || venue.name}
+      title={seriesName}
     >
       <span className="px-2 text-sm font-semibold tracking-wide">{mark}</span>
     </div>
@@ -118,10 +135,11 @@ const VenueThumbnail = ({ venue }: { venue: Venue }) => {
 };
 
 export default function ConferencePage() {
-  const [venues, setVenues] = useState<Venue[]>([]);
+  const [venues, setVenues] = useState<VenueWithSeries[]>([]);
+  const [seriesMap, setSeriesMap] = useState<Record<string, ConferenceSeries>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null);
+  const [selectedVenue, setSelectedVenue] = useState<VenueWithSeries | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -134,10 +152,32 @@ export default function ConferencePage() {
   // Applied filter states (used for API)
   const [appliedMinDate, setAppliedMinDate] = useState<string | null>(toISODate(new Date()));
 
-  const fetchAllVenues = async (opts?: { minDate?: string | null }) => {
+  // Fetch all series (cached, only needs to be done once)
+  const fetchAllSeries = async (): Promise<Record<string, ConferenceSeries>> => {
+    try {
+      const res = await fetch(`${config.backendUrl}/venues/series/`, { cache: "force-cache" });
+      if (!res.ok) throw new Error("Failed to load series");
+      const data: SeriesResponse = await res.json();
+      
+      // Create a map for quick lookups
+      const map: Record<string, ConferenceSeries> = {};
+      for (const series of data.items || []) {
+        map[series.id] = series;
+      }
+      return map;
+    } catch (err) {
+      console.error("Failed to fetch series:", err);
+      return {};
+    }
+  };
+
+  const fetchAllVenues = async (opts?: { minDate?: string | null; seriesData?: Record<string, ConferenceSeries> }) => {
     setLoading(true);
     setError(null);
     try {
+      // Use provided series data or fetch it
+      const series = opts?.seriesData || seriesMap;
+      
       const url = new URL(`${config.backendUrl}/venues/`);
       // Fetch all venues at once (conferences are a small dataset ~200 items)
       url.searchParams.set("limit", "500");
@@ -149,7 +189,13 @@ export default function ConferencePage() {
       if (!res.ok) throw new Error("Failed to load venues");
       const data: VenuesResponse = await res.json();
 
-      setVenues(data.items || []);
+      // Join venues with series data
+      const venuesWithSeries: VenueWithSeries[] = (data.items || []).map((venue) => ({
+        ...venue,
+        series: series[venue.series_id],
+      }));
+
+      setVenues(venuesWithSeries);
     } catch (err: any) {
       setError(err.message || "Failed to load venues");
     } finally {
@@ -158,7 +204,13 @@ export default function ConferencePage() {
   };
 
   useEffect(() => {
-    fetchAllVenues();
+    // Fetch series first (cached), then venues
+    const init = async () => {
+      const series = await fetchAllSeries();
+      setSeriesMap(series);
+      await fetchAllVenues({ seriesData: series });
+    };
+    init();
   }, []);
 
   // Close category dropdown when clicking outside
@@ -187,7 +239,7 @@ export default function ConferencePage() {
   const handleApplyFilters = () => {
     const minDateValue = selectedUpcomingOnly ? toISODate(new Date()) : null;
     setAppliedMinDate(minDateValue);
-    fetchAllVenues({ minDate: minDateValue });
+    fetchAllVenues({ minDate: minDateValue, seriesData: seriesMap });
   };
 
   const handleClearFilters = () => {
@@ -198,26 +250,26 @@ export default function ConferencePage() {
 
     const minDateValue = toISODate(new Date());
     setAppliedMinDate(minDateValue);
-    fetchAllVenues({ minDate: minDateValue });
+    fetchAllVenues({ minDate: minDateValue, seriesData: seriesMap });
   };
 
   const filteredVenues = venues.filter((venue) => {
-    // Category filter (client-side) - venue must have ALL selected categories (AND logic)
+    // Category filter (client-side) - series must have ALL selected categories (AND logic)
     if (selectedCategories.length > 0) {
-      const venueTags = venue.tags || [];
-      const hasAllTags = selectedCategories.every((tag) => venueTags.includes(tag));
+      const seriesTags = venue.series?.tags || [];
+      const hasAllTags = selectedCategories.every((tag) => seriesTags.includes(tag));
       if (!hasAllTags) return false;
     }
 
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
+    const series = venue.series;
     return Boolean(
-      venue.name?.toLowerCase().includes(query) ||
-        venue.short_name?.toLowerCase().includes(query) ||
-        venue.acronym?.toLowerCase().includes(query) ||
-        venue.description?.toLowerCase().includes(query) ||
+      series?.name?.toLowerCase().includes(query) ||
+        series?.full_name?.toLowerCase().includes(query) ||
+        series?.description?.toLowerCase().includes(query) ||
         venue.place?.toLowerCase().includes(query) ||
-        venue.sub?.toLowerCase().includes(query)
+        series?.sub?.toLowerCase().includes(query)
     );
   });
 
@@ -370,89 +422,93 @@ export default function ConferencePage() {
 
       {/* Responsive grid: 1 col mobile, 2 tablet, 3 desktop */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {sortedVenues.map((venue) => (
-          <div
-            key={venue.id}
-            onClick={() => setSelectedVenue(venue)}
-            className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-green-200 transition-all duration-200 flex flex-col cursor-pointer"
-          >
-            {/* Header: Thumbnail + Title */}
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-14 h-14 relative rounded-lg border border-gray-100 overflow-hidden">
-                <VenueThumbnail venue={venue} />
+        {sortedVenues.map((venue) => {
+          const series = venue.series;
+          const tags = series?.tags || [];
+          return (
+            <div
+              key={venue.id}
+              onClick={() => setSelectedVenue(venue)}
+              className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-green-200 transition-all duration-200 flex flex-col cursor-pointer"
+            >
+              {/* Header: Thumbnail + Title */}
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 w-14 h-14 relative rounded-lg border border-gray-100 overflow-hidden">
+                  <VenueThumbnail venue={venue} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-base font-semibold text-gray-900 leading-tight line-clamp-2">
+                    {series?.name || venue.series_id}
+                    {venue.year ? ` ${venue.year}` : ""}
+                  </h2>
+                  {venue.place && (
+                    <p className="text-xs text-gray-500 mt-1 truncate">{venue.place}</p>
+                  )}
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <h2 className="text-base font-semibold text-gray-900 leading-tight line-clamp-2">
-                  {venue.short_name || venue.acronym || venue.name}
-                  {venue.year ? ` ${venue.year}` : ""}
-                </h2>
-                {venue.place && (
-                  <p className="text-xs text-gray-500 mt-1 truncate">{venue.place}</p>
+
+              {/* Date & Deadline */}
+              <div className="mt-3 space-y-1 text-xs text-gray-600">
+                {(venue.conference_start_date || venue.conference_end_date) && (
+                  <div className="flex items-center gap-1.5">
+                    <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <span>
+                      {venue.conference_start_date}
+                      {venue.conference_start_date && venue.conference_end_date && venue.conference_start_date !== venue.conference_end_date && ` – ${venue.conference_end_date}`}
+                    </span>
+                  </div>
+                )}
+                {venue.timeline && venue.timeline.length > 0 && venue.timeline[0].pdf_deadline && (
+                  <div className="flex items-center gap-1.5">
+                    <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Deadline: {venue.timeline[0].pdf_deadline}</span>
+                  </div>
                 )}
               </div>
-            </div>
 
-            {/* Date & Deadline */}
-            <div className="mt-3 space-y-1 text-xs text-gray-600">
-              {(venue.conference_start_date || venue.conference_end_date) && (
-                <div className="flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <span>
-                    {venue.conference_start_date}
-                    {venue.conference_start_date && venue.conference_end_date && venue.conference_start_date !== venue.conference_end_date && ` – ${venue.conference_end_date}`}
-                  </span>
+              {/* Tags (from series) */}
+              {tags.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {tags.slice(0, 2).map((tag) => (
+                    <span
+                      key={tag}
+                      className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded-full"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                  {tags.length > 2 && (
+                    <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded-full">
+                      +{tags.length - 2}
+                    </span>
+                  )}
                 </div>
               )}
-              {venue.timeline && venue.timeline.length > 0 && venue.timeline[0].pdf_deadline && (
-                <div className="flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>Deadline: {venue.timeline[0].pdf_deadline}</span>
-                </div>
-              )}
-            </div>
 
-            {/* Tags */}
-            {venue.tags && venue.tags.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1">
-                {venue.tags.slice(0, 2).map((tag) => (
-                  <span
-                    key={tag}
-                    className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded-full"
+              {/* Website link - smaller and less intrusive */}
+              <div className="mt-auto pt-3">
+                {venue.website && (
+                  <a
+                    href={venue.website}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:underline"
                   >
-                    {tag}
-                  </span>
-                ))}
-                {venue.tags.length > 2 && (
-                  <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded-full">
-                    +{venue.tags.length - 2}
-                  </span>
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                    Website
+                  </a>
                 )}
               </div>
-            )}
-
-            {/* Website link - smaller and less intrusive */}
-            <div className="mt-auto pt-3">
-              {venue.website && (
-                <a
-                  href={venue.website}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:underline"
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                  Website
-                </a>
-              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Results count */}
@@ -463,148 +519,154 @@ export default function ConferencePage() {
       )}
 
       {/* Conference Detail Modal */}
-      {selectedVenue && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-          onClick={() => setSelectedVenue(null)}
-        >
+      {selectedVenue && (() => {
+        const series = selectedVenue.series;
+        const tags = series?.tags || [];
+        const displayName = `${series?.name || selectedVenue.series_id}${selectedVenue.year ? ` ${selectedVenue.year}` : ""}`;
+        
+        return (
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+            onClick={() => setSelectedVenue(null)}
           >
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-start justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="flex-shrink-0 w-16 h-16 relative rounded-xl border border-gray-100 overflow-hidden">
-                  <VenueThumbnail venue={selectedVenue} />
+            <div
+              className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-start justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="flex-shrink-0 w-16 h-16 relative rounded-xl border border-gray-100 overflow-hidden">
+                    <VenueThumbnail venue={selectedVenue} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">
+                      {displayName}
+                    </h2>
+                    {series?.full_name && (
+                      <p className="text-sm text-gray-500">
+                        {series.full_name}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">
-                    {selectedVenue.name}
-                  </h2>
-                  {(selectedVenue.short_name || selectedVenue.acronym) && (
-                    <p className="text-sm text-gray-500">
-                      {[selectedVenue.short_name, selectedVenue.acronym].filter(Boolean).join(" · ")}
-                    </p>
+                <button
+                  onClick={() => setSelectedVenue(null)}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="px-6 py-5 space-y-5">
+                {/* Description (from series) */}
+                {series?.description && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-500 mb-1">About</h3>
+                    <p className="text-gray-700">{series.description}</p>
+                  </div>
+                )}
+
+                {/* Key Details Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Date */}
+                  {(selectedVenue.conference_start_date || selectedVenue.conference_end_date) && (
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="flex items-center gap-2 text-gray-500 text-xs font-medium mb-1">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Conference Date
+                      </div>
+                      <p className="text-gray-900 font-medium">
+                        {selectedVenue.conference_start_date}
+                        {selectedVenue.conference_start_date && selectedVenue.conference_end_date && selectedVenue.conference_start_date !== selectedVenue.conference_end_date && ` – ${selectedVenue.conference_end_date}`}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Location */}
+                  {selectedVenue.place && (
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="flex items-center gap-2 text-gray-500 text-xs font-medium mb-1">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Location
+                      </div>
+                      <p className="text-gray-900 font-medium">{selectedVenue.place}</p>
+                    </div>
+                  )}
+
+                  {/* Abstract Deadline */}
+                  {selectedVenue.timeline && selectedVenue.timeline.length > 0 && selectedVenue.timeline[0].abstract_deadline && (
+                    <div className="bg-amber-50 rounded-lg p-3">
+                      <div className="flex items-center gap-2 text-amber-600 text-xs font-medium mb-1">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Abstract Deadline
+                      </div>
+                      <p className="text-gray-900 font-medium">{selectedVenue.timeline[0].abstract_deadline}</p>
+                    </div>
+                  )}
+
+                  {/* PDF Deadline */}
+                  {selectedVenue.timeline && selectedVenue.timeline.length > 0 && selectedVenue.timeline[0].pdf_deadline && (
+                    <div className="bg-red-50 rounded-lg p-3">
+                      <div className="flex items-center gap-2 text-red-600 text-xs font-medium mb-1">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Paper Deadline
+                      </div>
+                      <p className="text-gray-900 font-medium">{selectedVenue.timeline[0].pdf_deadline}</p>
+                    </div>
                   )}
                 </div>
-              </div>
-              <button
-                onClick={() => setSelectedVenue(null)}
-                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
 
-            {/* Modal Body */}
-            <div className="px-6 py-5 space-y-5">
-              {/* Description */}
-              {selectedVenue.description && (
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-1">About</h3>
-                  <p className="text-gray-700">{selectedVenue.description}</p>
-                </div>
-              )}
-
-              {/* Key Details Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Date */}
-                {(selectedVenue.conference_start_date || selectedVenue.conference_end_date) && (
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <div className="flex items-center gap-2 text-gray-500 text-xs font-medium mb-1">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      Conference Date
+                {/* Tags (from series) */}
+                {tags.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-500 mb-2">Categories</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="px-3 py-1 text-sm bg-green-50 text-green-700 rounded-full"
+                        >
+                          {tag}
+                        </span>
+                      ))}
                     </div>
-                    <p className="text-gray-900 font-medium">
-                      {selectedVenue.conference_start_date}
-                      {selectedVenue.conference_start_date && selectedVenue.conference_end_date && selectedVenue.conference_start_date !== selectedVenue.conference_end_date && ` – ${selectedVenue.conference_end_date}`}
-                    </p>
-                  </div>
-                )}
-
-                {/* Location */}
-                {selectedVenue.place && (
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <div className="flex items-center gap-2 text-gray-500 text-xs font-medium mb-1">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      Location
-                    </div>
-                    <p className="text-gray-900 font-medium">{selectedVenue.place}</p>
-                  </div>
-                )}
-
-                {/* Abstract Deadline */}
-                {selectedVenue.timeline && selectedVenue.timeline.length > 0 && selectedVenue.timeline[0].abstract_deadline && (
-                  <div className="bg-amber-50 rounded-lg p-3">
-                    <div className="flex items-center gap-2 text-amber-600 text-xs font-medium mb-1">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      Abstract Deadline
-                    </div>
-                    <p className="text-gray-900 font-medium">{selectedVenue.timeline[0].abstract_deadline}</p>
-                  </div>
-                )}
-
-                {/* PDF Deadline */}
-                {selectedVenue.timeline && selectedVenue.timeline.length > 0 && selectedVenue.timeline[0].pdf_deadline && (
-                  <div className="bg-red-50 rounded-lg p-3">
-                    <div className="flex items-center gap-2 text-red-600 text-xs font-medium mb-1">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      Paper Deadline
-                    </div>
-                    <p className="text-gray-900 font-medium">{selectedVenue.timeline[0].pdf_deadline}</p>
                   </div>
                 )}
               </div>
 
-              {/* Tags */}
-              {selectedVenue.tags && selectedVenue.tags.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">Categories</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedVenue.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="px-3 py-1 text-sm bg-green-50 text-green-700 rounded-full"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
+              {/* Modal Footer */}
+              {selectedVenue.website && (
+                <div className="sticky bottom-0 bg-white border-t border-gray-100 px-6 py-4">
+                  <a
+                    href={selectedVenue.website}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-medium"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                    Visit Conference Website
+                  </a>
                 </div>
               )}
             </div>
-
-            {/* Modal Footer */}
-            {selectedVenue.website && (
-              <div className="sticky bottom-0 bg-white border-t border-gray-100 px-6 py-4">
-                <a
-                  href={selectedVenue.website}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-medium"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                  Visit Conference Website
-                </a>
-              </div>
-            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
