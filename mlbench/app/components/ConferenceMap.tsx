@@ -28,11 +28,19 @@ interface ConferenceMapProps {
 }
 
 const ConferenceMap = ({ markers }: ConferenceMapProps) => {
+  // Define bounds to exclude extreme polar regions while keeping most landmasses visible
+  const maxBounds: L.LatLngBoundsLiteral = [
+    [-58, -180], // Southwest coordinates (includes southern tip of South America)
+    [72, 180]    // Northeast coordinates (includes most of Alaska)
+  ];
+
   return (
-    <div className="w-full h-[600px] rounded-xl overflow-hidden relative z-0">
+    <div className="w-full h-[400px] rounded-xl overflow-hidden relative z-0">
       <MapContainer
         center={[20, 0]}
         zoom={2}
+        maxBounds={maxBounds}
+        maxBoundsViscosity={1.0}
         style={{ height: '100%', width: '100%' }}
         scrollWheelZoom={false}
       >

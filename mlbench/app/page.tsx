@@ -419,6 +419,18 @@ export default function Home() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      {/* Welcome Banner */}
+      <div className="bg-gradient-to-r from-green-100 to-emerald-100 border border-green-300 rounded-xl p-6 shadow-sm">
+        <h1 className={`text-2xl font-bold text-gray-800 mb-2 ${playfairDisplay.className}`}>
+          Welcome to MLTree
+        </h1>
+        <p className="text-gray-700 text-base leading-relaxed">
+          Your comprehensive resource for discovering machine learning conferences and research papers. 
+          Stay up-to-date with upcoming deadlines, explore venues worldwide, and access a curated collection 
+          of impactful research from the ML community.
+        </p>
+      </div>
+
       {/* Upcoming Conferences Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">

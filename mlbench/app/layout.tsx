@@ -6,6 +6,7 @@ import { SidebarProvider } from "./components/LayoutContent";
 import MainContent from "./components/MainContent";
 import { AuthProviderWrapper } from "./components/AuthProviderWrapper";
 import ProtectedRoute from "./components/ProtectedRoute";
+import BuyMeACoffeeWidget from "./components/BuyMeACoffeeWidget";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,6 +41,7 @@ export default function RootLayout({
             </MainContent>
           </SidebarProvider>
         </AuthProviderWrapper>
+        <BuyMeACoffeeWidget />
       </body>
     </html>
   );
