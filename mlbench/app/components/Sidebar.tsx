@@ -35,15 +35,6 @@ const navItems = [
     )
   },
   { 
-    name: "Models", 
-    href: "/models",
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-      </svg>
-    )
-  },
-  { 
     name: "Conference", 
     href: "/conference",
     icon: (
@@ -74,7 +65,7 @@ const navItems = [
 ];
 
 // Essential tabs that require login
-const protectedRoutes = ['/papers', '/benchmark', '/models', '/conference', '/bookmarks', '/datasets', '/ai-chat'];
+const protectedRoutes = ['/papers', '/benchmark', '/conference', '/bookmarks', '/datasets', '/ai-chat'];
 
 interface SidebarProps {
   onLoginRequired: () => void;

@@ -13,7 +13,7 @@ interface ProtectedLinkProps {
 }
 
 // Routes that require authentication
-const protectedRoutes = ['/papers', '/benchmark', '/models', '/conference', '/bookmarks', '/datasets', '/ai-chat'];
+const protectedRoutes = ['/papers', '/benchmark', '/conference', '/bookmarks', '/datasets', '/ai-chat'];
 
 export default function ProtectedLink({ 
   href, 
