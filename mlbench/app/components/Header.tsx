@@ -103,7 +103,7 @@ export default function Header() {
               ) : (
                 <button
                   onClick={() => setIsAuthModalOpen(true)}
-                  className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-full hover:bg-emerald-700 transition-all animate-pulse-subtle shadow-lg shadow-emerald-500/50 hover:shadow-xl hover:shadow-emerald-600/70 hover:scale-105"
+                  className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-full hover:bg-emerald-700 transition-all animate-pulse-subtle shadow-sm shadow-emerald-500/10 hover:shadow-md hover:shadow-emerald-600/14 hover:scale-105"
                 >
                   Login
                 </button>
