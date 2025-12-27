@@ -42,3 +42,7 @@ dev.sh
 mlc-llm
 tvm
 jetson-containers
+# SQLite job queue artifacts
+backend/src/mlbench/jobs/.jobs.db
+backend/src/mlbench/jobs/.jobs.db-shm
+backend/src/mlbench/jobs/.jobs.db-wal
