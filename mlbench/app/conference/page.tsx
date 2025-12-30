@@ -135,6 +135,32 @@ const VenueThumbnail = ({ venue }: { venue: VenueWithSeries }) => {
   );
 };
 
+// Fetch all series (cached, only needs to be done once)
+// Moved outside component since it doesn't depend on component state
+const fetchAllSeries = async (): Promise<Record<string, ConferenceSeries>> => {
+  // Prefer no trailing slash here because Next.js normalizes `/api/backend/.../` -> `/api/backend/...`
+  // with a 308, which can create extra hops/noisy backend logs.
+  const url = `${getBackendBaseUrl()}/venues/series`;
+  // In dev, avoid caching to prevent a single transient 404 from getting stuck in the browser cache.
+  const res = await fetch(url, { cache: process.env.NODE_ENV === "development" ? "reload" : "force-cache" });
+  if (!res.ok) {
+    // Intentionally do not swallow errors here. Let callers see the real failure.
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `Failed to load series (${res.status} ${res.statusText}) from ${url}${body ? `: ${body.slice(0, 300)}` : ""}`
+    );
+  }
+
+  const data: SeriesResponse = await res.json();
+
+  // Create a map for quick lookups
+  const map: Record<string, ConferenceSeries> = {};
+  for (const series of data.items || []) {
+    map[series.id] = series;
+  }
+  return map;
+};
+
 export default function ConferencePage() {
   const [venues, setVenues] = useState<VenueWithSeries[]>([]);
   const [seriesMap, setSeriesMap] = useState<Record<string, ConferenceSeries>>({});
@@ -153,25 +179,6 @@ export default function ConferencePage() {
   // Applied filter states (used for API)
   const [appliedMinDate, setAppliedMinDate] = useState<string | null>(toISODate(new Date()));
 
-  // Fetch all series (cached, only needs to be done once)
-  const fetchAllSeries = async (): Promise<Record<string, ConferenceSeries>> => {
-    try {
-      const res = await fetch(`${getBackendBaseUrl()}/venues/series/`, { cache: "force-cache" });
-      if (!res.ok) throw new Error("Failed to load series");
-      const data: SeriesResponse = await res.json();
-      
-      // Create a map for quick lookups
-      const map: Record<string, ConferenceSeries> = {};
-      for (const series of data.items || []) {
-        map[series.id] = series;
-      }
-      return map;
-    } catch (err) {
-      console.error("Failed to fetch series:", err);
-      return {};
-    }
-  };
-
   const fetchAllVenues = async (opts?: { minDate?: string | null; seriesData?: Record<string, ConferenceSeries> }) => {
     setLoading(true);
     setError(null);
@@ -179,7 +186,8 @@ export default function ConferencePage() {
       // Use provided series data or fetch it
       const series = opts?.seriesData || seriesMap;
       
-      const url = new URL(`${getBackendBaseUrl()}/venues/`);
+      // Prefer no trailing slash here to avoid Next's 308 normalization.
+      const url = new URL(`${getBackendBaseUrl()}/venues`);
       // Fetch all venues at once (conferences are a small dataset ~200 items)
       url.searchParams.set("limit", "500");
 
@@ -211,7 +219,10 @@ export default function ConferencePage() {
       setSeriesMap(series);
       await fetchAllVenues({ seriesData: series });
     };
-    init();
+    init().catch((err) => {
+      console.error("Failed to initialize:", err);
+      setError("Failed to load data");
+    });
   }, []);
 
   // Close category dropdown when clicking outside

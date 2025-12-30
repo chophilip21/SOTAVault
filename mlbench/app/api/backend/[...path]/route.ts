@@ -68,6 +68,10 @@ async function proxy(req: NextRequest) {
   const respHeaders = new Headers(finalUpstream.headers);
   respHeaders.delete("content-encoding");
   respHeaders.delete("content-length");
+  // Never allow clients/CDNs to cache error responses (prevents "sticky" 404s in the browser).
+  if (finalUpstream.status >= 400) {
+    respHeaders.set("cache-control", "no-store");
+  }
 
   return new Response(finalUpstream.body, {
     status: finalUpstream.status,
