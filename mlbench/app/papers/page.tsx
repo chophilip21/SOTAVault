@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Playfair_Display } from "next/font/google";
 import { config } from "@/lib/config";
+import { getBackendBaseUrl } from "@/lib/backendUrl";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -96,7 +97,7 @@ export default function PapersPage() {
     setError(null);
     try {
       // FastAPI redirects /papers -> /papers/ (307); hit the canonical path directly
-      const url = new URL(`${config.backendUrl}/papers/`);
+      const url = new URL(`${getBackendBaseUrl()}/papers/`);
       url.searchParams.set("limit", "10");
       url.searchParams.set("sort_dir", sortDir);
       if (cursor) url.searchParams.set("cursor", cursor);
@@ -137,7 +138,7 @@ export default function PapersPage() {
 
     setTasksLoading(true);
     try {
-      const url = new URL(`${config.backendUrl}/tasks/`);
+      const url = new URL(`${getBackendBaseUrl()}/tasks/`);
       url.searchParams.set("limit", "100");
 
       const res = await fetch(url.toString());

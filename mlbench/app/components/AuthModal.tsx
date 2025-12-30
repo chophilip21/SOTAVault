@@ -4,6 +4,7 @@ import { useState } from "react";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { config } from "@/lib/config";
+import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { getUserFriendlyAuthError, getUserFriendlyRegistrationError } from "@/lib/authErrors";
 import { useAuth } from "@/lib/authContext";
 import Link from "next/link";
@@ -175,7 +176,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       if (photoUrl.trim()) registrationData.photoUrl = photoUrl.trim();
       
       // Step 4: Create backend profile
-      const response = await fetch(`${config.backendUrl}/users/register`, {
+      const response = await fetch(`${getBackendBaseUrl()}/users/register`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,

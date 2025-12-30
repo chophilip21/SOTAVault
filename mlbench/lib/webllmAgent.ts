@@ -24,11 +24,56 @@ const RESPONSE_SCHEMA = JSON.stringify({
 
 let enginePromise: Promise<MLCEngineInterface> | null = null;
 
+async function preflightWebGPU() {
+  if (typeof window === "undefined") return;
+
+  // Basic environment checks: WebLLM needs WebGPU and a secure context.
+  const secure = typeof isSecureContext !== "undefined" ? isSecureContext : window.location.protocol === "https:";
+  if (!secure) {
+    throw new Error(
+      [
+        "WebGPU requires a secure context.",
+        `Current protocol: ${window.location.protocol}`,
+        "Fix: use HTTPS (or localhost HTTP), and ensure the certificate is trusted.",
+      ].join(" ")
+    );
+  }
+
+  if (!("gpu" in navigator) || !navigator.gpu) {
+    throw new Error(
+      [
+        "WebGPU is not available in this browser.",
+        "Fix: use a recent Chrome/Edge (recommended) and ensure WebGPU is enabled.",
+        "If you're on Firefox/Safari or an older browser, WebGPU may be unavailable.",
+      ].join(" ")
+    );
+  }
+
+  // If adapter is null, the browser couldn't find a usable GPU backend.
+  // Common causes: old/buggy GPU drivers, running inside VM, remote desktop, or GPU blocklist.
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    throw new Error(
+      [
+        "WebGPU adapter request failed (no suitable GPU adapter).",
+        "Common fixes:",
+        "- Update GPU drivers (Linux: Mesa / proprietary drivers).",
+        "- Try Chrome/Edge stable.",
+        "- If running in a VM/remote desktop, enable GPU passthrough / hardware acceleration.",
+        "- Check chrome://gpu for 'WebGPU' status and blocklist reasons.",
+      ].join("\n")
+    );
+  }
+}
+
 export function getWebLLMEngine(initProgressCallback?: InitProgressCallback) {
   if (!enginePromise) {
-    enginePromise = CreateMLCEngine(SELECTED_MODEL, {
-      initProgressCallback,
-    });
+    enginePromise = (async () => {
+      await preflightWebGPU();
+      return await CreateMLCEngine(SELECTED_MODEL, {
+        initProgressCallback,
+      });
+    })();
   }
   return enginePromise;
 }

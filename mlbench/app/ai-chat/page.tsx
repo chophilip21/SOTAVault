@@ -3,6 +3,7 @@
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { classifyPrompt, getWebLLMEngine, type ScenarioCategory } from "@/lib/webllmAgent";
+import Image from "next/image";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -54,6 +55,8 @@ export default function AIChatPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const canSend = useMemo(() => input.trim().length > 0 && !isSending, [input, isSending]);
+
+  // Intentionally do not show WebGPU diagnostics to end users.
 
   useEffect(() => {
     // Preload the model on page entry so first response feels snappy.
@@ -107,52 +110,111 @@ export default function AIChatPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       <div className="bg-gray-50 rounded-2xl p-6 shadow-sm border border-gray-100">
         <div className="flex flex-col gap-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className={`text-4xl sm:text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>
-                AI Chat
-              </h1>
-              <p className="text-gray-600 mt-2">
-                Beta router: the assistant will respond with exactly one category only.
-              </p>
+          <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
+            <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3">
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+                  <div>
+                    <h1 className={`text-4xl sm:text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>
+                      AI Chat
+                    </h1>
+                    <p className="text-gray-600 mt-2">
+                      Dynamically discover papers you are looking for by chatting with an LLM Agent.
+                    </p>
+
+                    {/* Output categories (moved under description) */}
+                    <div className="mt-4 bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+                      <div className="text-sm font-semibold text-gray-900">Output categories</div>
+                      <div className="text-xs text-gray-600 mt-1">
+                        The model is forced to output a strict JSON object with an enum category.
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {(Object.keys(CATEGORY_BADGE) as ScenarioCategory[]).map((k) => (
+                          <div key={k} className="flex items-start gap-2">
+                            <span
+                              className={`mt-0.5 inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold ${CATEGORY_BADGE[k].color}`}
+                            >
+                              {CATEGORY_BADGE[k].label}
+                            </span>
+                            <div className="text-xs text-gray-700 leading-snug">{CATEGORY_BADGE[k].help}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {engineState.state === "ready" && (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white text-sm text-gray-700 w-fit">
+                      <span className="w-2 h-2 rounded-full bg-green-500" />
+                      Model ready
+                    </div>
+                  )}
+                </div>
+
+                {engineState.state === "loading" && (
+                  <div className="max-w-xl">
+                    <div className="text-xs text-gray-600 mb-2">{engineState.text}</div>
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-2 bg-green-500 transition-all"
+                        style={{ width: `${Math.round(engineState.progress * 100)}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {Math.round(engineState.progress * 100)}%
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="text-right">
-              {engineState.state === "loading" && (
-                <div className="min-w-[220px]">
-                  <div className="text-xs text-gray-600 mb-2">{engineState.text}</div>
-                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-2 bg-green-500 transition-all"
-                      style={{ width: `${Math.round(engineState.progress * 100)}%` }}
-                    />
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {Math.round(engineState.progress * 100)}%
-                  </div>
-                </div>
-              )}
-              {engineState.state === "ready" && (
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white text-sm text-gray-700">
-                  <span className="w-2 h-2 rounded-full bg-green-500" />
-                  Model ready
-                </div>
-              )}
-              {engineState.state === "error" && (
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-red-50 text-sm text-red-700 border-red-200">
-                  WebLLM error: {engineState.message}
-                </div>
-              )}
+            <div className="flex-1 flex items-center justify-center min-h-[280px]">
+              <Image
+                src="/model.png"
+                alt="AI model illustration"
+                width={350}
+                height={350}
+                className="opacity-90 max-w-full h-auto"
+              />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col min-h-[520px]">
-              <div className="flex-1 p-4 overflow-y-auto">
-                {messages.length === 0 ? (
+          {/* Chat (full width) */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col min-h-[520px]">
+            <div className="flex-1 p-4 overflow-y-auto">
+                {engineState.state === "error" ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center px-6">
+                    <div className="w-full max-w-2xl rounded-2xl border border-red-200 bg-red-50 p-5 text-left shadow-sm">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-shrink-0 mt-0.5">
+                          <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 9v2m0 4h.01M10.29 3.86l-7.5 13A2 2 0 004.5 20h15a2 2 0 001.71-3.14l-7.5-13a2 2 0 00-3.42 0z"
+                            />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold text-red-800">
+                            WebGPU is required to use AI Chat
+                          </div>
+                          <div className="text-sm text-red-700 mt-1 whitespace-pre-wrap">
+                            {engineState.message}
+                          </div>
+                          <div className="text-xs text-red-700 mt-3">
+                            Fix this first, then refresh the page. (Tip: in Chrome, check <span className="font-mono">chrome://gpu</span> for WebGPU status.)
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : messages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center px-6">
                     <div className="mb-5">
                       <svg className="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -222,7 +284,7 @@ export default function AIChatPage() {
                       engineState.state === "loading"
                         ? "Loading model…"
                         : engineState.state === "error"
-                        ? "WebLLM failed to load"
+                        ? "WebGPU required (fix browser/GPU setup)"
                         : "Type your message and press Enter"
                     }
                     className="flex-1 px-4 py-3 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100 disabled:text-gray-500"
@@ -237,31 +299,6 @@ export default function AIChatPage() {
                 </div>
               </div>
             </div>
-
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
-              <div className="text-sm font-semibold text-gray-900">Output categories</div>
-              <div className="text-xs text-gray-600 mt-1">
-                The model is forced to output a strict JSON object with an enum category. The UI will only ever render these categories.
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {(Object.keys(CATEGORY_BADGE) as ScenarioCategory[]).map((k) => (
-                  <div key={k} className="flex items-start gap-3">
-                    <span className={`mt-0.5 inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold ${CATEGORY_BADGE[k].color}`}>
-                      {CATEGORY_BADGE[k].label}
-                    </span>
-                    <div className="text-sm text-gray-700">{CATEGORY_BADGE[k].help}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="border-t border-gray-200 my-4" />
-
-              <div className="text-xs text-gray-600">
-                Model: <span className="font-mono">{`Llama-3.2-3B-Instruct-q4f16_1-MLC`}</span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

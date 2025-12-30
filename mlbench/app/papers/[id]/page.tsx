@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { config } from "@/lib/config";
+import { getBackendBaseUrl } from "@/lib/backendUrl";
 
 interface PaperDetail {
   id: string;
@@ -54,7 +55,7 @@ export default function PaperDetailPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${config.backendUrl}/papers/${paperId}`);
+        const res = await fetch(`${getBackendBaseUrl()}/papers/${paperId}`);
         if (res.status === 404) {
           setError("Paper not found");
           setLoading(false);
@@ -83,7 +84,7 @@ export default function PaperDetailPage() {
       setResultsLoading(true);
       setResultsError(null);
       try {
-        const res = await fetch(`${config.backendUrl}/papers/${paper.id}/results`);
+        const res = await fetch(`${getBackendBaseUrl()}/papers/${paper.id}/results`);
         if (res.status === 404) {
           setResults([]);
           setResultsLoading(false);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from "@/lib/authContext";
+import { isAuthBypassed } from "@/lib/devFlags";
 import Link from "next/link";
 import { ReactNode, MouseEvent } from "react";
 
@@ -23,10 +24,11 @@ export default function ProtectedLink({
   onClick 
 }: ProtectedLinkProps) {
   const { user } = useAuth();
+  const bypass = isAuthBypassed();
   const requiresAuth = protectedRoutes.some(route => href.startsWith(route));
 
   const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
-    if (requiresAuth && !user) {
+    if (!bypass && requiresAuth && !user) {
       e.preventDefault();
       if (onLoginRequired) {
         onLoginRequired();

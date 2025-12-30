@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { config } from "@/lib/config";
+import { getBackendBaseUrl } from "@/lib/backendUrl";
 
 interface Dataset {
   id: string;
@@ -53,7 +54,7 @@ export default function DatasetDetailPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${config.backendUrl}/datasets/${datasetId}`);
+        const res = await fetch(`${getBackendBaseUrl()}/datasets/${datasetId}`);
         if (!res.ok) {
           if (res.status === 404) {
             throw new Error("Dataset not found");

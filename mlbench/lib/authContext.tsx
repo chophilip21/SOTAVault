@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { config } from "@/lib/config";
+import { getBackendBaseUrl } from "@/lib/backendUrl";
 
 interface UserProfile {
   uid: string;
@@ -94,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const token = await auth.currentUser?.getIdToken();
       if (!token) return null;
 
-      const response = await fetch(`${config.backendUrl}/users/me`, {
+      const response = await fetch(`${getBackendBaseUrl()}/users/me`, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${token}`,

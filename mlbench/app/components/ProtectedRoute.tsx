@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from "@/lib/authContext";
+import { isAuthBypassed } from "@/lib/devFlags";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
 import AuthModal from "./AuthModal";
@@ -19,6 +20,8 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [hasChecked, setHasChecked] = useState(false);
 
+  const bypass = isAuthBypassed();
+
   const requiresAuth = useMemo(() => 
     protectedRoutes.some(route => pathname.startsWith(route)),
     [pathname]
@@ -26,12 +29,12 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   useEffect(() => {
     if (!loading) {
-      if (requiresAuth && !user) {
+      if (!bypass && requiresAuth && !user) {
         setShowAuthModal(true);
       }
       setHasChecked(true);
     }
-  }, [user, loading, requiresAuth]);
+  }, [user, loading, requiresAuth, bypass]);
 
   const handleModalClose = () => {
     setShowAuthModal(false);
@@ -48,7 +51,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   // If route requires auth and user is not logged in, show modal and prevent content display
-  if (requiresAuth && !user) {
+  if (!bypass && requiresAuth && !user) {
     return (
       <>
         <div className="min-h-screen flex items-center justify-center">

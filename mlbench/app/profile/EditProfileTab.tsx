@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/authContext";
 import { config } from "@/lib/config";
+import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { updatePassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
@@ -172,7 +173,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
 
       // Send PATCH request to server
       if (Object.keys(updateData).length > 0) {
-        const response = await fetch(`${config.backendUrl}/users/me`, {
+        const response = await fetch(`${getBackendBaseUrl()}/users/me`, {
           method: "PATCH",
           headers: {
             "Authorization": `Bearer ${token}`,

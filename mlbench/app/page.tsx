@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Playfair_Display } from "next/font/google";
 import dynamic from "next/dynamic";
 import { config } from "@/lib/config";
+import { getBackendBaseUrl } from "@/lib/backendUrl";
 import ProtectedLink from "./components/ProtectedLink";
 import AuthModal from "./components/AuthModal";
 import { useAuth } from "@/lib/authContext";
@@ -271,7 +272,7 @@ export default function Home() {
       setError(null);
       try {
         // Fetch papers (we'll fetch more and sort by bookmark_count)
-        const papersUrl = new URL(`${config.backendUrl}/papers/`);
+        const papersUrl = new URL(`${getBackendBaseUrl()}/papers/`);
         papersUrl.searchParams.set("limit", "50"); // Fetch more to get better selection
         
         const papersRes = await fetch(papersUrl.toString());
@@ -286,7 +287,7 @@ export default function Home() {
         setPopularPapers(sortedPapers);
 
         // Fetch datasets (we'll fetch more and sort by paper_count)
-        const datasetsUrl = new URL(`${config.backendUrl}/datasets/`);
+        const datasetsUrl = new URL(`${getBackendBaseUrl()}/datasets/`);
         datasetsUrl.searchParams.set("limit", "50"); // Fetch more to get better selection
         
         const datasetsRes = await fetch(datasetsUrl.toString());
@@ -306,7 +307,7 @@ export default function Home() {
         setPopularDatasets(sortedDatasets.slice(0, 3));
 
         // Fetch upcoming conferences
-        const venuesUrl = new URL(`${config.backendUrl}/venues/`);
+        const venuesUrl = new URL(`${getBackendBaseUrl()}/venues/`);
         venuesUrl.searchParams.set("limit", "500");
         venuesUrl.searchParams.set("min_date", toISODate(new Date())); // Only upcoming conferences
         

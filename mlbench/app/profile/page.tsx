@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useAuth } from "@/lib/authContext";
 import { useRouter } from "next/navigation";
 import { config } from "@/lib/config";
+import { getBackendBaseUrl } from "@/lib/backendUrl";
 import EditProfileTab from "./EditProfileTab";
 import BookmarksTab from "./BookmarksTab";
 import AccountManagementTab from "./AccountManagementTab";
@@ -50,7 +51,7 @@ export default function ProfilePage() {
         return;
       }
 
-      const response = await fetch(`${config.backendUrl}/users/me`, {
+      const response = await fetch(`${getBackendBaseUrl()}/users/me`, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${token}`,

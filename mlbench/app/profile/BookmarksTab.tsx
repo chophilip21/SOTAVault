@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/authContext";
 import { config } from "@/lib/config";
+import { getBackendBaseUrl } from "@/lib/backendUrl";
 
 interface Bookmark {
   bookmark_id: string;
@@ -52,7 +53,7 @@ export default function BookmarksTab() {
       }
 
       // Fetch bookmarks
-      const bookmarksResponse = await fetch(`${config.backendUrl}/users/me/bookmarks`, {
+      const bookmarksResponse = await fetch(`${getBackendBaseUrl()}/users/me/bookmarks`, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -71,7 +72,7 @@ export default function BookmarksTab() {
       const bookmarksWithPapers: BookmarkWithPaper[] = await Promise.all(
         bookmarksList.map(async (bookmark) => {
           try {
-            const paperResponse = await fetch(`${config.backendUrl}/papers/${bookmark.paper_id}`, {
+            const paperResponse = await fetch(`${getBackendBaseUrl()}/papers/${bookmark.paper_id}`, {
               method: "GET",
               headers: {
                 "Authorization": `Bearer ${token}`,

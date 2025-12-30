@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Playfair_Display } from "next/font/google";
 import { config } from "@/lib/config";
+import { getBackendBaseUrl } from "@/lib/backendUrl";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -117,7 +118,7 @@ export default function BenchmarkPage() {
     setLoading(true);
     setError(null);
     try {
-      const url = new URL(`${config.backendUrl}/datasets/`);
+      const url = new URL(`${getBackendBaseUrl()}/datasets/`);
       url.searchParams.set("limit", limit.toString());
       if (cursor) {
         url.searchParams.set("cursor", cursor);
@@ -153,7 +154,7 @@ export default function BenchmarkPage() {
 
     setTasksLoading(true);
     try {
-      const url = new URL(`${config.backendUrl}/tasks/`);
+      const url = new URL(`${getBackendBaseUrl()}/tasks/`);
       url.searchParams.set("limit", "100");
 
       const res = await fetch(url.toString());

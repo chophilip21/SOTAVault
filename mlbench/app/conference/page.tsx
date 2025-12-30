@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useRef, useState } from "react";
 import { config } from "@/lib/config";
+import { getBackendBaseUrl } from "@/lib/backendUrl";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -155,7 +156,7 @@ export default function ConferencePage() {
   // Fetch all series (cached, only needs to be done once)
   const fetchAllSeries = async (): Promise<Record<string, ConferenceSeries>> => {
     try {
-      const res = await fetch(`${config.backendUrl}/venues/series/`, { cache: "force-cache" });
+      const res = await fetch(`${getBackendBaseUrl()}/venues/series/`, { cache: "force-cache" });
       if (!res.ok) throw new Error("Failed to load series");
       const data: SeriesResponse = await res.json();
       
@@ -178,7 +179,7 @@ export default function ConferencePage() {
       // Use provided series data or fetch it
       const series = opts?.seriesData || seriesMap;
       
-      const url = new URL(`${config.backendUrl}/venues/`);
+      const url = new URL(`${getBackendBaseUrl()}/venues/`);
       // Fetch all venues at once (conferences are a small dataset ~200 items)
       url.searchParams.set("limit", "500");
 

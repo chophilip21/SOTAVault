@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useSidebar } from "./LayoutContent";
 import { useAuth } from "@/lib/authContext";
+import { isAuthBypassed } from "@/lib/devFlags";
 
 const navItems = [
   { 
@@ -75,6 +76,7 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
   const pathname = usePathname();
   const { isSidebarOpen, setIsSidebarOpen } = useSidebar();
   const { user } = useAuth();
+  const bypass = isAuthBypassed();
   const [isMobile, setIsMobile] = useState(
     typeof window !== "undefined" ? window.innerWidth < 768 : false
   );
@@ -219,7 +221,7 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                 
                 return (
                   <li key={item.name}>
-                    {requiresAuth && !user ? (
+                    {requiresAuth && !user && !bypass ? (
                       <button
                         onClick={(e) => {
                           e.preventDefault();
