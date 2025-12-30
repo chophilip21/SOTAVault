@@ -317,7 +317,7 @@ export default function PapersPage() {
   });
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       <div className="bg-gray-50 rounded-2xl p-6 shadow-sm border border-gray-100">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">

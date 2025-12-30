@@ -2,7 +2,7 @@
 
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { classifyPrompt, getWebLLMEngine, type ScenarioCategory } from "@/lib/webllmAgent";
+import { getWebLLMEngine } from "@/lib/webllmAgent";
 import Image from "next/image";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
@@ -17,33 +17,17 @@ function newId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-const CATEGORY_BADGE: Record<ScenarioCategory, { label: string; color: string; help: string }> = {
-  RAG_SEARCH: {
-    label: "RAG_SEARCH",
-    color: "bg-blue-50 text-blue-700 border-blue-200",
-    help: "ML paper search / citations / retrieval needed",
-  },
-  ML_NO_RAG: {
-    label: "ML_NO_RAG",
-    color: "bg-green-50 text-green-700 border-green-200",
-    help: "ML question, no paper retrieval needed",
-  },
-  WEBSITE: {
-    label: "WEBSITE",
-    color: "bg-purple-50 text-purple-700 border-purple-200",
-    help: "Question about this website/app",
-  },
-  UNRELATED: {
-    label: "UNRELATED",
-    color: "bg-gray-50 text-gray-700 border-gray-200",
-    help: "Not ML or not about this site (or uncertain)",
-  },
-};
+const SAMPLE_QUERIES = [
+  "Find 5 recent papers on retrieval-augmented generation for code (with short one-line summaries).",
+  "Explain the difference between LoRA and full fine-tuning, and when you'd choose each.",
+  "How do I use MLBench to find conferences and bookmark papers I like?",
+] as const;
 
 export default function AIChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [showWebGpuDetails, setShowWebGpuDetails] = useState(false);
 
   const [engineState, setEngineState] = useState<
     | { state: "idle" }
@@ -54,9 +38,14 @@ export default function AIChatPage() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const canSend = useMemo(() => input.trim().length > 0 && !isSending, [input, isSending]);
+  const canSend = useMemo(
+    () => input.trim().length > 0 && !isSending && engineState.state === "ready",
+    [input, isSending, engineState.state]
+  );
 
-  // Intentionally do not show WebGPU diagnostics to end users.
+  const webGpuUnavailable = engineState.state === "error";
+  const isLoadingModel = engineState.state === "loading";
+  const isReady = engineState.state === "ready";
 
   useEffect(() => {
     // Preload the model on page entry so first response feels snappy.
@@ -82,13 +71,18 @@ export default function AIChatPage() {
   }, []);
 
   useEffect(() => {
+    // Reset details panel whenever the state changes.
+    if (!webGpuUnavailable) setShowWebGpuDetails(false);
+  }, [webGpuUnavailable]);
+
+  useEffect(() => {
     // Keep view pinned to bottom when new messages arrive.
-    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+    scrollRef.current?.scrollIntoView({ behavior: messages.length <= 2 ? "auto" : "smooth" });
   }, [messages.length]);
 
-  async function handleSend() {
-    const prompt = input.trim();
-    if (!prompt || isSending) return;
+  async function handleSend(nextPrompt?: string) {
+    const prompt = (nextPrompt ?? input).trim();
+    if (!prompt || isSending || engineState.state !== "ready") return;
 
     setIsSending(true);
     setInput("");
@@ -97,12 +91,37 @@ export default function AIChatPage() {
     setMessages((m) => [...m, userMsg]);
 
     try {
-      const result = await classifyPrompt(prompt);
-      const assistantMsg: ChatMessage = { id: newId(), role: "assistant", content: result.category };
+      const engine = await getWebLLMEngine();
+
+      const system =
+        "You are MLBench AI Chat, a helpful assistant for machine learning researchers. " +
+        "Be concise, practical, and specific. If the user asks for papers, provide a short curated list. " +
+        "If you are unsure, ask one clarifying question.";
+
+      const history = messages
+        .slice(-12) // keep context bounded for latency
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+      const res = await engine.chat.completions.create({
+        messages: [{ role: "system" as const, content: system }, ...history, { role: "user" as const, content: prompt }],
+        temperature: 0.7,
+        top_p: 0.95,
+        max_tokens: 600,
+      });
+
+      const text = res.choices?.[0]?.message?.content?.trim() || "I couldn’t generate a response. Please try again.";
+      const assistantMsg: ChatMessage = { id: newId(), role: "assistant", content: text };
       setMessages((m) => [...m, assistantMsg]);
     } catch (err: unknown) {
-      // Even on error, do NOT surface model output; keep response bounded.
-      const assistantMsg: ChatMessage = { id: newId(), role: "assistant", content: "UNRELATED" };
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while generating a response. Please try again.";
+      const assistantMsg: ChatMessage = {
+        id: newId(),
+        role: "assistant",
+        content: `Sorry — I couldn’t run the model.\n\n${msg}`,
+      };
       setMessages((m) => [...m, assistantMsg]);
     } finally {
       setIsSending(false);
@@ -110,155 +129,138 @@ export default function AIChatPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <div className="bg-gray-50 rounded-2xl p-6 shadow-sm border border-gray-100">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
-            <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3">
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-                  <div>
-                    <h1 className={`text-4xl sm:text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>
-                      AI Chat
-                    </h1>
-                    <p className="text-gray-600 mt-2">
-                      Dynamically discover papers you are looking for by chatting with an LLM Agent.
-                    </p>
-
-                    {/* Output categories (moved under description) */}
-                    <div className="mt-4 bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
-                      <div className="text-sm font-semibold text-gray-900">Output categories</div>
-                      <div className="text-xs text-gray-600 mt-1">
-                        The model is forced to output a strict JSON object with an enum category.
-                      </div>
-
-                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {(Object.keys(CATEGORY_BADGE) as ScenarioCategory[]).map((k) => (
-                          <div key={k} className="flex items-start gap-2">
-                            <span
-                              className={`mt-0.5 inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold ${CATEGORY_BADGE[k].color}`}
-                            >
-                              {CATEGORY_BADGE[k].label}
-                            </span>
-                            <div className="text-xs text-gray-700 leading-snug">{CATEGORY_BADGE[k].help}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+    <div className="h-[calc(100vh-5rem)] overflow-hidden px-4 sm:px-6 lg:px-8 py-6">
+      <div className="h-full mx-auto w-full max-w-6xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px]">
+        {/* Background gradient */}
+        <div className="h-full rounded-[28px] bg-gradient-to-br from-slate-50 via-rose-50 to-violet-100 p-4 sm:p-6 border border-white/60 shadow-[0_20px_60px_rgba(15,23,42,0.10)]">
+          {/* Glass card */}
+          <div className="relative h-full rounded-[24px] bg-white/65 backdrop-blur-xl border border-white/70 shadow-sm overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="px-5 sm:px-7 pt-5 sm:pt-7 pb-4 border-b border-white/60">
+              <div className="flex flex-col items-center text-center">
+                {/* Center bubble */}
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/70 border border-white/80 shadow-sm">
+                  <div className="w-8 h-8 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm">
+                    <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M12 21s-7-4.35-7-11a7 7 0 1 1 14 0c0 6.65-7 11-7 11Z"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M9.5 10.5c.9-1.3 1.9-2 2.5-2 .8 0 1.5.7 1.5 1.5 0 1.2-1.5 1.7-1.5 3"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d="M12 15.75h.01"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
                   </div>
 
+                  <span className="text-sm font-semibold text-gray-900">MLTree AI Chat</span>
+                </div>
+
+                <h1 className={`mt-4 text-2xl sm:text-4xl font-bold text-gray-900 ${playfairDisplay.className}`}>
+                  Hi, I’m MLTree LLM Agent
+                </h1>
+                <p className="text-sm text-gray-600 mt-2 max-w-2xl">
+                  Ask about papers, concepts, or how to use MLBench. Responses run locally in your browser via WebGPU.
+                </p>
+
+                <div className="mt-4 flex items-center gap-2">
                   {engineState.state === "ready" && (
-                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white text-sm text-gray-700 w-fit">
-                      <span className="w-2 h-2 rounded-full bg-green-500" />
-                      Model ready
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      Ready
+                    </div>
+                  )}
+                  {engineState.state === "loading" && (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                      Loading…
                     </div>
                   )}
                 </div>
+              </div>
 
-                {engineState.state === "loading" && (
-                  <div className="max-w-xl">
-                    <div className="text-xs text-gray-600 mb-2">{engineState.text}</div>
-                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-2 bg-green-500 transition-all"
-                        style={{ width: `${Math.round(engineState.progress * 100)}%` }}
-                      />
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      {Math.round(engineState.progress * 100)}%
-                    </div>
-                  </div>
-                )}
+              {/* Samples */}
+              <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {SAMPLE_QUERIES.map((q, idx) => {
+                  const gradient =
+                    idx === 0
+                      ? "from-emerald-400/25 via-teal-400/15 to-sky-400/20"
+                      : idx === 1
+                      ? "from-violet-400/25 via-fuchsia-400/15 to-rose-400/20"
+                      : "from-amber-300/30 via-orange-400/15 to-rose-400/20";
+
+                  return (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => {
+                        setInput(q);
+                        if (engineState.state === "ready") {
+                          void handleSend(q);
+                        }
+                      }}
+                      className={`text-left rounded-2xl border border-white/70 bg-gradient-to-br ${gradient} hover:brightness-[1.02] transition shadow-sm px-4 py-3`}
+                    >
+                      <div className="text-sm font-semibold text-gray-900 line-clamp-2">{q}</div>
+                      <div className="text-xs text-gray-700/80 mt-1">Try this</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="flex-1 flex items-center justify-center min-h-[280px]">
-              <Image
-                src="/model.png"
-                alt="AI model illustration"
-                width={350}
-                height={350}
-                className="opacity-90 max-w-full h-auto"
-              />
-            </div>
-          </div>
-
-          {/* Chat (full width) */}
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col min-h-[520px]">
-            <div className="flex-1 p-4 overflow-y-auto">
-                {engineState.state === "error" ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center px-6">
-                    <div className="w-full max-w-2xl rounded-2xl border border-red-200 bg-red-50 p-5 text-left shadow-sm">
-                      <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0 mt-0.5">
-                          <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M12 9v2m0 4h.01M10.29 3.86l-7.5 13A2 2 0 004.5 20h15a2 2 0 001.71-3.14l-7.5-13a2 2 0 00-3.42 0z"
-                            />
-                          </svg>
-                        </div>
-                        <div className="flex-1">
-                          <div className="text-sm font-semibold text-red-800">
-                            WebGPU is required to use AI Chat
-                          </div>
-                          <div className="text-sm text-red-700 mt-1 whitespace-pre-wrap">
-                            {engineState.message}
-                          </div>
-                          <div className="text-xs text-red-700 mt-3">
-                            Fix this first, then refresh the page. (Tip: in Chrome, check <span className="font-mono">chrome://gpu</span> for WebGPU status.)
-                          </div>
+            {/* Messages */}
+            <div className="flex-1 overflow-hidden">
+              <div className="relative h-full px-4 sm:px-7 py-4 overflow-y-auto">
+                {messages.length === 0 ? (
+                  <div className="h-full flex items-center justify-center">
+                    {webGpuUnavailable ? (
+                      <div className="text-center max-w-lg">
+                        <div className="flex items-center justify-center">
+                          <Image
+                            src="/warning.png"
+                            alt="WebGPU unavailable"
+                            width={220}
+                            height={220}
+                            className="opacity-90"
+                            priority
+                          />
                         </div>
                       </div>
-                    </div>
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center px-6">
-                    <div className="mb-5">
-                      <svg className="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={1.5}
-                          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                        />
-                      </svg>
-                    </div>
-                    <div className="text-gray-900 font-semibold">Try asking something</div>
-                    <div className="text-gray-600 text-sm mt-1">
-                      The assistant will only output one of: RAG_SEARCH, ML_NO_RAG, WEBSITE, UNRELATED.
-                    </div>
+                    ) : (
+                      <div className="text-center max-w-lg">
+                        <div className="text-sm font-semibold text-gray-900">Start with a question</div>
+                        <div className="text-sm text-gray-600 mt-1">
+                          Click a sample above, or ask your own. Messages scroll inside the card.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {messages.map((m) => {
                       const isUser = m.role === "user";
-                      const isAssistant = m.role === "assistant";
-                      const asCategory = isAssistant ? (m.content as ScenarioCategory) : null;
-
                       return (
                         <div key={m.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
                           <div
-                            className={`max-w-[85%] rounded-2xl px-4 py-3 border shadow-sm ${
+                            className={[
+                              "max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm",
                               isUser
-                                ? "bg-green-600 text-white border-green-700"
-                                : "bg-white text-gray-900 border-gray-200"
-                            }`}
+                                ? "text-white bg-gradient-to-br from-emerald-500 to-teal-500"
+                                : "text-gray-900 bg-white/80 border border-white/70",
+                            ].join(" ")}
                           >
-                            {isUser ? (
-                              <div className="whitespace-pre-wrap">{m.content}</div>
-                            ) : (
-                              <div className="flex items-center gap-3">
-                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold ${CATEGORY_BADGE[asCategory!]?.color ?? "bg-gray-50 text-gray-700 border-gray-200"}`}>
-                                  {asCategory ?? "UNRELATED"}
-                                </span>
-                                <span className="text-sm text-gray-700">
-                                  {CATEGORY_BADGE[asCategory ?? "UNRELATED"].help}
-                                </span>
-                              </div>
-                            )}
+                            <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
                           </div>
                         </div>
                       );
@@ -266,10 +268,67 @@ export default function AIChatPage() {
                     <div ref={scrollRef} />
                   </div>
                 )}
-              </div>
 
-              <div className="p-3 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
-                <div className="flex gap-2">
+                {/* Obvious loading overlay (only before first message) */}
+                {isLoadingModel && messages.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-full max-w-md rounded-3xl border border-white/70 bg-white/75 backdrop-blur px-5 py-5 shadow-sm text-center">
+                      <div className="flex items-center justify-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-gray-900 text-white flex items-center justify-center shadow-sm">
+                          <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path
+                              d="M12 2a10 10 0 1 0 10 10"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        </div>
+                        <div className="text-left">
+                          <div className="text-sm font-semibold text-gray-900">Loading MLTree…</div>
+                          <div className="text-xs text-gray-600 mt-0.5">
+                            Initializing the local model
+                            <span className="inline-flex w-6 justify-start">
+                              <span className="animate-pulse">…</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between text-[11px] text-gray-600">
+                          <span className="truncate">{engineState.text}</span>
+                          <span className="tabular-nums">{Math.round(engineState.progress * 100)}%</span>
+                        </div>
+                        <div className="mt-2 h-2 bg-white/70 rounded-full overflow-hidden">
+                          <div
+                            className="h-2 bg-gradient-to-r from-emerald-500 to-teal-500 transition-all"
+                            style={{ width: `${Math.round(engineState.progress * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Composer */}
+            <div className="px-4 sm:px-7 py-4 border-t border-white/60 bg-white/50">
+              {engineState.state === "loading" && (
+                <div className="mb-3">
+                  <div className="text-[11px] text-gray-600 mb-1">{engineState.text}</div>
+                  <div className="h-1.5 bg-white/60 rounded-full overflow-hidden">
+                    <div
+                      className="h-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 transition-all"
+                      style={{ width: `${Math.round(engineState.progress * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
                   <input
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -279,26 +338,73 @@ export default function AIChatPage() {
                         void handleSend();
                       }
                     }}
-                    disabled={engineState.state === "error" || engineState.state === "loading"}
-                    placeholder={
-                      engineState.state === "loading"
-                        ? "Loading model…"
-                        : engineState.state === "error"
-                        ? "WebGPU required (fix browser/GPU setup)"
-                        : "Type your message and press Enter"
-                    }
-                    className="flex-1 px-4 py-3 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100 disabled:text-gray-500"
+                    disabled={engineState.state === "loading"}
+                    placeholder={engineState.state === "loading" ? "Loading model…" : "Ask MLBench anything…"}
+                    className="w-full px-4 py-3 rounded-2xl border border-white/70 bg-white/75 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-white placeholder:text-gray-400 disabled:bg-white/50"
                   />
-                  <button
-                    onClick={() => void handleSend()}
-                    disabled={!canSend || engineState.state !== "ready"}
-                    className="px-5 py-3 rounded-xl bg-green-600 text-white font-semibold shadow-sm hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-600 disabled:cursor-not-allowed"
-                  >
-                    {isSending ? "Sending…" : "Send"}
-                  </button>
                 </div>
+
+                <button
+                  onClick={() => void handleSend()}
+                  disabled={!canSend}
+                  className={[
+                    "shrink-0 px-5 py-3 rounded-2xl text-sm font-semibold text-white shadow-sm transition-all",
+                    // Change color when model becomes ready (even if input is empty, it will appear "armed").
+                    isReady
+                      ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+                      : "bg-gradient-to-r from-slate-400 to-slate-400",
+                    !canSend ? "opacity-60 cursor-not-allowed" : "",
+                  ].join(" ")}
+                >
+                  {isSending ? "Sending…" : "Send"}
+                </button>
               </div>
             </div>
+
+            {/* Single WebGPU warning: lower-center */}
+            {webGpuUnavailable && (
+              <div className="pointer-events-none absolute left-1/2 bottom-4 -translate-x-1/2 px-3">
+                <div className="pointer-events-auto flex flex-col items-center gap-2">
+                  {showWebGpuDetails && (
+                    <div className="w-[min(520px,calc(100vw-2rem))] rounded-2xl border border-red-200/70 bg-white/80 backdrop-blur px-4 py-3 shadow-sm">
+                      <div className="text-xs font-semibold text-red-700">WebGPU troubleshooting</div>
+                      <div className="mt-2 text-[11px] text-gray-700 space-y-1.5">
+                        <div className="rounded-xl bg-red-50/60 border border-red-100 px-3 py-2 text-red-700 whitespace-pre-wrap">
+                          {engineState.state === "error" ? engineState.message : "WebGPU unavailable."}
+                        </div>
+                        <div className="text-gray-700">
+                          Try:
+                          <ul className="list-disc pl-5 mt-1 space-y-1">
+                            <li>Use the latest Chrome/Edge (WebGPU enabled by default).</li>
+                            <li>
+                              Check <span className="font-mono">chrome://gpu</span> for WebGPU status and blocklist reasons.
+                            </li>
+                            <li>Update GPU drivers (Linux: Mesa / NVIDIA proprietary drivers).</li>
+                            <li>If in a VM/remote desktop, enable GPU acceleration / passthrough.</li>
+                            <li>Ensure you’re in a secure context (HTTPS or localhost).</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="inline-flex items-center gap-2 rounded-full border border-red-200/70 bg-white/70 backdrop-blur px-3 py-1.5 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-red-500" />
+                    <span className="text-xs font-semibold text-red-700">
+                      WebGPU unavailable — AI Chat requires WebGPU. Send is disabled.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowWebGpuDetails((v) => !v)}
+                      className="ml-1 text-xs font-semibold text-red-700 underline underline-offset-2 hover:text-red-800"
+                    >
+                      {showWebGpuDetails ? "Hide" : "Details"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

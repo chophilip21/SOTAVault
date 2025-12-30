@@ -2,7 +2,9 @@
 
 import { CreateMLCEngine, type InitProgressCallback, type MLCEngineInterface } from "@mlc-ai/web-llm";
 
-export const SELECTED_MODEL = "Llama-3.2-3B-Instruct-q4f16_1-MLC";
+
+//TODO: probably we should not hard code this.
+export const SELECTED_MODEL = "Llama-3.2-1B-Instruct-q4f32_1-MLC";
 
 export type ScenarioCategory = "RAG_SEARCH" | "ML_NO_RAG" | "WEBSITE" | "UNRELATED";
 

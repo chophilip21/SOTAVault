@@ -404,7 +404,7 @@ export default function Home() {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-gray-500">Loading highlights...</div>
       </div>
     );
@@ -412,14 +412,14 @@ export default function Home() {
 
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-red-600 text-sm">{error}</div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Welcome Banner */}
       <div className="bg-gradient-to-r from-green-100 to-emerald-100 border border-green-300 rounded-xl p-6 shadow-sm">
         <h1 className={`text-2xl font-bold text-gray-800 mb-2 ${playfairDisplay.className}`}>

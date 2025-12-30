@@ -12,11 +12,13 @@ export default function MainContent({ children }: { children: React.ReactNode })
   }, []);
 
   // Use consistent className to avoid hydration mismatch
-  const marginClass = isMounted && isSidebarOpen ? "md:ml-64" : "md:ml-0";
+  // Use padding (not margin) so the content is centered within the *remaining* width when the sidebar is open.
+  // On very wide screens, margin-left makes the page look off-center and can cause horizontal overflow.
+  const offsetClass = isMounted && isSidebarOpen ? "md:pl-64" : "md:pl-0";
 
   return (
     <main
-      className={`transition-all duration-300 min-h-screen pt-20 ${marginClass}`}
+      className={`transition-all duration-300 min-h-screen pt-20 ${offsetClass}`}
     >
       {children}
     </main>
