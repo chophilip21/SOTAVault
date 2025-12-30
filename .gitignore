@@ -46,3 +46,5 @@ jetson-containers
 backend/src/mlbench/jobs/.jobs.db
 backend/src/mlbench/jobs/.jobs.db-shm
 backend/src/mlbench/jobs/.jobs.db-wal
+mlbench/.cert
+mlbench/app/README.md
