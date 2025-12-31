@@ -18,6 +18,23 @@ function newId() {
 }
 
 const VECTOR_SEARCHING_TOKEN = "__VECTOR_SEARCHING__";
+const THINKING_TOKEN = "__THINKING__";
+
+function renderBoldMarkdown(text: string) {
+  // Minimal, safe subset: only supports **bold** (no HTML).
+  const parts = text.split("**");
+  // If no bold tokens, or an unmatched token count, render as plain text.
+  if (parts.length < 3 || parts.length % 2 === 0) return text;
+  return parts.map((p, i) =>
+    i % 2 === 1 ? (
+      <strong key={i} className="font-extrabold">
+        {p}
+      </strong>
+    ) : (
+      <span key={i}>{p}</span>
+    )
+  );
+}
 
 const SAMPLE_QUERIES = [
   "Find 5 recent papers on retrieval-augmented generation for code (with short one-line summaries).",
@@ -237,23 +254,34 @@ export default function AIChatPage() {
         upsertMessage(pendingId, { content: reply, ragHits: undefined });
         return; // IMPORTANT: avoid also appending a second assistant message below
       } else if (route.category === "ML_NO_RAG") {
-        const engine = await getWebLLMEngine();
-        const system =
-          "You are MLTree LLM Agent inside MLBench. Answer machine learning questions clearly and concisely. " +
-          "Use short sections and examples when helpful. Do not fabricate citations.";
+        // Show a "thinking" bubble while the model generates the response.
+        const pendingId = newId();
+        setMessages((m) => [...m, { id: pendingId, role: "assistant", content: THINKING_TOKEN }]);
 
-        // Keep minimal context: last few user+assistant messages (excluding the current prompt which we'll add).
-        const history = [...messages, userMsg]
-          .slice(-10)
-          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+        try {
+          const engine = await getWebLLMEngine();
+          const system =
+            "You are MLTree LLM Agent inside MLBench. Answer machine learning questions clearly and concisely. " +
+            "Use short sections and examples when helpful. Do not fabricate citations.";
 
-        const res = await engine.chat.completions.create({
-          messages: [{ role: "system" as const, content: system }, ...history],
-          temperature: 0.7,
-          top_p: 0.95,
-          max_tokens: 700,
-        });
-        reply = res.choices?.[0]?.message?.content?.trim() || "I couldn’t generate a response. Please try again.";
+          // Keep minimal context: last few user+assistant messages (excluding the current prompt which we'll add).
+          const history = [...messages, userMsg]
+            .slice(-10)
+            .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+          const res = await engine.chat.completions.create({
+            messages: [{ role: "system" as const, content: system }, ...history],
+            temperature: 0.7,
+            top_p: 0.95,
+            max_tokens: 700,
+          });
+          reply = res.choices?.[0]?.message?.content?.trim() || "I couldn’t generate a response. Please try again.";
+          upsertMessage(pendingId, { content: reply });
+          return; // IMPORTANT: avoid also appending a second assistant message below
+        } catch {
+          upsertMessage(pendingId, { content: "Sorry — I couldn’t complete that request." });
+          return;
+        }
       } else if (route.category === "WEBSITE") {
         reply = "This part will be done later.";
       } else {
@@ -265,7 +293,11 @@ export default function AIChatPage() {
       setMessages((m) => [...m, assistantMsg]);
     } catch (err: unknown) {
       // Never disclose error details in chat.
-      const assistantMsg: ChatMessage = { id: newId(), role: "assistant", content: "Sorry — I couldn’t complete that request." };
+      const assistantMsg: ChatMessage = {
+        id: newId(),
+        role: "assistant",
+        content: "Sorry — I couldn’t complete that request.",
+      };
       setMessages((m) => [...m, assistantMsg]);
     } finally {
       setIsSending(false);
@@ -422,19 +454,21 @@ export default function AIChatPage() {
                     {messages.map((m) => {
                       const isUser = m.role === "user";
                       const isVectorSearching = m.role === "assistant" && m.content === VECTOR_SEARCHING_TOKEN;
+                      const isThinking = m.role === "assistant" && m.content === THINKING_TOKEN;
                       const hasRagHits = m.role === "assistant" && Array.isArray(m.ragHits) && m.ragHits.length > 0;
                       return (
                         <div key={m.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
                           <div
                             className={[
-                              "max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm",
+                              // Unify bubble sizing/typography so 1-line vs multi-line messages stay visually consistent.
+                              "w-fit max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm break-words text-[15px] sm:text-[16px] leading-7",
                               isUser
-                                ? "text-white bg-gradient-to-br from-emerald-500 to-teal-500"
-                                : "text-gray-900 bg-white/80 border border-white/70",
+                                ? "text-white bg-gradient-to-br from-emerald-500 to-teal-500 font-bold"
+                                : "text-gray-950 bg-gray-100 border border-gray-200",
                             ].join(" ")}
                           >
                             {isVectorSearching ? (
-                              <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                              <div className="flex items-center gap-2 font-semibold text-gray-900">
                                 <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                   <path
                                     d="M12 2a10 10 0 1 0 10 10"
@@ -448,40 +482,57 @@ export default function AIChatPage() {
                                   <span className="animate-pulse">…</span>
                                 </span>
                               </div>
+                            ) : isThinking ? (
+                              <div className="flex items-center gap-2 font-semibold text-gray-900">
+                                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                  <path
+                                    d="M12 2a10 10 0 1 0 10 10"
+                                    stroke="currentColor"
+                                    strokeWidth="2.2"
+                                    strokeLinecap="round"
+                                  />
+                                </svg>
+                                Thinking
+                                <span className="inline-flex w-6 justify-start">
+                                  <span className="animate-pulse">…</span>
+                                </span>
+                              </div>
                             ) : hasRagHits ? (
                               <div className="space-y-3">
-                                <div className="text-sm font-semibold text-gray-900">{m.content}</div>
+                                <div className="font-semibold text-gray-950">{m.content}</div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                  {m.ragHits!.map((h) => {
+                                  {(() => {
+                                    const hits = m.ragHits!;
+                                    // Rank strictly by vector distance (closest = 1). If distance is missing, treat as worst.
+                                    const ranked = [...hits].sort((a, b) => {
+                                      const da = a.distance ?? Number.POSITIVE_INFINITY;
+                                      const db = b.distance ?? Number.POSITIVE_INFINITY;
+                                      if (da !== db) return da - db;
+                                      return a.paper.id.localeCompare(b.paper.id);
+                                    });
+                                    const rankById = new Map<string, number>();
+                                    ranked.forEach((h, idx) => rankById.set(h.paper.id, idx + 1));
+
+                                    return hits.map((h) => {
                                     const p = h.paper;
                                     const href = `/papers/${p.id}`;
+                                    const rank = rankById.get(p.id) ?? 0;
                                     return (
                                       <a
                                         key={p.id}
                                         href={href}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="group rounded-2xl border border-white/70 bg-gradient-to-br from-white/70 to-white/50 hover:from-white/90 hover:to-white/70 transition shadow-sm px-3.5 py-3"
-                                        title={p.title}
+                                        className="group relative rounded-2xl border border-white/70 bg-gradient-to-br from-white/70 to-white/50 hover:from-white/90 hover:to-white/70 transition shadow-sm px-3.5 py-3"
+                                        title={`${p.title}${typeof h.distance === "number" ? ` (distance: ${h.distance.toFixed(4)})` : ""}`}
                                       >
                                         <div className="flex items-start gap-2">
-                                          <div className="mt-0.5 w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white flex items-center justify-center shadow-sm shrink-0">
-                                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                              <path
-                                                d="M14 4h6m0 0v6m0-6L10 14"
-                                                stroke="currentColor"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                              />
-                                              <path
-                                                d="M10 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"
-                                                stroke="currentColor"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                              />
-                                            </svg>
+                                          <div
+                                            className="mt-0.5 w-8 h-8 rounded-xl bg-gradient-to-br from-fuchsia-500 to-indigo-500 text-white flex items-center justify-center shadow-sm shrink-0 ring-2 ring-white/70"
+                                            aria-label={`Distance rank ${rank}`}
+                                            title={`Distance rank ${rank}${typeof h.distance === "number" ? ` (distance: ${h.distance.toFixed(4)})` : ""}`}
+                                          >
+                                            <span className="text-sm font-extrabold tabular-nums">{rank || "–"}</span>
                                           </div>
                                           <div className="min-w-0">
                                             <div className="text-xs font-semibold text-gray-900 line-clamp-2 group-hover:text-gray-950">
@@ -500,11 +551,19 @@ export default function AIChatPage() {
                                         </div>
                                       </a>
                                     );
-                                  })}
+                                    });
+                                  })()}
                                 </div>
                               </div>
                             ) : (
-                              <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
+                              <div
+                                className={[
+                                  "whitespace-pre-wrap",
+                                  isUser ? "text-white" : "text-gray-950",
+                                ].join(" ")}
+                              >
+                                {renderBoldMarkdown(m.content)}
+                              </div>
                             )}
                           </div>
                         </div>
@@ -572,7 +631,7 @@ export default function AIChatPage() {
                 </div>
               )}
 
-              <div className="flex gap-2 items-end">
+              <div className="flex gap-2 items-stretch">
                 <div className="flex-1">
                   <input
                     value={input}
@@ -585,7 +644,7 @@ export default function AIChatPage() {
                     }}
                     disabled={engineState.state === "loading"}
                     placeholder={engineState.state === "loading" ? "Loading model…" : "Ask MLBench anything…"}
-                    className="w-full px-4 py-3 rounded-2xl border border-white/70 bg-white/75 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-white placeholder:text-gray-400 disabled:bg-white/50"
+                    className="w-full h-12 px-4 rounded-2xl border border-white/70 bg-white/75 text-gray-900 font-normal text-[15px] leading-none focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-white placeholder:text-gray-500 disabled:bg-white/50"
                   />
                 </div>
 
@@ -593,7 +652,7 @@ export default function AIChatPage() {
                   onClick={() => void handleSend()}
                   disabled={!canSend}
                   className={[
-                    "shrink-0 px-5 py-3 rounded-2xl text-sm font-semibold text-white shadow-sm transition-all",
+                    "shrink-0 h-12 px-5 rounded-2xl text-sm leading-none font-semibold text-white shadow-sm transition-all",
                     // Change color when model becomes ready (even if input is empty, it will appear "armed").
                     isReady
                       ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
