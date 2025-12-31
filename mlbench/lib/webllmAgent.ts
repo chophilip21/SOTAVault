@@ -12,6 +12,13 @@ export type ScenarioClassification = {
   category: ScenarioCategory;
 };
 
+// Client-side embedding (stage-2 RAG): must match backend vector dimension (384).
+export const EMBEDDING_DIM = 384;
+// NOTE: This must be an MLC embedding model that outputs 384-d vectors compatible with the backend.
+// If you change your backend embedding model, update this too.
+export const SELECTED_EMBED_MODEL =
+  process.env.NEXT_PUBLIC_WEBLLM_EMBED_MODEL || "snowflake-arctic-embed-s-q0f32-MLC-b4";
+
 const RESPONSE_SCHEMA = JSON.stringify({
   type: "object",
   additionalProperties: false,
@@ -25,6 +32,7 @@ const RESPONSE_SCHEMA = JSON.stringify({
 });
 
 let enginePromise: Promise<MLCEngineInterface> | null = null;
+let embedEnginePromise: Promise<MLCEngineInterface> | null = null;
 
 async function preflightWebGPU() {
   if (typeof window === "undefined") return;
@@ -80,9 +88,61 @@ export function getWebLLMEngine(initProgressCallback?: InitProgressCallback) {
   return enginePromise;
 }
 
+export function getWebLLMEmbedEngine(initProgressCallback?: InitProgressCallback) {
+  if (!embedEnginePromise) {
+    embedEnginePromise = (async () => {
+      await preflightWebGPU();
+      return await CreateMLCEngine(SELECTED_EMBED_MODEL, {
+        initProgressCallback,
+      });
+    })();
+  }
+  return embedEnginePromise;
+}
+
+export function cleanRagQuery(text: string): string {
+  const t = text
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[`*#>]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return t.slice(0, 2000);
+}
+
+export async function embedQuery(
+  text: string,
+  opts?: { initProgressCallback?: InitProgressCallback }
+): Promise<number[]> {
+  const engine = await getWebLLMEmbedEngine(opts?.initProgressCallback);
+  const input = cleanRagQuery(text);
+
+  // WebLLM exposes an OpenAI-compatible surface; embeddings support may differ by version.
+  // We intentionally keep this dynamic to avoid type-level coupling.
+  const api = engine as any;
+  if (!api?.embeddings?.create) {
+    throw new Error(
+      "Embedding engine does not support embeddings.create(). Please ensure an MLC embedding model is configured."
+    );
+  }
+
+  const res = await api.embeddings.create({ input });
+  const emb = res?.data?.[0]?.embedding;
+  if (!Array.isArray(emb)) throw new Error("Failed to compute embedding.");
+  if (emb.length !== EMBEDDING_DIM) throw new Error(`Embedding dim mismatch: expected ${EMBEDDING_DIM}, got ${emb.length}`);
+  return emb.map((x: any) => Number(x));
+}
+
 function tryParseClassification(raw: string): ScenarioClassification | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
+
+  // Super-forgiving path: sometimes the model returns the enum token directly.
+  // Accept it even if it isn't JSON.
+  const direct = trimmed.replace(/["'`]/g, "").trim().toUpperCase();
+  if (["RAG_SEARCH", "ML_NO_RAG", "WEBSITE", "UNRELATED"].includes(direct)) {
+    return { category: direct as ScenarioCategory };
+  }
 
   // Fast path: valid JSON
   try {
@@ -118,6 +178,13 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
     return null;
   }
 
+  // Last-chance: if the model produced something like `category: RAG_SEARCH` or included
+  // the token somewhere in text, recover it.
+  const tokenMatch = trimmed.match(/\b(RAG_SEARCH|ML_NO_RAG|WEBSITE|UNRELATED)\b/i);
+  if (tokenMatch?.[1]) {
+    return { category: tokenMatch[1].toUpperCase() as ScenarioCategory };
+  }
+
   return null;
 }
 
@@ -144,12 +211,23 @@ function heuristicFallback(prompt: string): ScenarioClassification {
   if (websiteHints.some((h) => p.includes(h))) return { category: "WEBSITE" };
 
   const ragHints = [
+    // Generic paper intent
+    "paper",
+    "papers",
+    "show me papers",
+    "show papers",
+    "list papers",
+    "find papers",
     "find papers",
     "paper search",
     "search papers",
     "recommend papers",
     "recent papers",
     "latest papers",
+    "related papers",
+    "relevant papers",
+    "top papers",
+    "best papers",
     "arxiv",
     "cite",
     "citations",
@@ -167,6 +245,10 @@ function heuristicFallback(prompt: string): ScenarioClassification {
     "neural network",
     "transformer",
     "llm",
+    "object detection",
+    "computer vision",
+    "segmentation",
+    "image classification",
     "embedding",
     "backprop",
     "gradient",
@@ -204,6 +286,16 @@ export async function classifyPrompt(
     "- ML_NO_RAG: user asks about machine learning concepts but does not need searching papers.",
     "- WEBSITE: user asks about how to use this website/app (features, navigation, issues, accounts).",
     "- UNRELATED: anything else or if you are uncertain.",
+    "",
+    "Important rules:",
+    "- If the user asks to show/list/find/recommend papers (even without saying 'search'), choose RAG_SEARCH.",
+    "- If the user asks to explain a concept (e.g., LoRA vs fine-tuning) and does NOT ask for papers/citations, choose ML_NO_RAG.",
+    "",
+    "Examples:",
+    'User: "show me object detection related papers" -> {"category":"RAG_SEARCH"}',
+    'User: "Explain the difference between LoRA and full fine-tuning" -> {"category":"ML_NO_RAG"}',
+    'User: "How do I bookmark papers on this website?" -> {"category":"WEBSITE"}',
+    'User: "What is the best pizza in town?" -> {"category":"UNRELATED"}',
     "",
     "If uncertain between categories, choose UNRELATED.",
   ].join("\n");

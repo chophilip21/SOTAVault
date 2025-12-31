@@ -1,8 +1,7 @@
 "use client";
-
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getWebLLMEngine } from "@/lib/webllmAgent";
+import { classifyPrompt, embedQuery, getWebLLMEngine } from "@/lib/webllmAgent";
 import Image from "next/image";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
@@ -11,17 +10,43 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  ragHits?: VectorSearchHit[];
 };
 
 function newId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+const VECTOR_SEARCHING_TOKEN = "__VECTOR_SEARCHING__";
+
 const SAMPLE_QUERIES = [
   "Find 5 recent papers on retrieval-augmented generation for code (with short one-line summaries).",
   "Explain the difference between LoRA and full fine-tuning, and when you'd choose each.",
   "How do I use MLBench to find conferences and bookmark papers I like?",
 ] as const;
+
+type VectorSearchHit = {
+  paper: {
+    id: string;
+    title: string;
+    abstract?: string;
+    year?: number | null;
+    pdf_url?: string | null;
+    project_url?: string | null;
+    arxiv_id?: string | null;
+    doi?: string | null;
+  };
+  distance?: number | null;
+};
+
+type VectorSearchResponse = {
+  items: VectorSearchHit[];
+  limit: number;
+};
+
+type RerankResponse = {
+  ids: string[];
+};
 
 export default function AIChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -46,6 +71,7 @@ export default function AIChatPage() {
   const webGpuUnavailable = engineState.state === "error";
   const isLoadingModel = engineState.state === "loading";
   const isReady = engineState.state === "ready";
+  const hasConversation = messages.length > 0;
 
   useEffect(() => {
     // Preload the model on page entry so first response feels snappy.
@@ -80,6 +106,10 @@ export default function AIChatPage() {
     scrollRef.current?.scrollIntoView({ behavior: messages.length <= 2 ? "auto" : "smooth" });
   }, [messages.length]);
 
+  function upsertMessage(id: string, next: Partial<ChatMessage>) {
+    setMessages((ms) => ms.map((m) => (m.id === id ? { ...m, ...next } : m)));
+  }
+
   async function handleSend(nextPrompt?: string) {
     const prompt = (nextPrompt ?? input).trim();
     if (!prompt || isSending || engineState.state !== "ready") return;
@@ -91,37 +121,151 @@ export default function AIChatPage() {
     setMessages((m) => [...m, userMsg]);
 
     try {
-      const engine = await getWebLLMEngine();
+      // Stage 1: strict router
+      const route = await classifyPrompt(prompt);
 
-      const system =
-        "You are MLBench AI Chat, a helpful assistant for machine learning researchers. " +
-        "Be concise, practical, and specific. If the user asks for papers, provide a short curated list. " +
-        "If you are unsure, ask one clarifying question.";
+      // Stage 2: execute based on the route
+      let reply = "";
 
-      const history = messages
-        .slice(-12) // keep context bounded for latency
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+      if (route.category === "RAG_SEARCH") {
+        // Show an animated "vector search" bubble while we embed + query.
+        const pendingId = newId();
+        setMessages((m) => [...m, { id: pendingId, role: "assistant", content: VECTOR_SEARCHING_TOKEN }]);
 
-      const res = await engine.chat.completions.create({
-        messages: [{ role: "system" as const, content: system }, ...history, { role: "user" as const, content: prompt }],
-        temperature: 0.7,
-        top_p: 0.95,
-        max_tokens: 600,
-      });
+        let embedding: number[] | null = null;
+        try {
+          // Client-side: clean + embed, then send vector to backend find_nearest.
+          embedding = await embedQuery(prompt);
+          const url = new URL(`${window.location.origin}/api/backend/search/vector`);
+          const res = await fetch(url.toString(), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ embedding, limit: 20 }),
+            cache: "no-store",
+          });
 
-      const text = res.choices?.[0]?.message?.content?.trim() || "I couldn’t generate a response. Please try again.";
-      const assistantMsg: ChatMessage = { id: newId(), role: "assistant", content: text };
+          if (!res.ok) {
+            // Never surface backend errors in the chat bubble. Backend logs contain details.
+            throw new Error("VECTOR_SEARCH_FAILED");
+          }
+
+          const data = (await res.json()) as VectorSearchResponse;
+          const hits = (data.items || []).slice(0, 20);
+          if (hits.length === 0) {
+            reply = "I couldn't find any relevant papers for that query. Try rephrasing with a more specific topic.";
+          } else {
+            reply = "Here are the most relevant papers I found:";
+          }
+
+          // Stage-2 screening / rerank: let the LLM pick the best 5 from the embedding candidates.
+          // If this fails, fall back to first 5 by vector distance order.
+          let picked: VectorSearchHit[] = hits;
+          try {
+            const engine = await getWebLLMEngine();
+            const wantsRecent = /\brecent\b|\blatest\b|\bnewest\b|\b202\d\b/i.test(prompt);
+
+            const candidates = hits.map((h) => ({
+              id: h.paper.id,
+              title: h.paper.title,
+              year: h.paper.year ?? null,
+              abstract: (h.paper.abstract ?? "").slice(0, 240),
+            }));
+
+            const schema = JSON.stringify({
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                ids: {
+                  type: "array",
+                  items: { type: "string" },
+                  minItems: 1,
+                  maxItems: 5,
+                },
+              },
+              required: ["ids"],
+            });
+
+            const sys = [
+              "You are a strict reranker for ML paper search results.",
+              "Given the user query and a list of candidate papers, select up to 5 paper IDs that best match the user's intent.",
+              "Return ONLY JSON matching the schema. No extra text.",
+              "",
+              "Ranking rules:",
+              "- Prefer strong topical match to the query.",
+              "- If the user asks for 'recent/latest/newest', prefer higher year when relevance is similar.",
+              "- If candidates are off-topic, do not select them.",
+            ].join("\n");
+
+            const user = JSON.stringify({
+              query: prompt,
+              wants_recent: wantsRecent,
+              candidates,
+            });
+
+            const r = await (engine as any).chat.completions.create({
+              messages: [
+                { role: "system", content: sys },
+                { role: "user", content: user },
+              ],
+              temperature: 0,
+              top_p: 1,
+              max_tokens: 120,
+              response_format: { type: "json_object", schema },
+            });
+
+            const raw = r?.choices?.[0]?.message?.content ?? "";
+            const parsed = JSON.parse(raw) as RerankResponse;
+            const idSet = new Set((parsed.ids || []).filter(Boolean));
+            const ordered = hits.filter((h) => idSet.has(h.paper.id));
+            if (ordered.length > 0) picked = ordered;
+          } catch {
+            // ignore rerank failures; keep fallback
+          }
+
+          // Replace searching bubble with a structured "hits" bubble (top 5).
+          upsertMessage(pendingId, { content: reply, ragHits: picked.slice(0, 5) });
+          return; // IMPORTANT: avoid also appending a second assistant message below
+        } catch {
+          // Never show the error details in the UI.
+          reply = "I couldn’t run paper search right now. Please try again later.";
+        } finally {
+          // Free up embedding memory as soon as possible.
+          if (embedding) embedding.length = 0;
+        }
+
+        // Replace the searching bubble with the final reply.
+        upsertMessage(pendingId, { content: reply, ragHits: undefined });
+        return; // IMPORTANT: avoid also appending a second assistant message below
+      } else if (route.category === "ML_NO_RAG") {
+        const engine = await getWebLLMEngine();
+        const system =
+          "You are MLTree LLM Agent inside MLBench. Answer machine learning questions clearly and concisely. " +
+          "Use short sections and examples when helpful. Do not fabricate citations.";
+
+        // Keep minimal context: last few user+assistant messages (excluding the current prompt which we'll add).
+        const history = [...messages, userMsg]
+          .slice(-10)
+          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+        const res = await engine.chat.completions.create({
+          messages: [{ role: "system" as const, content: system }, ...history],
+          temperature: 0.7,
+          top_p: 0.95,
+          max_tokens: 700,
+        });
+        reply = res.choices?.[0]?.message?.content?.trim() || "I couldn’t generate a response. Please try again.";
+      } else if (route.category === "WEBSITE") {
+        reply = "This part will be done later.";
+      } else {
+        // UNRELATED (no LLM)
+        reply = `I'm sorry, but I cannot answer your question "${prompt}" because it is not related to ML 😔 Could you please ask different questions?`;
+      }
+
+      const assistantMsg: ChatMessage = { id: newId(), role: "assistant", content: reply };
       setMessages((m) => [...m, assistantMsg]);
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : "Something went wrong while generating a response. Please try again.";
-      const assistantMsg: ChatMessage = {
-        id: newId(),
-        role: "assistant",
-        content: `Sorry — I couldn’t run the model.\n\n${msg}`,
-      };
+      // Never disclose error details in chat.
+      const assistantMsg: ChatMessage = { id: newId(), role: "assistant", content: "Sorry — I couldn’t complete that request." };
       setMessages((m) => [...m, assistantMsg]);
     } finally {
       setIsSending(false);
@@ -136,9 +280,14 @@ export default function AIChatPage() {
           {/* Glass card */}
           <div className="relative h-full rounded-[24px] bg-white/65 backdrop-blur-xl border border-white/70 shadow-sm overflow-hidden flex flex-col">
             {/* Header */}
-            <div className="px-5 sm:px-7 pt-5 sm:pt-7 pb-4 border-b border-white/60">
-              <div className="flex flex-col items-center text-center">
-                {/* Center bubble */}
+            <div
+              className={[
+                "border-b border-white/60 transition-all duration-500 ease-in-out",
+                hasConversation ? "px-4 sm:px-6 py-3" : "px-5 sm:px-7 pt-5 sm:pt-7 pb-4",
+              ].join(" ")}
+            >
+              {/* Compact top bar (always visible) */}
+              <div className={["flex items-center justify-between gap-3", hasConversation ? "" : "justify-center"].join(" ")}>
                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/70 border border-white/80 shadow-sm">
                   <div className="w-8 h-8 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm">
                     <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -154,68 +303,90 @@ export default function AIChatPage() {
                         strokeWidth="1.8"
                         strokeLinecap="round"
                       />
-                      <path
-                        d="M12 15.75h.01"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                      />
+                      <path d="M12 15.75h.01" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
                     </svg>
                   </div>
 
                   <span className="text-sm font-semibold text-gray-900">MLTree AI Chat</span>
                 </div>
 
-                <h1 className={`mt-4 text-2xl sm:text-4xl font-bold text-gray-900 ${playfairDisplay.className}`}>
-                  Hi, I’m MLTree LLM Agent
-                </h1>
-                <p className="text-sm text-gray-600 mt-2 max-w-2xl">
-                  Ask about papers, concepts, or how to use MLBench. Responses run locally in your browser via WebGPU.
-                </p>
-
-                <div className="mt-4 flex items-center gap-2">
-                  {engineState.state === "ready" && (
-                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      Ready
-                    </div>
-                  )}
-                  {engineState.state === "loading" && (
-                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
-                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                      Loading…
-                    </div>
-                  )}
-                </div>
+                {hasConversation && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    {engineState.state === "ready" && (
+                      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        Ready
+                      </div>
+                    )}
+                    {engineState.state === "loading" && (
+                      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                        Loading…
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Samples */}
-              <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {SAMPLE_QUERIES.map((q, idx) => {
-                  const gradient =
-                    idx === 0
-                      ? "from-emerald-400/25 via-teal-400/15 to-sky-400/20"
-                      : idx === 1
-                      ? "from-violet-400/25 via-fuchsia-400/15 to-rose-400/20"
-                      : "from-amber-300/30 via-orange-400/15 to-rose-400/20";
+              {/* Intro content (collapses away once a conversation starts) */}
+              <div
+                className={[
+                  "overflow-hidden transition-all duration-500 ease-in-out",
+                  hasConversation ? "max-h-0 opacity-0 -translate-y-2 pointer-events-none" : "max-h-[520px] opacity-100 translate-y-0",
+                ].join(" ")}
+              >
+                <div className="flex flex-col items-center text-center">
+                  <h1 className={`mt-4 text-2xl sm:text-4xl font-bold text-gray-900 ${playfairDisplay.className}`}>
+                    Hi, I’m MLTree LLM Agent
+                  </h1>
+                  <p className="text-sm text-gray-600 mt-2 max-w-2xl">
+                    Ask about papers, concepts, or how to use MLBench. Responses run locally in your browser via WebGPU.
+                  </p>
 
-                  return (
-                    <button
-                      key={q}
-                      type="button"
-                      onClick={() => {
-                        setInput(q);
-                        if (engineState.state === "ready") {
-                          void handleSend(q);
-                        }
-                      }}
-                      className={`text-left rounded-2xl border border-white/70 bg-gradient-to-br ${gradient} hover:brightness-[1.02] transition shadow-sm px-4 py-3`}
-                    >
-                      <div className="text-sm font-semibold text-gray-900 line-clamp-2">{q}</div>
-                      <div className="text-xs text-gray-700/80 mt-1">Try this</div>
-                    </button>
-                  );
-                })}
+                  <div className="mt-4 flex items-center gap-2">
+                    {engineState.state === "ready" && (
+                      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        Ready
+                      </div>
+                    )}
+                    {engineState.state === "loading" && (
+                      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                        Loading…
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Samples */}
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {SAMPLE_QUERIES.map((q, idx) => {
+                    const gradient =
+                      idx === 0
+                        ? "from-emerald-400/25 via-teal-400/15 to-sky-400/20"
+                        : idx === 1
+                        ? "from-violet-400/25 via-fuchsia-400/15 to-rose-400/20"
+                        : "from-amber-300/30 via-orange-400/15 to-rose-400/20";
+
+                    return (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => {
+                          setInput(q);
+                          if (engineState.state === "ready") {
+                            void handleSend(q);
+                          }
+                        }}
+                        className={`text-left rounded-2xl border border-white/70 bg-gradient-to-br ${gradient} hover:brightness-[1.02] transition shadow-sm px-4 py-3`}
+                      >
+                        <div className="text-sm font-semibold text-gray-900 line-clamp-2">{q}</div>
+                        <div className="text-xs text-gray-700/80 mt-1">Try this</div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -250,6 +421,8 @@ export default function AIChatPage() {
                   <div className="space-y-3">
                     {messages.map((m) => {
                       const isUser = m.role === "user";
+                      const isVectorSearching = m.role === "assistant" && m.content === VECTOR_SEARCHING_TOKEN;
+                      const hasRagHits = m.role === "assistant" && Array.isArray(m.ragHits) && m.ragHits.length > 0;
                       return (
                         <div key={m.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
                           <div
@@ -260,7 +433,79 @@ export default function AIChatPage() {
                                 : "text-gray-900 bg-white/80 border border-white/70",
                             ].join(" ")}
                           >
-                            <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
+                            {isVectorSearching ? (
+                              <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                  <path
+                                    d="M12 2a10 10 0 1 0 10 10"
+                                    stroke="currentColor"
+                                    strokeWidth="2.2"
+                                    strokeLinecap="round"
+                                  />
+                                </svg>
+                                Searching papers
+                                <span className="inline-flex w-6 justify-start">
+                                  <span className="animate-pulse">…</span>
+                                </span>
+                              </div>
+                            ) : hasRagHits ? (
+                              <div className="space-y-3">
+                                <div className="text-sm font-semibold text-gray-900">{m.content}</div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  {m.ragHits!.map((h) => {
+                                    const p = h.paper;
+                                    const href = `/papers/${p.id}`;
+                                    return (
+                                      <a
+                                        key={p.id}
+                                        href={href}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="group rounded-2xl border border-white/70 bg-gradient-to-br from-white/70 to-white/50 hover:from-white/90 hover:to-white/70 transition shadow-sm px-3.5 py-3"
+                                        title={p.title}
+                                      >
+                                        <div className="flex items-start gap-2">
+                                          <div className="mt-0.5 w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                              <path
+                                                d="M14 4h6m0 0v6m0-6L10 14"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                              />
+                                              <path
+                                                d="M10 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                              />
+                                            </svg>
+                                          </div>
+                                          <div className="min-w-0">
+                                            <div className="text-xs font-semibold text-gray-900 line-clamp-2 group-hover:text-gray-950">
+                                              {p.title}
+                                            </div>
+                                            <div className="mt-1 flex items-center gap-2 text-[11px] text-gray-600">
+                                              {p.year ? (
+                                                <span className="tabular-nums">{p.year}</span>
+                                              ) : (
+                                                <span className="text-gray-500">Paper</span>
+                                              )}
+                                              <span className="text-gray-300">•</span>
+                                              <span className="text-gray-500 group-hover:text-gray-600">Open in new tab</span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </a>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
+                            )}
                           </div>
                         </div>
                       );
@@ -285,7 +530,7 @@ export default function AIChatPage() {
                           </svg>
                         </div>
                         <div className="text-left">
-                          <div className="text-sm font-semibold text-gray-900">Loading MLTree…</div>
+                          <div className="text-sm font-semibold text-gray-900">Loading LLM Agent to your browser...</div>
                           <div className="text-xs text-gray-600 mt-0.5">
                             Initializing the local model
                             <span className="inline-flex w-6 justify-start">
