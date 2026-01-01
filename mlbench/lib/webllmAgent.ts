@@ -6,7 +6,7 @@ import { CreateMLCEngine, type InitProgressCallback, type MLCEngineInterface } f
 //TODO: probably we should not hard code this.
 export const SELECTED_MODEL = "Llama-3.2-1B-Instruct-q4f32_1-MLC";
 
-export type ScenarioCategory = "RAG_SEARCH" | "ML_NO_RAG" | "FOLLOW_UP" | "WEBSITE" | "UNRELATED";
+export type ScenarioCategory = "RAG_SEARCH" | "ML_NO_RAG" | "FOLLOW_UP" | "WEBSITE" | "AMBIGUOUS" | "UNRELATED";
 
 export type ScenarioClassification = {
   category: ScenarioCategory;
@@ -31,7 +31,7 @@ const RESPONSE_SCHEMA = JSON.stringify({
   properties: {
     category: {
       type: "string",
-      enum: ["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "UNRELATED"],
+      enum: ["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "AMBIGUOUS", "UNRELATED"],
     },
   },
   required: ["category"],
@@ -146,7 +146,7 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
   // Super-forgiving path: sometimes the model returns the enum token directly.
   // Accept it even if it isn't JSON.
   const direct = trimmed.replace(/["'`]/g, "").trim().toUpperCase();
-  if (["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "UNRELATED"].includes(direct)) {
+  if (["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "AMBIGUOUS", "UNRELATED"].includes(direct)) {
     return { category: direct as ScenarioCategory };
   }
 
@@ -158,7 +158,7 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
       parsed !== null &&
       "category" in parsed &&
       (parsed as any).category &&
-      ["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "UNRELATED"].includes((parsed as any).category)
+      ["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "AMBIGUOUS", "UNRELATED"].includes((parsed as any).category)
     ) {
       return { category: (parsed as any).category as ScenarioCategory };
     }
@@ -176,7 +176,7 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
       parsed !== null &&
       "category" in parsed &&
       (parsed as any).category &&
-      ["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "UNRELATED"].includes((parsed as any).category)
+      ["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "AMBIGUOUS", "UNRELATED"].includes((parsed as any).category)
     ) {
       return { category: (parsed as any).category as ScenarioCategory };
     }
@@ -186,7 +186,7 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
 
   // Last-chance: if the model produced something like `category: RAG_SEARCH` or included
   // the token somewhere in text, recover it.
-  const tokenMatch = trimmed.match(/\b(RAG_SEARCH|ML_NO_RAG|FOLLOW_UP|WEBSITE|UNRELATED)\b/i);
+  const tokenMatch = trimmed.match(/\b(RAG_SEARCH|ML_NO_RAG|FOLLOW_UP|WEBSITE|AMBIGUOUS|UNRELATED)\b/i);
   if (tokenMatch?.[1]) {
     return { category: tokenMatch[1].toUpperCase() as ScenarioCategory };
   }
@@ -197,6 +197,10 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
 function heuristicFallback(prompt: string, memory?: RouterMemoryContext): ScenarioClassification {
   // Conservative local fallback to avoid showing hallucinated content if the model misbehaves.
   const p = prompt.toLowerCase();
+  const matched: ScenarioCategory[] = [];
+  const push = (c: ScenarioCategory) => {
+    if (!matched.includes(c)) matched.push(c);
+  };
 
   const websiteHints = [
     "mlbench",
@@ -214,7 +218,7 @@ function heuristicFallback(prompt: string, memory?: RouterMemoryContext): Scenar
     "dataset",
     "datasets",
   ];
-  if (websiteHints.some((h) => p.includes(h))) return { category: "WEBSITE" };
+  if (websiteHints.some((h) => p.includes(h))) push("WEBSITE");
 
   const ragHints = [
     // Generic paper intent
@@ -243,7 +247,7 @@ function heuristicFallback(prompt: string, memory?: RouterMemoryContext): Scenar
     "state of the art",
     "sota",
   ];
-  if (ragHints.some((h) => p.includes(h))) return { category: "RAG_SEARCH" };
+  if (ragHints.some((h) => p.includes(h))) push("RAG_SEARCH");
 
   const mlHints = [
     "machine learning",
@@ -266,13 +270,15 @@ function heuristicFallback(prompt: string, memory?: RouterMemoryContext): Scenar
     "rl",
     "diffusion",
   ];
-  if (mlHints.some((h) => p.includes(h))) return { category: "ML_NO_RAG" };
+  if (mlHints.some((h) => p.includes(h))) push("ML_NO_RAG");
 
   // If there is prior context and the user refers back indirectly, mark as follow-up.
   if ((memory?.summary || (memory?.recentTurns?.length ?? 0) > 0) && /\b(this|that|those|them|it|previous|above|again)\b/.test(p)) {
-    return { category: "FOLLOW_UP" };
+    push("FOLLOW_UP");
   }
 
+  if (matched.length === 1) return { category: matched[0] };
+  if (matched.length > 1) return { category: "AMBIGUOUS" };
   return { category: "UNRELATED" };
 }
 
@@ -324,21 +330,24 @@ export async function classifyPrompt(
     "- ML_NO_RAG: user asks about machine learning concepts but does not need searching papers.",
     "- FOLLOW_UP: the user is asking a follow-up that depends on prior conversation or previously provided papers/results/context.",
     "- WEBSITE: user asks about how to use this website/app (features, navigation, issues, accounts).",
-    "- UNRELATED: anything else or if you are uncertain.",
+    "- AMBIGUOUS: the message could plausibly belong to multiple categories (e.g., both search + explanation) or lacks clarity to route confidently.",
+    "- UNRELATED: anything else that is clearly outside the app/ML scope.",
     "",
     "Important rules:",
     "- If the user asks to show/list/find/recommend papers (even without saying 'search'), choose RAG_SEARCH.",
     "- If the user asks to explain a concept (e.g., LoRA vs fine-tuning) and does NOT ask for papers/citations, choose ML_NO_RAG.",
     "- If the user refers back to prior answers, papers, or says things like 'those', 'that one', 'the previous results', or otherwise depends on earlier context, choose FOLLOW_UP.",
+    "- If the intent overlaps categories or you are unsure between categories, choose AMBIGUOUS (not UNRELATED).",
     "",
     "Examples:",
     'User: "show me object detection related papers" -> {"category":"RAG_SEARCH"}',
     'User: "Explain the difference between LoRA and full fine-tuning" -> {"category":"ML_NO_RAG"}',
     'User: "Can you summarize those papers you just showed?" -> {"category":"FOLLOW_UP"}',
     'User: "How do I bookmark papers on this website?" -> {"category":"WEBSITE"}',
+    'User: "I need papers on transformers and also explain how they work" -> {"category":"AMBIGUOUS"}',
     'User: "What is the best pizza in town?" -> {"category":"UNRELATED"}',
     "",
-    "If uncertain between categories, choose UNRELATED.",
+    "If uncertain between categories, choose AMBIGUOUS. Use UNRELATED only when the request is clearly outside the app/ML domain.",
   ].join("\n");
 
   const memoryNote = formatMemoryForRouter(opts?.memory);

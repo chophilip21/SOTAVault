@@ -333,6 +333,43 @@ export default function AIChatPage() {
         }
       } else if (route.category === "WEBSITE") {
         reply = "This part will be done later.";
+      } else if (route.category === "AMBIGUOUS") {
+        try {
+          const engine = await getWebLLMEngine();
+          const system = [
+            "You are a routing assistant for MLBench. The prior router marked the intent as AMBIGUOUS.",
+            "Briefly consider why it is ambiguous between categories:",
+            "- RAG_SEARCH: find/recommend/search papers or citations.",
+            "- ML_NO_RAG: explain ML concepts without needing paper retrieval.",
+            "- FOLLOW_UP: depends on earlier answers/results.",
+            "- WEBSITE: how to use the site/app.",
+            "- UNRELATED: clearly outside ML/app scope.",
+            "Ask ONE concise clarification question that helps choose among these. Do not answer the original request.",
+          ].join("\n");
+
+          const user = [
+            "Original user message:",
+            prompt,
+            "",
+            "Ask for the specific detail that resolves the ambiguity (e.g., whether they want paper suggestions vs an explanation, or if they refer to earlier results).",
+          ].join("\n");
+
+          const res = await engine.chat.completions.create({
+            messages: [
+              { role: "system" as const, content: system },
+              { role: "user" as const, content: user },
+            ],
+            temperature: 0.3,
+            top_p: 0.9,
+            max_tokens: 160,
+          });
+          reply =
+            res.choices?.[0]?.message?.content?.trim() ||
+            "Could you clarify whether you want paper recommendations, an ML explanation, or help using the site?";
+        } catch {
+          reply =
+            "Could you clarify whether you want paper recommendations, an ML explanation, a follow-up on prior results, or help using this site?";
+        }
       } else {
         // UNRELATED (no LLM)
         reply = `I'm sorry, but I cannot answer your question "${prompt}" because it is not related to ML 😔 Could you please ask different questions?`;
