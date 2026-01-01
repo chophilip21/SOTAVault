@@ -2,6 +2,17 @@
 
 import { CreateMLCEngine, type InitProgressCallback, type MLCEngineInterface } from "@mlc-ai/web-llm";
 
+import {
+  buildRoutePlanSchemaJson,
+  isPrimaryCapability,
+  isSecondaryTask,
+  normalizeRoutePlan,
+  type PrimaryCapability,
+  type RouteConstraints,
+  type RoutePlan,
+} from "@/lib/routerSpec";
+import { routerDebugGroup, routerDebugLog } from "@/lib/routerDebug";
+
 
 //TODO: probably we should not hard code this.
 export const SELECTED_MODEL = "Llama-3.2-1B-Instruct-q4f32_1-MLC";
@@ -25,17 +36,9 @@ export const EMBEDDING_DIM = 384;
 export const SELECTED_EMBED_MODEL =
   process.env.NEXT_PUBLIC_WEBLLM_EMBED_MODEL || "snowflake-arctic-embed-s-q0f32-MLC-b4";
 
-const RESPONSE_SCHEMA = JSON.stringify({
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    category: {
-      type: "string",
-      enum: ["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "AMBIGUOUS", "UNRELATED"],
-    },
-  },
-  required: ["category"],
-});
+const ROUTE_PLAN_SCHEMA = buildRoutePlanSchemaJson();
+
+export type { RoutePlan, RouteConstraints, PrimaryCapability };
 
 let enginePromise: Promise<MLCEngineInterface> | null = null;
 let embedEnginePromise: Promise<MLCEngineInterface> | null = null;
@@ -194,6 +197,77 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
   return null;
 }
 
+function tryParseRoutePlan(raw: string): RoutePlan | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const coerceConstraints = (c: any): RouteConstraints | undefined => {
+    if (!c || typeof c !== "object") return undefined;
+    const out: RouteConstraints = {};
+
+    const toInt = (v: any) => {
+      if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+      if (typeof v === "string" && /^\d{1,4}$/.test(v)) return parseInt(v, 10);
+      return null;
+    };
+
+    const count = toInt(c.count);
+    if (count !== null) out.count = count;
+
+    const yearMin = toInt(c.year_min);
+    if (yearMin !== null) out.year_min = yearMin;
+    const yearMax = toInt(c.year_max);
+    if (yearMax !== null) out.year_max = yearMax;
+
+    if (c.recency === "recent" || c.recency === "any") out.recency = c.recency;
+    if (typeof c.domain === "string") out.domain = c.domain.slice(0, 240);
+
+    return out;
+  };
+
+  // Fast path: valid JSON
+  try {
+    const parsed = JSON.parse(trimmed) as any;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      isPrimaryCapability(parsed.primary) &&
+      Array.isArray(parsed.secondary)
+    ) {
+      return normalizeRoutePlan({
+        primary: parsed.primary as PrimaryCapability,
+        secondary: parsed.secondary.filter(isSecondaryTask),
+        constraints: coerceConstraints(parsed.constraints),
+      });
+    }
+  } catch {
+    // fallthrough
+  }
+
+  // Fallback: extract first JSON object
+  const match = trimmed.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]) as any;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      isPrimaryCapability(parsed.primary) &&
+      Array.isArray(parsed.secondary)
+    ) {
+      return normalizeRoutePlan({
+        primary: parsed.primary as PrimaryCapability,
+        secondary: parsed.secondary.filter(isSecondaryTask),
+        constraints: coerceConstraints(parsed.constraints),
+      });
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function heuristicFallback(prompt: string, memory?: RouterMemoryContext): ScenarioClassification {
   // Conservative local fallback to avoid showing hallucinated content if the model misbehaves.
   const p = prompt.toLowerCase();
@@ -308,6 +382,163 @@ function formatMemoryForRouter(memory?: RouterMemoryContext): string {
   return parts.join("\n\n") || "No memory.";
 }
 
+function heuristicRouteFallback(prompt: string, memory?: RouterMemoryContext): RoutePlan {
+  // Start from existing category heuristic, then attach some light-weight task extraction.
+  const category = heuristicFallback(prompt, memory).category as PrimaryCapability;
+  const p = prompt.toLowerCase();
+
+  const secondary: RoutePlan["secondary"] = [];
+  if (category === "RAG_SEARCH") secondary.push("RETRIEVE", "RERANK");
+
+  // One-line summary intent.
+  if (/\bsummary\b|\bsummarize\b|\bone[- ]line\b|\btl;dr\b|\bshort\b/.test(p)) secondary.push("SUMMARIZE");
+
+  // Citation intent.
+  if (/\bcite\b|\bcitation\b|\breference\b|\bbibtex\b/.test(p)) secondary.push("CITE");
+
+  // Count intent (simple numeric extraction, optional).
+  const countMatch = p.match(/\b(\d{1,2})\b/);
+  const count = countMatch?.[1] ? Math.max(1, Math.min(20, parseInt(countMatch[1], 10))) : null;
+
+  const constraints: RouteConstraints = {
+    count: count ?? null,
+    recency: /\brecent\b|\blatest\b|\bnewest\b|\b202\d\b/.test(p) ? "recent" : "any",
+    domain: prompt.slice(0, 240),
+  };
+
+  return normalizeRoutePlan({ primary: category, secondary, constraints });
+}
+
+export async function routePrompt(
+  prompt: string,
+  opts?: {
+    initProgressCallback?: InitProgressCallback;
+    signal?: AbortSignal;
+    memory?: RouterMemoryContext;
+  }
+): Promise<RoutePlan> {
+  try {
+    const engine = await getWebLLMEngine(opts?.initProgressCallback);
+
+    const system = [
+      "You are a router for MLBench. You must output a RoutePlan JSON object for how the app should handle the user's message.",
+      "",
+      "Return ONLY a JSON object that matches this schema:",
+      ROUTE_PLAN_SCHEMA,
+      "",
+      "Primary capabilities:",
+      "- RAG_SEARCH: user asks to find/recommend/search papers, citations, references, or needs retrieval over papers.",
+      "- ML_NO_RAG: user asks about machine learning concepts without needing paper retrieval.",
+      "- FOLLOW_UP: depends on prior conversation or previously provided papers/results/context.",
+      "- WEBSITE: questions about how to use the website/app.",
+      "- AMBIGUOUS: could plausibly be multiple of the above; needs a clarifying question in stage-2.",
+      "- UNRELATED: clearly outside ML/app scope.",
+      "",
+      "Secondary tasks guidance:",
+      '- Use "RETRIEVE" when the flow needs fetching/searching papers (usually with RAG_SEARCH).',
+      '- Use "RERANK" when results should be prioritized for relevance (usually with RAG_SEARCH).',
+      '- Use "SUMMARIZE" when the user asks for short summaries/one-liners/overview.',
+      '- Use "FILTER_BY_DATE" and set constraints.year_min/year_max or constraints.recency if the user cares about recency/years.',
+      '- Set constraints.count when user asks for N items (default can be omitted).',
+      "",
+      "Rules:",
+      "- Always include exactly one primary.",
+      "- Secondary can be an empty array, but MUST be present.",
+    "- Do NOT output null values. Omit constraints/fields if unknown.",
+      "- If you are unsure between primaries, choose AMBIGUOUS.",
+      "- Use UNRELATED only if it is clearly outside ML/app scope.",
+    ].join("\n");
+
+  const memoryNote = formatMemoryForRouter(opts?.memory);
+  const userContent = opts?.memory
+    ? ["User message:", prompt, "", "Conversation memory (for routing only):", memoryNote].join("\n")
+    : prompt;
+
+    const baseRequest = {
+      messages: [
+        { role: "system" as const, content: system },
+        { role: "user" as const, content: userContent },
+      ],
+      temperature: 0,
+      top_p: 1,
+      max_tokens: 180,
+      seed: 1,
+      response_format: { type: "json_object" as const, schema: ROUTE_PLAN_SCHEMA },
+    };
+
+    const res1 = await engine.chat.completions.create(baseRequest);
+    const text1 = res1.choices?.[0]?.message?.content ?? "";
+    const parsed1 = tryParseRoutePlan(text1);
+    if (parsed1) {
+      routerDebugGroup(`[router] stage1 ok (attempt1) primary=${parsed1.primary}`, () => {
+        routerDebugLog("prompt:", prompt);
+        routerDebugLog("memory:", opts?.memory ?? null);
+        routerDebugLog("raw:", text1);
+        routerDebugLog("plan:", parsed1);
+      });
+      return parsed1;
+    }
+
+    routerDebugGroup("[router] stage1 parse failed (attempt1) → retry", () => {
+      routerDebugLog("prompt:", prompt);
+      routerDebugLog("memory:", opts?.memory ?? null);
+      routerDebugLog("raw:", text1);
+    });
+
+    const res2 = await engine.chat.completions.create({
+      ...baseRequest,
+      messages: [
+        { role: "system" as const, content: system },
+        {
+          role: "user" as const,
+          content: [
+            "Your previous output was invalid.",
+            "Return ONLY the RoutePlan JSON object matching the schema. No extra keys, no extra text.",
+            "",
+            `User message: ${prompt}`,
+            "",
+            `Conversation memory:\n${memoryNote}`,
+          ].join("\n"),
+        },
+      ],
+    });
+    const text2 = res2.choices?.[0]?.message?.content ?? "";
+    const parsed2 = tryParseRoutePlan(text2);
+    if (parsed2) {
+      routerDebugGroup(`[router] stage1 ok (attempt2) primary=${parsed2.primary}`, () => {
+        routerDebugLog("prompt:", prompt);
+        routerDebugLog("memory:", opts?.memory ?? null);
+        routerDebugLog("raw:", text2);
+        routerDebugLog("plan:", parsed2);
+      });
+      return parsed2;
+    }
+
+    routerDebugGroup("[router] stage1 parse failed (attempt2) → heuristic fallback", () => {
+      routerDebugLog("prompt:", prompt);
+      routerDebugLog("memory:", opts?.memory ?? null);
+      routerDebugLog("raw:", text2);
+    });
+
+    const fallback = heuristicRouteFallback(prompt, opts?.memory);
+    routerDebugGroup(`[router] stage1 heuristic primary=${fallback.primary}`, () => {
+      routerDebugLog("prompt:", prompt);
+      routerDebugLog("memory:", opts?.memory ?? null);
+      routerDebugLog("plan:", fallback);
+    });
+    return fallback;
+  } catch {
+    // Never throw from stage-1 routing; fall back deterministically.
+    const fallback = heuristicRouteFallback(prompt, opts?.memory);
+    routerDebugGroup(`[router] stage1 exception → heuristic primary=${fallback.primary}`, () => {
+      routerDebugLog("prompt:", prompt);
+      routerDebugLog("memory:", opts?.memory ?? null);
+      routerDebugLog("plan:", fallback);
+    });
+    return fallback;
+  }
+}
+
 export async function classifyPrompt(
   prompt: string,
   opts?: {
@@ -316,88 +547,9 @@ export async function classifyPrompt(
     memory?: RouterMemoryContext;
   }
 ): Promise<ScenarioClassification> {
-  const engine = await getWebLLMEngine(opts?.initProgressCallback);
-
-  // We keep the task purely classification + strictly structured output.
-  const system = [
-    "You are a router that must classify the user's message into exactly ONE category.",
-    "",
-    "Return ONLY a JSON object that matches this schema:",
-    RESPONSE_SCHEMA,
-    "",
-    "Categories:",
-    '- RAG_SEARCH: user asks to search / find / recommend ML papers, requests citations/references, or needs retrieval over papers.',
-    "- ML_NO_RAG: user asks about machine learning concepts but does not need searching papers.",
-    "- FOLLOW_UP: the user is asking a follow-up that depends on prior conversation or previously provided papers/results/context.",
-    "- WEBSITE: user asks about how to use this website/app (features, navigation, issues, accounts).",
-    "- AMBIGUOUS: the message could plausibly belong to multiple categories (e.g., both search + explanation) or lacks clarity to route confidently.",
-    "- UNRELATED: anything else that is clearly outside the app/ML scope.",
-    "",
-    "Important rules:",
-    "- If the user asks to show/list/find/recommend papers (even without saying 'search'), choose RAG_SEARCH.",
-    "- If the user asks to explain a concept (e.g., LoRA vs fine-tuning) and does NOT ask for papers/citations, choose ML_NO_RAG.",
-    "- If the user refers back to prior answers, papers, or says things like 'those', 'that one', 'the previous results', or otherwise depends on earlier context, choose FOLLOW_UP.",
-    "- If the intent overlaps categories or you are unsure between categories, choose AMBIGUOUS (not UNRELATED).",
-    "",
-    "Examples:",
-    'User: "show me object detection related papers" -> {"category":"RAG_SEARCH"}',
-    'User: "Explain the difference between LoRA and full fine-tuning" -> {"category":"ML_NO_RAG"}',
-    'User: "Can you summarize those papers you just showed?" -> {"category":"FOLLOW_UP"}',
-    'User: "How do I bookmark papers on this website?" -> {"category":"WEBSITE"}',
-    'User: "I need papers on transformers and also explain how they work" -> {"category":"AMBIGUOUS"}',
-    'User: "What is the best pizza in town?" -> {"category":"UNRELATED"}',
-    "",
-    "If uncertain between categories, choose AMBIGUOUS. Use UNRELATED only when the request is clearly outside the app/ML domain.",
-  ].join("\n");
-
-  const memoryNote = formatMemoryForRouter(opts?.memory);
-  const userContent = opts?.memory
-    ? ["User message:", prompt, "", "Conversation memory (for routing only):", memoryNote].join("\n")
-    : prompt;
-
-  // Use JSON mode + schema to hard-constrain output to a valid JSON object.
-  const baseRequest = {
-    messages: [
-      { role: "system" as const, content: system },
-      { role: "user" as const, content: userContent },
-    ],
-    temperature: 0,
-    top_p: 1,
-    max_tokens: 30,
-    seed: 1,
-    response_format: { type: "json_object" as const, schema: RESPONSE_SCHEMA },
-  };
-
-  // Attempt 1: normal request
-  const res1 = await engine.chat.completions.create(baseRequest);
-  const text1 = res1.choices?.[0]?.message?.content ?? "";
-  const parsed1 = tryParseClassification(text1);
-  if (parsed1) return parsed1;
-
-  // Attempt 2: explicitly point out the invalid response and force strict JSON only.
-  const res2 = await engine.chat.completions.create({
-    ...baseRequest,
-    messages: [
-      { role: "system" as const, content: system },
-      {
-        role: "user" as const,
-        content: [
-          "Your previous output was invalid.",
-          "Return ONLY the JSON object with the schema, no other keys, no extra text.",
-          "",
-          `User message: ${prompt}`,
-          "",
-          `Conversation memory:\n${memoryNote}`,
-        ].join("\n"),
-      },
-    ],
-  });
-  const text2 = res2.choices?.[0]?.message?.content ?? "";
-  const parsed2 = tryParseClassification(text2);
-  if (parsed2) return parsed2;
-
-  // Final fallback: do not surface model text; return a conservative heuristic classification.
-  return heuristicFallback(prompt, opts?.memory);
+  // Compatibility wrapper around the richer routePrompt().
+  const plan = await routePrompt(prompt, opts);
+  return { category: plan.primary as ScenarioCategory };
 }
 
 

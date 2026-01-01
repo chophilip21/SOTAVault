@@ -1,7 +1,8 @@
 "use client";
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { classifyPrompt, embedQuery, getWebLLMEngine } from "@/lib/webllmAgent";
+import { embedQuery, getWebLLMEngine, routePrompt } from "@/lib/webllmAgent";
+import { routerDebugGroup, routerDebugLog } from "@/lib/routerDebug";
 import Image from "next/image";
 import { useChatMemory } from "./useChatMemory";
 import type { ChatMessage, RerankResponse, VectorSearchHit, VectorSearchResponse } from "./types";
@@ -112,14 +113,17 @@ export default function AIChatPage() {
     addTurnToMemory({ role: "user", content: prompt });
 
     try {
-      // Stage 1: strict router
+      // Stage 1: router plan (primary capability + secondary tasks + constraints)
       const routerMemory = buildRouterMemorySnapshot({ role: "user", content: prompt });
-      const route = await classifyPrompt(prompt, { memory: routerMemory });
+      const plan = await routePrompt(prompt, { memory: routerMemory });
+      routerDebugGroup(`[router] stage2 execute primary=${plan.primary}`, () => {
+        routerDebugLog("plan:", plan);
+      });
 
       // Stage 2: execute based on the route
       let reply = "";
 
-      if (route.category === "RAG_SEARCH") {
+      if (plan.primary === "RAG_SEARCH") {
         // Show an animated "vector search" bubble while we embed + query.
         const pendingId = newId();
         setMessages((m) => [...m, { id: pendingId, role: "assistant", content: VECTOR_SEARCHING_TOKEN }]);
@@ -127,12 +131,20 @@ export default function AIChatPage() {
         let embedding: number[] | null = null;
         try {
           // Client-side: clean + embed, then send vector to backend find_nearest.
-          embedding = await embedQuery(prompt);
+          const searchQuery = (plan.constraints?.domain || prompt).toString();
+          embedding = await embedQuery(searchQuery);
+          routerDebugGroup("[router] stage2 RAG_SEARCH", () => {
+            routerDebugLog("searchQuery:", searchQuery);
+            routerDebugLog("secondary:", plan.secondary);
+            routerDebugLog("constraints:", plan.constraints ?? null);
+          });
           const url = new URL(`${window.location.origin}/api/backend/search/vector`);
+          const requestedCount1 = typeof plan.constraints?.count === "number" ? plan.constraints?.count : null;
+          const wantCount = requestedCount1 && requestedCount1 > 0 ? Math.min(20, requestedCount1) : 5;
           const res = await fetch(url.toString(), {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ embedding, limit: 20 }),
+            body: JSON.stringify({ embedding, limit: Math.max(20, wantCount) }),
             cache: "no-store",
           });
 
@@ -154,7 +166,8 @@ export default function AIChatPage() {
           let picked: VectorSearchHit[] = hits;
           try {
             const engine = await getWebLLMEngine();
-            const wantsRecent = /\brecent\b|\blatest\b|\bnewest\b|\b202\d\b/i.test(prompt);
+            const wantsRecent =
+              plan.constraints?.recency === "recent" || /\brecent\b|\blatest\b|\bnewest\b|\b202\d\b/i.test(prompt);
 
             const candidates = hits.map((h) => ({
               id: h.paper.id,
@@ -214,13 +227,95 @@ export default function AIChatPage() {
             // ignore rerank failures; keep fallback
           }
 
-          const topHits = picked.slice(0, 5);
+          const requestedCount2 = typeof plan.constraints?.count === "number" ? plan.constraints?.count : null;
+          const k = requestedCount2 && requestedCount2 > 0 ? Math.min(10, requestedCount2) : 5;
+          const topHits = picked.slice(0, k);
           // Replace searching bubble with a structured "hits" bubble (top 5).
           upsertMessage(pendingId, { content: reply, ragHits: topHits });
 
+          // Optional task: one-line summaries per paper (if requested).
+          if (plan.secondary?.includes("SUMMARIZE") && topHits.length > 0) {
+            try {
+              const engine = await getWebLLMEngine();
+              const schema = JSON.stringify({
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  summaries: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: {
+                        id: { type: "string" },
+                        summary: { type: "string" },
+                      },
+                      required: ["id", "summary"],
+                    },
+                    minItems: 1,
+                    maxItems: 10,
+                  },
+                },
+                required: ["summaries"],
+              });
+
+              const sys = [
+                "You write extremely short, factual, one-line summaries of papers.",
+                "Use ONLY the provided title/year/abstract snippets; do not invent details.",
+                "Return ONLY JSON matching the schema.",
+              ].join("\n");
+
+              const user = JSON.stringify({
+                query: plan.constraints?.domain || prompt,
+                papers: topHits.map((h) => ({
+                  id: h.paper.id,
+                  title: h.paper.title,
+                  year: h.paper.year ?? null,
+                  abstract: (h.paper.abstract ?? "").slice(0, 600),
+                })),
+              });
+
+              const r = await (engine as any).chat.completions.create({
+                messages: [
+                  { role: "system", content: sys },
+                  { role: "user", content: user },
+                ],
+                temperature: 0.2,
+                top_p: 0.9,
+                max_tokens: 420,
+                response_format: { type: "json_object", schema },
+              });
+
+              const raw = r.choices?.[0]?.message?.content ?? "";
+              const parsed = JSON.parse(raw || "{}") as any;
+              const list = Array.isArray(parsed?.summaries) ? parsed.summaries : [];
+              const byId = new Map<string, string>();
+              for (const it of list) {
+                if (it?.id && typeof it?.summary === "string") byId.set(String(it.id), String(it.summary).trim());
+              }
+
+              const lines = topHits
+                .map((h, idx) => {
+                  const s = byId.get(h.paper.id);
+                  return s ? `${idx + 1}. ${h.paper.title} — ${s}` : null;
+                })
+                .filter(Boolean)
+                .join("\n");
+
+              if (lines) {
+                // Add a second assistant message with the summaries to keep the structured ragHits bubble clean.
+                const summaryMsg = { id: newId(), role: "assistant" as const, content: lines };
+                setMessages((m) => [...m, summaryMsg]);
+                addTurnToMemory({ role: "assistant", content: lines });
+              }
+            } catch {
+              // ignore summary failures; keep search results
+            }
+          }
+
           // Keep RAG context for follow-ups.
           recordRagMemory({
-            query: prompt,
+            query: searchQuery,
             hits: topHits.map((h) => ({
               id: h.paper.id,
               title: h.paper.title,
@@ -245,7 +340,7 @@ export default function AIChatPage() {
         upsertMessage(pendingId, { content: reply, ragHits: undefined });
         addTurnToMemory({ role: "assistant", content: reply });
         return; // IMPORTANT: avoid also appending a second assistant message below
-      } else if (route.category === "FOLLOW_UP") {
+      } else if (plan.primary === "FOLLOW_UP") {
         const recentTurns = [...memory.recentTurns, { role: "user" as const, content: prompt }].slice(-10);
         const ragContext =
           memory.ragHistory.length === 0
@@ -299,7 +394,7 @@ export default function AIChatPage() {
           });
           reply = res.choices?.[0]?.message?.content?.trim() || "I couldn’t generate a response. Please try again.";
         }
-      } else if (route.category === "ML_NO_RAG") {
+      } else if (plan.primary === "ML_NO_RAG") {
         // Show a "thinking" bubble while the model generates the response.
         const pendingId = newId();
         setMessages((m) => [...m, { id: pendingId, role: "assistant", content: THINKING_TOKEN }]);
@@ -331,9 +426,9 @@ export default function AIChatPage() {
           addTurnToMemory({ role: "assistant", content: fallback });
           return;
         }
-      } else if (route.category === "WEBSITE") {
+      } else if (plan.primary === "WEBSITE") {
         reply = "This part will be done later.";
-      } else if (route.category === "AMBIGUOUS") {
+      } else if (plan.primary === "AMBIGUOUS") {
         try {
           const engine = await getWebLLMEngine();
           const system = [
