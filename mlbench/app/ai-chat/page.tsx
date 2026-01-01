@@ -3,15 +3,10 @@ import { Playfair_Display } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { classifyPrompt, embedQuery, getWebLLMEngine } from "@/lib/webllmAgent";
 import Image from "next/image";
+import { useChatMemory } from "./useChatMemory";
+import type { ChatMessage, RerankResponse, VectorSearchHit, VectorSearchResponse } from "./types";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
-
-type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  ragHits?: VectorSearchHit[];
-};
 
 function newId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -42,29 +37,6 @@ const SAMPLE_QUERIES = [
   "How do I use MLBench to find conferences and bookmark papers I like?",
 ] as const;
 
-type VectorSearchHit = {
-  paper: {
-    id: string;
-    title: string;
-    abstract?: string;
-    year?: number | null;
-    pdf_url?: string | null;
-    project_url?: string | null;
-    arxiv_id?: string | null;
-    doi?: string | null;
-  };
-  distance?: number | null;
-};
-
-type VectorSearchResponse = {
-  items: VectorSearchHit[];
-  limit: number;
-};
-
-type RerankResponse = {
-  ids: string[];
-};
-
 export default function AIChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -77,6 +49,7 @@ export default function AIChatPage() {
     | { state: "ready" }
     | { state: "error"; message: string }
   >({ state: "idle" });
+  const { memory, addTurnToMemory, recordRagMemory, buildRouterMemorySnapshot } = useChatMemory(messages);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -122,7 +95,7 @@ export default function AIChatPage() {
     // Keep view pinned to bottom when new messages arrive.
     scrollRef.current?.scrollIntoView({ behavior: messages.length <= 2 ? "auto" : "smooth" });
   }, [messages.length]);
-
+  
   function upsertMessage(id: string, next: Partial<ChatMessage>) {
     setMessages((ms) => ms.map((m) => (m.id === id ? { ...m, ...next } : m)));
   }
@@ -136,10 +109,12 @@ export default function AIChatPage() {
 
     const userMsg: ChatMessage = { id: newId(), role: "user", content: prompt };
     setMessages((m) => [...m, userMsg]);
+    addTurnToMemory({ role: "user", content: prompt });
 
     try {
       // Stage 1: strict router
-      const route = await classifyPrompt(prompt);
+      const routerMemory = buildRouterMemorySnapshot({ role: "user", content: prompt });
+      const route = await classifyPrompt(prompt, { memory: routerMemory });
 
       // Stage 2: execute based on the route
       let reply = "";
@@ -239,8 +214,24 @@ export default function AIChatPage() {
             // ignore rerank failures; keep fallback
           }
 
+          const topHits = picked.slice(0, 5);
           // Replace searching bubble with a structured "hits" bubble (top 5).
-          upsertMessage(pendingId, { content: reply, ragHits: picked.slice(0, 5) });
+          upsertMessage(pendingId, { content: reply, ragHits: topHits });
+
+          // Keep RAG context for follow-ups.
+          recordRagMemory({
+            query: prompt,
+            hits: topHits.map((h) => ({
+              id: h.paper.id,
+              title: h.paper.title,
+              year: h.paper.year ?? null,
+              abstract: h.paper.abstract,
+              distance: h.distance ?? null,
+            })),
+            embedding: embedding ? [...embedding] : undefined,
+            createdAt: Date.now(),
+          });
+          addTurnToMemory({ role: "assistant", content: reply });
           return; // IMPORTANT: avoid also appending a second assistant message below
         } catch {
           // Never show the error details in the UI.
@@ -252,7 +243,62 @@ export default function AIChatPage() {
 
         // Replace the searching bubble with the final reply.
         upsertMessage(pendingId, { content: reply, ragHits: undefined });
+        addTurnToMemory({ role: "assistant", content: reply });
         return; // IMPORTANT: avoid also appending a second assistant message below
+      } else if (route.category === "FOLLOW_UP") {
+        const recentTurns = [...memory.recentTurns, { role: "user" as const, content: prompt }].slice(-10);
+        const ragContext =
+          memory.ragHistory.length === 0
+            ? "No stored RAG results."
+            : memory.ragHistory
+                .slice(0, 2)
+                .map((r, idx) => {
+                  const items = r.hits
+                    .slice(0, 5)
+                    .map(
+                      (h, i) =>
+                        `${i + 1}. ${h.title}${h.year ? ` (${h.year})` : ""}${
+                          typeof h.distance === "number" ? ` [dist=${h.distance.toFixed(4)}]` : ""
+                        }`
+                    )
+                    .join("; ");
+                  return `RAG ${idx + 1}: query="${r.query}". Papers: ${items}`;
+                })
+                .join("\n");
+
+        const hasMemory = Boolean(memory.summary) || recentTurns.length > 1 || memory.ragHistory.length > 0;
+        const engine = await getWebLLMEngine();
+        const system =
+          "You are MLTree LLM Agent inside MLBench. Answer the follow-up using ONLY the provided memory context. " +
+          "If the memory is insufficient, say so briefly and ask the user to restate. Do not invent paper titles or citations.";
+
+        const user = [
+          "Conversation summary:",
+          memory.summary || "None.",
+          "",
+          "Recent turns:",
+          recentTurns.map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`).join("\n") || "None.",
+          "",
+          "Recent RAG results:",
+          ragContext,
+          "",
+          `Follow-up question: ${prompt}`,
+        ].join("\n");
+
+        if (!hasMemory) {
+          reply = "I don't have previous context yet. Could you restate what you'd like to follow up on?";
+        } else {
+          const res = await engine.chat.completions.create({
+            messages: [
+              { role: "system" as const, content: system },
+              { role: "user" as const, content: user },
+            ],
+            temperature: 0.55,
+            top_p: 0.9,
+            max_tokens: 620,
+          });
+          reply = res.choices?.[0]?.message?.content?.trim() || "I couldn’t generate a response. Please try again.";
+        }
       } else if (route.category === "ML_NO_RAG") {
         // Show a "thinking" bubble while the model generates the response.
         const pendingId = newId();
@@ -277,9 +323,12 @@ export default function AIChatPage() {
           });
           reply = res.choices?.[0]?.message?.content?.trim() || "I couldn’t generate a response. Please try again.";
           upsertMessage(pendingId, { content: reply });
+          addTurnToMemory({ role: "assistant", content: reply });
           return; // IMPORTANT: avoid also appending a second assistant message below
         } catch {
-          upsertMessage(pendingId, { content: "Sorry — I couldn’t complete that request." });
+          const fallback = "Sorry — I couldn’t complete that request.";
+          upsertMessage(pendingId, { content: fallback });
+          addTurnToMemory({ role: "assistant", content: fallback });
           return;
         }
       } else if (route.category === "WEBSITE") {
@@ -291,6 +340,7 @@ export default function AIChatPage() {
 
       const assistantMsg: ChatMessage = { id: newId(), role: "assistant", content: reply };
       setMessages((m) => [...m, assistantMsg]);
+      addTurnToMemory({ role: "assistant", content: reply });
     } catch (err: unknown) {
       // Never disclose error details in chat.
       const assistantMsg: ChatMessage = {
@@ -299,6 +349,7 @@ export default function AIChatPage() {
         content: "Sorry — I couldn’t complete that request.",
       };
       setMessages((m) => [...m, assistantMsg]);
+      addTurnToMemory({ role: "assistant", content: "Sorry — I couldn’t complete that request." });
     } finally {
       setIsSending(false);
     }

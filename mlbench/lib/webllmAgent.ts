@@ -6,10 +6,16 @@ import { CreateMLCEngine, type InitProgressCallback, type MLCEngineInterface } f
 //TODO: probably we should not hard code this.
 export const SELECTED_MODEL = "Llama-3.2-1B-Instruct-q4f32_1-MLC";
 
-export type ScenarioCategory = "RAG_SEARCH" | "ML_NO_RAG" | "WEBSITE" | "UNRELATED";
+export type ScenarioCategory = "RAG_SEARCH" | "ML_NO_RAG" | "FOLLOW_UP" | "WEBSITE" | "UNRELATED";
 
 export type ScenarioClassification = {
   category: ScenarioCategory;
+};
+
+export type RouterMemoryContext = {
+  summary?: string | null;
+  recentTurns?: { role: "user" | "assistant"; content: string }[];
+  recentRag?: { query: string; titles: string[] }[];
 };
 
 // Client-side embedding (stage-2 RAG): must match backend vector dimension (384).
@@ -25,7 +31,7 @@ const RESPONSE_SCHEMA = JSON.stringify({
   properties: {
     category: {
       type: "string",
-      enum: ["RAG_SEARCH", "ML_NO_RAG", "WEBSITE", "UNRELATED"],
+      enum: ["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "UNRELATED"],
     },
   },
   required: ["category"],
@@ -140,7 +146,7 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
   // Super-forgiving path: sometimes the model returns the enum token directly.
   // Accept it even if it isn't JSON.
   const direct = trimmed.replace(/["'`]/g, "").trim().toUpperCase();
-  if (["RAG_SEARCH", "ML_NO_RAG", "WEBSITE", "UNRELATED"].includes(direct)) {
+  if (["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "UNRELATED"].includes(direct)) {
     return { category: direct as ScenarioCategory };
   }
 
@@ -152,7 +158,7 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
       parsed !== null &&
       "category" in parsed &&
       (parsed as any).category &&
-      ["RAG_SEARCH", "ML_NO_RAG", "WEBSITE", "UNRELATED"].includes((parsed as any).category)
+      ["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "UNRELATED"].includes((parsed as any).category)
     ) {
       return { category: (parsed as any).category as ScenarioCategory };
     }
@@ -170,7 +176,7 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
       parsed !== null &&
       "category" in parsed &&
       (parsed as any).category &&
-      ["RAG_SEARCH", "ML_NO_RAG", "WEBSITE", "UNRELATED"].includes((parsed as any).category)
+      ["RAG_SEARCH", "ML_NO_RAG", "FOLLOW_UP", "WEBSITE", "UNRELATED"].includes((parsed as any).category)
     ) {
       return { category: (parsed as any).category as ScenarioCategory };
     }
@@ -180,7 +186,7 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
 
   // Last-chance: if the model produced something like `category: RAG_SEARCH` or included
   // the token somewhere in text, recover it.
-  const tokenMatch = trimmed.match(/\b(RAG_SEARCH|ML_NO_RAG|WEBSITE|UNRELATED)\b/i);
+  const tokenMatch = trimmed.match(/\b(RAG_SEARCH|ML_NO_RAG|FOLLOW_UP|WEBSITE|UNRELATED)\b/i);
   if (tokenMatch?.[1]) {
     return { category: tokenMatch[1].toUpperCase() as ScenarioCategory };
   }
@@ -188,7 +194,7 @@ function tryParseClassification(raw: string): ScenarioClassification | null {
   return null;
 }
 
-function heuristicFallback(prompt: string): ScenarioClassification {
+function heuristicFallback(prompt: string, memory?: RouterMemoryContext): ScenarioClassification {
   // Conservative local fallback to avoid showing hallucinated content if the model misbehaves.
   const p = prompt.toLowerCase();
 
@@ -262,7 +268,38 @@ function heuristicFallback(prompt: string): ScenarioClassification {
   ];
   if (mlHints.some((h) => p.includes(h))) return { category: "ML_NO_RAG" };
 
+  // If there is prior context and the user refers back indirectly, mark as follow-up.
+  if ((memory?.summary || (memory?.recentTurns?.length ?? 0) > 0) && /\b(this|that|those|them|it|previous|above|again)\b/.test(p)) {
+    return { category: "FOLLOW_UP" };
+  }
+
   return { category: "UNRELATED" };
+}
+
+function formatMemoryForRouter(memory?: RouterMemoryContext): string {
+  if (!memory) return "No memory.";
+  const parts: string[] = [];
+  if (memory.summary) parts.push(`Summary: ${memory.summary}`);
+  if (memory.recentTurns?.length) {
+    const tail = memory.recentTurns.slice(-6);
+    parts.push(
+      "Recent turns:\n" +
+        tail
+          .map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`)
+          .join("\n")
+    );
+  }
+  if (memory.recentRag?.length) {
+    const rag = memory.recentRag
+      .slice(-3)
+      .map(
+        (r, idx) =>
+          `RAG ${idx + 1}: query="${r.query}", titles=[${r.titles.slice(0, 5).join(" | ")}]`
+      )
+      .join("\n");
+    parts.push(rag);
+  }
+  return parts.join("\n\n") || "No memory.";
 }
 
 export async function classifyPrompt(
@@ -270,6 +307,7 @@ export async function classifyPrompt(
   opts?: {
     initProgressCallback?: InitProgressCallback;
     signal?: AbortSignal;
+    memory?: RouterMemoryContext;
   }
 ): Promise<ScenarioClassification> {
   const engine = await getWebLLMEngine(opts?.initProgressCallback);
@@ -284,27 +322,35 @@ export async function classifyPrompt(
     "Categories:",
     '- RAG_SEARCH: user asks to search / find / recommend ML papers, requests citations/references, or needs retrieval over papers.',
     "- ML_NO_RAG: user asks about machine learning concepts but does not need searching papers.",
+    "- FOLLOW_UP: the user is asking a follow-up that depends on prior conversation or previously provided papers/results/context.",
     "- WEBSITE: user asks about how to use this website/app (features, navigation, issues, accounts).",
     "- UNRELATED: anything else or if you are uncertain.",
     "",
     "Important rules:",
     "- If the user asks to show/list/find/recommend papers (even without saying 'search'), choose RAG_SEARCH.",
     "- If the user asks to explain a concept (e.g., LoRA vs fine-tuning) and does NOT ask for papers/citations, choose ML_NO_RAG.",
+    "- If the user refers back to prior answers, papers, or says things like 'those', 'that one', 'the previous results', or otherwise depends on earlier context, choose FOLLOW_UP.",
     "",
     "Examples:",
     'User: "show me object detection related papers" -> {"category":"RAG_SEARCH"}',
     'User: "Explain the difference between LoRA and full fine-tuning" -> {"category":"ML_NO_RAG"}',
+    'User: "Can you summarize those papers you just showed?" -> {"category":"FOLLOW_UP"}',
     'User: "How do I bookmark papers on this website?" -> {"category":"WEBSITE"}',
     'User: "What is the best pizza in town?" -> {"category":"UNRELATED"}',
     "",
     "If uncertain between categories, choose UNRELATED.",
   ].join("\n");
 
+  const memoryNote = formatMemoryForRouter(opts?.memory);
+  const userContent = opts?.memory
+    ? ["User message:", prompt, "", "Conversation memory (for routing only):", memoryNote].join("\n")
+    : prompt;
+
   // Use JSON mode + schema to hard-constrain output to a valid JSON object.
   const baseRequest = {
     messages: [
       { role: "system" as const, content: system },
-      { role: "user" as const, content: prompt },
+      { role: "user" as const, content: userContent },
     ],
     temperature: 0,
     top_p: 1,
@@ -331,6 +377,8 @@ export async function classifyPrompt(
           "Return ONLY the JSON object with the schema, no other keys, no extra text.",
           "",
           `User message: ${prompt}`,
+          "",
+          `Conversation memory:\n${memoryNote}`,
         ].join("\n"),
       },
     ],
@@ -340,7 +388,7 @@ export async function classifyPrompt(
   if (parsed2) return parsed2;
 
   // Final fallback: do not surface model text; return a conservative heuristic classification.
-  return heuristicFallback(prompt);
+  return heuristicFallback(prompt, opts?.memory);
 }
 
 
