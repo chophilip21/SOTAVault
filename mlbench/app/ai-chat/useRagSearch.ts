@@ -26,12 +26,16 @@ export function useRagSearch(opts: {
 }) {
   const { newId, setMessages, upsertMessage, addTurnToMemory, recordRagMemory } = opts;
 
-  async function runRagSearch(args: { prompt: string; plan: RoutePlan; vectorSearchingToken: string }) {
+  async function runRagSearch(args: { prompt: string; plan: RoutePlan; vectorSearchingToken: string; pendingId?: string }) {
     const { prompt, plan, vectorSearchingToken } = args;
 
-    // Show an animated "vector search" bubble while we embed + query.
-    const pendingId = newId();
-    setMessages((m) => [...m, { id: pendingId, role: "assistant", content: vectorSearchingToken }]);
+    // Reuse the caller-provided pending assistant bubble when available (better UX: no gap).
+    const pendingId = args.pendingId ?? newId();
+    if (args.pendingId) {
+      upsertMessage(pendingId, { content: vectorSearchingToken, ragHits: undefined });
+    } else {
+      setMessages((m) => [...m, { id: pendingId, role: "assistant", content: vectorSearchingToken }]);
+    }
 
     let reply = "";
     let embedding: number[] | null = null;

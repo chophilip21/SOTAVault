@@ -292,7 +292,8 @@ function heuristicFallback(prompt: string, memory?: RouterMemoryContext): Scenar
     "dataset",
     "datasets",
   ];
-  if (websiteHints.some((h) => p.includes(h))) push("WEBSITE");
+  const isWebsite = websiteHints.some((h) => p.includes(h));
+  if (isWebsite) push("WEBSITE");
 
   const ragHints = [
     // Generic paper intent
@@ -347,7 +348,8 @@ function heuristicFallback(prompt: string, memory?: RouterMemoryContext): Scenar
   if (mlHints.some((h) => p.includes(h))) push("ML_NO_RAG");
 
   // If there is prior context and the user refers back indirectly, mark as follow-up.
-  if ((memory?.summary || (memory?.recentTurns?.length ?? 0) > 0) && /\b(this|that|those|them|it|previous|above|again)\b/.test(p)) {
+  // IMPORTANT: do not treat "this website" / other website intents as FOLLOW_UP.
+  if ((memory?.summary || (memory?.recentTurns?.length ?? 0) > 0) && /\b(this|that|those|them|it|previous|above|again)\b/.test(p) && !isWebsite) {
     push("FOLLOW_UP");
   }
 
@@ -417,6 +419,59 @@ function hasPriorContext(memory?: RouterMemoryContext): boolean {
   return false;
 }
 
+function looksLikeWebsiteIntent(prompt: string): boolean {
+  const p = prompt.toLowerCase();
+  const hints = [
+    "mlbench",
+    "this site",
+    "this website",
+    "website",
+    "page",
+    "navigate",
+    "where is",
+    "how do i",
+    "login",
+    "log in",
+    "sign in",
+    "account",
+    "profile",
+    "bookmark",
+    "bookmarks",
+    "privacy",
+    "terms",
+    "data source",
+    "data sources",
+    "got the data",
+    "where did you get the data",
+  ];
+  return hints.some((h) => p.includes(h));
+}
+
+function looksLikeFollowUpReference(prompt: string): boolean {
+  const p = prompt.toLowerCase();
+  return /\b(this|that|those|them|it|previous|above|again|earlier|last time|you mentioned)\b/.test(p);
+}
+
+function websiteSecondaryFromPrompt(prompt: string): RoutePlan["secondary"] {
+  const p = prompt.toLowerCase();
+  const sec: RoutePlan["secondary"] = ["WEBSITE_NAVIGATE"];
+  if (
+    /\b(where|how)\b.*\b(data|dataset|source|collected|collection)\b/.test(p) ||
+    p.includes("got the data") ||
+    p.includes("data source") ||
+    p.includes("data sources")
+  ) {
+    sec.push("WEBSITE_DATA_SOURCES");
+  }
+  if (p.includes("privacy")) sec.push("WEBSITE_PRIVACY");
+  if (p.includes("terms")) sec.push("WEBSITE_TERMS");
+  if (p.includes("bookmark")) sec.push("WEBSITE_BOOKMARKS");
+  if (p.includes("conference")) sec.push("WEBSITE_CONFERENCE");
+  if (p.includes("papers")) sec.push("WEBSITE_PAPERS");
+  if (p.includes("ai chat") || p.includes("webgpu")) sec.push("WEBSITE_AI_CHAT");
+  return Array.from(new Set(sec));
+}
+
 export async function routePrompt(
   prompt: string,
   opts?: {
@@ -465,11 +520,12 @@ export async function routePrompt(
       "Rules:",
       "- Always include exactly one primary.",
       "- Secondary can be an empty array, but MUST be present.",
-    "- Do NOT output null values. Omit constraints/fields if unknown.",
-    "- Only choose FOLLOW_UP if the provided conversation memory includes prior turns or prior RAG results.",
-    "- If you are unsure between primaries, choose AMBIGUOUS.",
+      "- Do NOT output null values. Omit constraints/fields if unknown.",
+      "- Only choose FOLLOW_UP if the provided conversation memory includes prior turns or prior RAG results AND the user is referring back.",
+      "- Even if memory exists, if the user asks a NEW standalone question (topic shift), choose the appropriate primary (e.g., WEBSITE) instead of FOLLOW_UP.",
+      "- If you are unsure between primaries, choose AMBIGUOUS.",
       "- Use UNRELATED only if it is clearly outside ML/app scope.",
-    "- Never reveal private user data, internal code, secrets, security details, or non-public business logic.",
+      "- Never reveal private user data, internal code, secrets, security details, or non-public business logic.",
     ].join("\n");
 
   const memoryNote = formatMemoryForRouter(opts?.memory);
@@ -502,6 +558,46 @@ export async function routePrompt(
           constraints: parsed1.constraints,
         });
         routerDebugGroup(`[router] stage1 corrected FOLLOW_UP→${corrected.primary} (no prior context)`, () => {
+          routerDebugLog("prompt:", prompt);
+          routerDebugLog("memory:", opts?.memory ?? null);
+          routerDebugLog("raw:", text1);
+          routerDebugLog("plan_before:", parsed1);
+          routerDebugLog("plan_after:", corrected);
+        });
+        return corrected;
+      }
+
+      // Guardrail: even with prior context, allow topic shift.
+      // If the new prompt is clearly a WEBSITE question, do not force FOLLOW_UP.
+      if (
+        parsed1.primary === "FOLLOW_UP" &&
+        hasPriorContext(opts?.memory) &&
+        looksLikeWebsiteIntent(prompt) &&
+        !looksLikeFollowUpReference(prompt)
+      ) {
+        const corrected = normalizeRoutePlan({
+          primary: "WEBSITE",
+          secondary: parsed1.secondary,
+          constraints: parsed1.constraints,
+        });
+        routerDebugGroup("[router] stage1 corrected FOLLOW_UP→WEBSITE (topic shift)", () => {
+          routerDebugLog("prompt:", prompt);
+          routerDebugLog("memory:", opts?.memory ?? null);
+          routerDebugLog("raw:", text1);
+          routerDebugLog("plan_before:", parsed1);
+          routerDebugLog("plan_after:", corrected);
+        });
+        return corrected;
+      }
+
+      // Guardrail: website questions should never be UNRELATED.
+      if (parsed1.primary === "UNRELATED" && looksLikeWebsiteIntent(prompt)) {
+        const corrected = normalizeRoutePlan({
+          primary: "WEBSITE",
+          secondary: websiteSecondaryFromPrompt(prompt),
+          constraints: parsed1.constraints,
+        });
+        routerDebugGroup("[router] stage1 corrected UNRELATED→WEBSITE", () => {
           routerDebugLog("prompt:", prompt);
           routerDebugLog("memory:", opts?.memory ?? null);
           routerDebugLog("raw:", text1);
@@ -555,6 +651,45 @@ export async function routePrompt(
           constraints: parsed2.constraints,
         });
         routerDebugGroup(`[router] stage1 corrected FOLLOW_UP→${corrected.primary} (no prior context)`, () => {
+          routerDebugLog("prompt:", prompt);
+          routerDebugLog("memory:", opts?.memory ?? null);
+          routerDebugLog("raw:", text2);
+          routerDebugLog("plan_before:", parsed2);
+          routerDebugLog("plan_after:", corrected);
+        });
+        return corrected;
+      }
+
+      // Guardrail: topic shifts are allowed (same rule as attempt1).
+      if (
+        parsed2.primary === "FOLLOW_UP" &&
+        hasPriorContext(opts?.memory) &&
+        looksLikeWebsiteIntent(prompt) &&
+        !looksLikeFollowUpReference(prompt)
+      ) {
+        const corrected = normalizeRoutePlan({
+          primary: "WEBSITE",
+          secondary: parsed2.secondary,
+          constraints: parsed2.constraints,
+        });
+        routerDebugGroup("[router] stage1 corrected FOLLOW_UP→WEBSITE (topic shift)", () => {
+          routerDebugLog("prompt:", prompt);
+          routerDebugLog("memory:", opts?.memory ?? null);
+          routerDebugLog("raw:", text2);
+          routerDebugLog("plan_before:", parsed2);
+          routerDebugLog("plan_after:", corrected);
+        });
+        return corrected;
+      }
+
+      // Guardrail: website questions should never be UNRELATED.
+      if (parsed2.primary === "UNRELATED" && looksLikeWebsiteIntent(prompt)) {
+        const corrected = normalizeRoutePlan({
+          primary: "WEBSITE",
+          secondary: websiteSecondaryFromPrompt(prompt),
+          constraints: parsed2.constraints,
+        });
+        routerDebugGroup("[router] stage1 corrected UNRELATED→WEBSITE", () => {
           routerDebugLog("prompt:", prompt);
           routerDebugLog("memory:", opts?.memory ?? null);
           routerDebugLog("raw:", text2);

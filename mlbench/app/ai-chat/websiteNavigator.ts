@@ -80,7 +80,22 @@ function topicHeuristic(prompt: string): WebsiteTopic {
   const p = norm(prompt);
   if (includesAny(p, ["privacy", "gdpr", "data retention", "cookies"])) return "PRIVACY";
   if (includesAny(p, ["terms", "conditions", "tos", "license"])) return "TERMS";
-  if (includesAny(p, ["where does the data", "data source", "how did you get the data", "scrape", "crawl"])) return "DATA_SOURCES";
+  if (
+    includesAny(p, [
+      "where does the data",
+      "data source",
+      "data sources",
+      "how did you get the data",
+      "how this website got the data",
+      "where did you get the data",
+      "how do you get the data",
+      "scrape",
+      "crawl",
+      "collected",
+      "collection",
+    ])
+  )
+    return "DATA_SOURCES";
   if (includesAny(p, ["bookmark", "saved", "save this", "favorites"])) return "BOOKMARKS";
   if (includesAny(p, ["profile", "account settings", "edit profile"])) return "PROFILE";
   if (includesAny(p, ["login", "log in", "sign in", "sign-in", "auth"])) return "LOGIN";
@@ -93,8 +108,40 @@ function topicHeuristic(prompt: string): WebsiteTopic {
   return "UNKNOWN";
 }
 
+export function looksLikeWebsiteQuestion(prompt: string): boolean {
+  const p = norm(prompt);
+  // Broad (but safe) website intent detector, used to avoid misrouting to FOLLOW_UP LLM.
+  return includesAny(p, [
+    "mlbench",
+    "this site",
+    "this website",
+    "website",
+    "page",
+    "navigate",
+    "where is",
+    "how do i",
+    "login",
+    "log in",
+    "sign in",
+    "account",
+    "profile",
+    "bookmark",
+    "papers",
+    "benchmark",
+    "conference",
+    "ai chat",
+    "privacy",
+    "terms",
+    "data source",
+    "data sources",
+    "got the data",
+    "where did you get the data",
+  ]);
+}
+
 function linksBlock(lines: Array<{ label: string; path: string }>): string {
-  return lines.map((l) => `- **${l.label}**: \`${l.path}\``).join("\n");
+  // Markdown-link format so the chat renderer can make these clickable.
+  return lines.map((l) => `- [${l.label}](${l.path})`).join("\n");
 }
 
 export function answerWebsiteQuestion(prompt: string, plan?: RoutePlan): string {
@@ -111,6 +158,9 @@ export function answerWebsiteQuestion(prompt: string, plan?: RoutePlan): string 
   }
 
   const topic = topicFromSecondary(plan) !== "UNKNOWN" ? topicFromSecondary(plan) : topicHeuristic(prompt);
+  const p = norm(prompt);
+  const wantsConference = includesAny(p, ["conference", "conferences"]);
+  const wantsBookmarks = includesAny(p, ["bookmark", "bookmarks", "saved", "favorites"]);
 
   const nav = [
     "Here’s the quickest way to get around MLBench:",
@@ -122,6 +172,7 @@ export function answerWebsiteQuestion(prompt: string, plan?: RoutePlan): string 
       { label: "Conference", path: "/conference" },
       { label: "AI Chat", path: "/ai-chat" },
       { label: "Profile (bookmarks/account)", path: "/profile" },
+      { label: "Acknowledgements (data sources)", path: "/acknowledgement" },
     ]),
     "",
     "If a page says **login required**, click the **Login** button (top-right) first.",
@@ -136,6 +187,7 @@ export function answerWebsiteQuestion(prompt: string, plan?: RoutePlan): string 
       { label: "Conference (browse conferences)", path: "/conference" },
       { label: "AI Chat (ask for papers / ML Q&A)", path: "/ai-chat" },
       { label: "Profile (bookmarks/account)", path: "/profile" },
+      { label: "Acknowledgements (data sources)", path: "/acknowledgement" },
       { label: "Privacy Policy", path: "/privacy" },
       { label: "Terms & Conditions", path: "/terms" },
     ]),
@@ -158,15 +210,25 @@ export function answerWebsiteQuestion(prompt: string, plan?: RoutePlan): string 
       ].join("\n");
     case "DATA_SOURCES":
       return [
-        "At a high level, MLBench indexes research metadata from **publicly available sources**.",
-        "For policy details (data collection/retention, third-party links, etc.), the authoritative references are:",
+        "At a high level, MLBench is built around **publicly available research metadata** (e.g., titles/abstracts/venues/years/links).",
+        "We also acknowledge sources like **arXiv** and the legacy **Papers with Code** dataset.",
+        "",
+        "There are a few different “data types” people usually mean:",
+        "- **Paper metadata**: bibliographic info and links from public sources.",
+        "- **User account data**: what you provide when you sign in (and things you save, like bookmarks).",
+        "- **Usage/technical data**: basic analytics/technical info used to operate the site.",
+        "",
+        "For full details and attribution, see:",
+        linksBlock([{ label: "Acknowledgements", path: "/acknowledgement" }]),
+        "",
+        "For the authoritative details on what’s collected and how it’s used/retained, please see:",
         "",
         linksBlock([
           { label: "Privacy Policy", path: "/privacy" },
           { label: "Terms & Conditions", path: "/terms" },
         ]),
         "",
-        "If you tell me whether you mean **paper metadata** vs **your account data**, I can point you to the right section.",
+        "Which one did you mean: **paper metadata** or **your account data**?",
       ].join("\n");
     case "LOGIN":
       return [
@@ -185,6 +247,27 @@ export function answerWebsiteQuestion(prompt: string, plan?: RoutePlan): string 
         "Inside Profile you can edit your info and manage your account.",
       ].join("\n");
     case "BOOKMARKS":
+      // If the user asked about BOTH conferences and bookmarks, provide a combined answer.
+      if (wantsConference && wantsBookmarks) {
+        return [
+          "Here’s a quick workflow:",
+          "",
+          "1) **Find conferences**",
+          "- Go to the Conference page and browse upcoming conferences or open a conference’s website from its detail view.",
+          linksBlock([{ label: "Conference", path: "/conference" }]),
+          "",
+          "2) **Find papers you like**",
+          "- Browse/search on the Papers page, then open a paper to view details.",
+          linksBlock([{ label: "Papers", path: "/papers" }]),
+          "",
+          "3) **Bookmark papers**",
+          "- Your saved papers live under Profile → Bookmarks.",
+          linksBlock([{ label: "Profile", path: "/profile" }]),
+          "",
+          "Where the data comes from (high-level): MLBench uses **public sources** including legacy **Papers with Code**, **arXiv metadata**, and information from **conference pages**.",
+          "See: " + `[Acknowledgements](/acknowledgement)`,
+        ].join("\n");
+      }
       return [
         "To view your saved papers:",
         "- Open **Profile**",

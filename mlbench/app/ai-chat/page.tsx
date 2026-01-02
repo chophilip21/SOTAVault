@@ -8,7 +8,7 @@ import { useChatMemory } from "./useChatMemory";
 import type { ChatMessage } from "./types";
 import { RagHitsBubble } from "./components/RagHitsBubble";
 import { useRagSearch } from "./useRagSearch";
-import { answerWebsiteQuestion } from "./websiteNavigator";
+import { answerWebsiteQuestion, looksLikeWebsiteQuestion } from "./websiteNavigator";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -35,10 +35,58 @@ function renderBoldMarkdown(text: string) {
   );
 }
 
+function renderChatRichText(text: string) {
+  // Safe, tiny subset:
+  // - **bold**
+  // - markdown links: [label](/path) or [label](https://...)
+  const out: Array<string | React.ReactElement> = [];
+  const re = /\[([^\]]+)\]\(([^)]+)\)/g;
+  let last = 0;
+  let m: RegExpExecArray | null = null;
+
+  while ((m = re.exec(text)) !== null) {
+    const [full, label, hrefRaw] = m;
+    const start = m.index;
+    const end = start + full.length;
+    const before = text.slice(last, start);
+    if (before) out.push(before);
+
+    const href = String(hrefRaw || "").trim();
+    const safe = href.startsWith("/") || href.startsWith("https://") || href.startsWith("http://");
+    if (safe) {
+      out.push(
+        <a
+          key={`link-${start}-${end}`}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2 text-emerald-700 hover:text-emerald-800"
+        >
+          {label}
+        </a>
+      );
+    } else {
+      // If href is not safe, render as plain text.
+      out.push(full);
+    }
+
+    last = end;
+  }
+
+  const tail = text.slice(last);
+  if (tail) out.push(tail);
+
+  // Apply bold rendering to non-link text chunks.
+  return out.map((chunk, idx) => {
+    if (typeof chunk !== "string") return chunk;
+    return <span key={`t-${idx}`}>{renderBoldMarkdown(chunk)}</span>;
+  });
+}
+
 const SAMPLE_QUERIES = [
   "Find 5 recent papers on retrieval-augmented generation for code (with short one-line summaries).",
   "Explain the difference between LoRA and full fine-tuning, and when you'd choose each.",
-  "How do I use MLBench to find conferences and bookmark papers I like?",
+  "Where did your website gather the data for the papers and conferences?",
 ] as const;
 
 export default function AIChatPage() {
@@ -114,7 +162,10 @@ export default function AIChatPage() {
     setInput("");
 
     const userMsg: ChatMessage = { id: newId(), role: "user", content: prompt };
-    setMessages((m) => [...m, userMsg]);
+    const pendingId = newId();
+    // Show immediate feedback while stage-1 routes (avoid blank gap).
+    const pendingAssistant: ChatMessage = { id: pendingId, role: "assistant", content: THINKING_TOKEN };
+    setMessages((m) => [...m, userMsg, pendingAssistant]);
     addTurnToMemory({ role: "user", content: prompt });
 
     try {
@@ -132,9 +183,14 @@ export default function AIChatPage() {
       let reply = "";
 
       if (plan.primary === "RAG_SEARCH") {
-        await runRagSearch({ prompt, plan, vectorSearchingToken: VECTOR_SEARCHING_TOKEN });
+        await runRagSearch({ prompt, plan, vectorSearchingToken: VECTOR_SEARCHING_TOKEN, pendingId });
         return; // IMPORTANT: avoid also appending a second assistant message below
       } else if (plan.primary === "FOLLOW_UP") {
+        // If the user is asking about site usage/policies, answer via the deterministic website navigator
+        // instead of the follow-up LLM (which is constrained to memory and can respond incorrectly).
+        if (looksLikeWebsiteQuestion(prompt)) {
+          reply = answerWebsiteQuestion(prompt, plan);
+        } else {
         const recentTurns = [...memory.recentTurns, { role: "user" as const, content: prompt }].slice(-10);
         const ragContext =
           memory.ragHistory.length === 0
@@ -188,11 +244,11 @@ export default function AIChatPage() {
           });
           reply = res.choices?.[0]?.message?.content?.trim() || "I couldn’t generate a response. Please try again.";
         }
+        }
+        upsertMessage(pendingId, { content: reply });
+        addTurnToMemory({ role: "assistant", content: reply });
+        return;
       } else if (plan.primary === "ML_NO_RAG") {
-        // Show a "thinking" bubble while the model generates the response.
-        const pendingId = newId();
-        setMessages((m) => [...m, { id: pendingId, role: "assistant", content: THINKING_TOKEN }]);
-
         try {
           const engine = await getWebLLMEngine();
           const system =
@@ -222,6 +278,9 @@ export default function AIChatPage() {
         }
       } else if (plan.primary === "WEBSITE") {
         reply = answerWebsiteQuestion(prompt, plan);
+        upsertMessage(pendingId, { content: reply });
+        addTurnToMemory({ role: "assistant", content: reply });
+        return;
       } else if (plan.primary === "AMBIGUOUS") {
         try {
           const engine = await getWebLLMEngine();
@@ -259,23 +318,21 @@ export default function AIChatPage() {
           reply =
             "Could you clarify whether you want paper recommendations, an ML explanation, a follow-up on prior results, or help using this site?";
         }
+        upsertMessage(pendingId, { content: reply });
+        addTurnToMemory({ role: "assistant", content: reply });
+        return;
       } else {
         // UNRELATED (no LLM)
         reply = `I'm sorry, but I cannot answer your question "${prompt}" because it is not related to ML 😔 Could you please ask different questions?`;
+        upsertMessage(pendingId, { content: reply });
+        addTurnToMemory({ role: "assistant", content: reply });
+        return;
       }
-
-      const assistantMsg: ChatMessage = { id: newId(), role: "assistant", content: reply };
-      setMessages((m) => [...m, assistantMsg]);
-      addTurnToMemory({ role: "assistant", content: reply });
     } catch (err: unknown) {
       // Never disclose error details in chat.
-      const assistantMsg: ChatMessage = {
-        id: newId(),
-        role: "assistant",
-        content: "Sorry — I couldn’t complete that request.",
-      };
-      setMessages((m) => [...m, assistantMsg]);
-      addTurnToMemory({ role: "assistant", content: "Sorry — I couldn’t complete that request." });
+      const fallback = "Sorry — I couldn’t complete that request.";
+      upsertMessage(pendingId, { content: fallback });
+      addTurnToMemory({ role: "assistant", content: fallback });
     } finally {
       setIsSending(false);
     }
@@ -346,7 +403,7 @@ export default function AIChatPage() {
               >
                 <div className="flex flex-col items-center text-center">
                   <h1 className={`mt-4 text-2xl sm:text-4xl font-bold text-gray-900 ${playfairDisplay.className}`}>
-                    Hi, I’m MLTree LLM Agent
+                    Hi, I’m MLTree LLM Agent (Beta Mode)
                   </h1>
                   <p className="text-sm text-gray-600 mt-2 max-w-2xl">
                     Ask about papers, concepts, or how to use MLBench. Responses run locally in your browser via WebGPU.
@@ -490,7 +547,7 @@ export default function AIChatPage() {
                                   isUser ? "text-white" : "text-gray-950",
                                 ].join(" ")}
                               >
-                                {renderBoldMarkdown(m.content)}
+                                {renderChatRichText(m.content)}
                               </div>
                             )}
                           </div>
