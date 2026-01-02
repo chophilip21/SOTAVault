@@ -30,6 +30,20 @@ export const SECONDARY_TASKS = [
   "FILTER_BY_DATE",
   "COUNT",
   "COMPARE",
+
+  // WEBSITE tasks (template-driven help; no internal details)
+  "WEBSITE_NAVIGATE",
+  "WEBSITE_LOGIN",
+  "WEBSITE_PROFILE",
+  "WEBSITE_BOOKMARKS",
+  "WEBSITE_PAPERS",
+  "WEBSITE_BENCHMARK",
+  "WEBSITE_CONFERENCE",
+  "WEBSITE_AI_CHAT",
+  "WEBSITE_DATA_SOURCES",
+  "WEBSITE_PRIVACY",
+  "WEBSITE_TERMS",
+  "WEBSITE_TROUBLESHOOT",
 ] as const;
 
 export type SecondaryTask = (typeof SECONDARY_TASKS)[number];

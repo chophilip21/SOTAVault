@@ -20,7 +20,7 @@ export default function Header() {
             <div className="flex items-center pl-4 sm:pl-8 lg:pl-16">
               <Link href="/" className="flex items-center">
                 <Image
-                  src="/mltree.png"
+                  src="/logo.png"
                   alt="MLBench Logo"
                   width={120}
                   height={120}

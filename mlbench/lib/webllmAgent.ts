@@ -409,6 +409,14 @@ function heuristicRouteFallback(prompt: string, memory?: RouterMemoryContext): R
   return normalizeRoutePlan({ primary: category, secondary, constraints });
 }
 
+function hasPriorContext(memory?: RouterMemoryContext): boolean {
+  if (!memory) return false;
+  if (memory.summary && memory.summary.trim().length > 0) return true;
+  if ((memory.recentTurns?.length ?? 0) > 0) return true;
+  if ((memory.recentRag?.length ?? 0) > 0) return true;
+  return false;
+}
+
 export async function routePrompt(
   prompt: string,
   opts?: {
@@ -440,13 +448,28 @@ export async function routePrompt(
       '- Use "SUMMARIZE" when the user asks for short summaries/one-liners/overview.',
       '- Use "FILTER_BY_DATE" and set constraints.year_min/year_max or constraints.recency if the user cares about recency/years.',
       '- Set constraints.count when user asks for N items (default can be omitted).',
+    "",
+    "Website help tasks (use these ONLY when primary=WEBSITE):",
+    '- WEBSITE_NAVIGATE: user asks how to find something / where a page is.',
+    '- WEBSITE_LOGIN: login/account access questions.',
+    '- WEBSITE_PROFILE: profile settings / account management.',
+    '- WEBSITE_BOOKMARKS: bookmarking papers / viewing saved items.',
+    '- WEBSITE_PAPERS: how to use Papers page (search/filter).',
+    '- WEBSITE_BENCHMARK: how to use Benchmark page.',
+    '- WEBSITE_CONFERENCE: how to use Conference page.',
+    '- WEBSITE_AI_CHAT: how to use AI Chat.',
+    '- WEBSITE_DATA_SOURCES: where the data comes from (high-level, public info only).',
+    '- WEBSITE_PRIVACY / WEBSITE_TERMS: direct to policy pages.',
+    '- WEBSITE_TROUBLESHOOT: common usage issues (login required, WebGPU requirements, etc).',
       "",
       "Rules:",
       "- Always include exactly one primary.",
       "- Secondary can be an empty array, but MUST be present.",
     "- Do NOT output null values. Omit constraints/fields if unknown.",
-      "- If you are unsure between primaries, choose AMBIGUOUS.",
+    "- Only choose FOLLOW_UP if the provided conversation memory includes prior turns or prior RAG results.",
+    "- If you are unsure between primaries, choose AMBIGUOUS.",
       "- Use UNRELATED only if it is clearly outside ML/app scope.",
+    "- Never reveal private user data, internal code, secrets, security details, or non-public business logic.",
     ].join("\n");
 
   const memoryNote = formatMemoryForRouter(opts?.memory);
@@ -470,6 +493,24 @@ export async function routePrompt(
     const text1 = res1.choices?.[0]?.message?.content ?? "";
     const parsed1 = tryParseRoutePlan(text1);
     if (parsed1) {
+      // Guardrail: FOLLOW_UP is only valid when there is actual prior context.
+      if (parsed1.primary === "FOLLOW_UP" && !hasPriorContext(opts?.memory)) {
+        const fallbackPrimary = heuristicFallback(prompt, opts?.memory).category as PrimaryCapability;
+        const corrected = normalizeRoutePlan({
+          primary: fallbackPrimary,
+          secondary: parsed1.secondary,
+          constraints: parsed1.constraints,
+        });
+        routerDebugGroup(`[router] stage1 corrected FOLLOW_UP→${corrected.primary} (no prior context)`, () => {
+          routerDebugLog("prompt:", prompt);
+          routerDebugLog("memory:", opts?.memory ?? null);
+          routerDebugLog("raw:", text1);
+          routerDebugLog("plan_before:", parsed1);
+          routerDebugLog("plan_after:", corrected);
+        });
+        return corrected;
+      }
+
       routerDebugGroup(`[router] stage1 ok (attempt1) primary=${parsed1.primary}`, () => {
         routerDebugLog("prompt:", prompt);
         routerDebugLog("memory:", opts?.memory ?? null);
@@ -505,6 +546,24 @@ export async function routePrompt(
     const text2 = res2.choices?.[0]?.message?.content ?? "";
     const parsed2 = tryParseRoutePlan(text2);
     if (parsed2) {
+      // Guardrail: FOLLOW_UP is only valid when there is actual prior context.
+      if (parsed2.primary === "FOLLOW_UP" && !hasPriorContext(opts?.memory)) {
+        const fallbackPrimary = heuristicFallback(prompt, opts?.memory).category as PrimaryCapability;
+        const corrected = normalizeRoutePlan({
+          primary: fallbackPrimary,
+          secondary: parsed2.secondary,
+          constraints: parsed2.constraints,
+        });
+        routerDebugGroup(`[router] stage1 corrected FOLLOW_UP→${corrected.primary} (no prior context)`, () => {
+          routerDebugLog("prompt:", prompt);
+          routerDebugLog("memory:", opts?.memory ?? null);
+          routerDebugLog("raw:", text2);
+          routerDebugLog("plan_before:", parsed2);
+          routerDebugLog("plan_after:", corrected);
+        });
+        return corrected;
+      }
+
       routerDebugGroup(`[router] stage1 ok (attempt2) primary=${parsed2.primary}`, () => {
         routerDebugLog("prompt:", prompt);
         routerDebugLog("memory:", opts?.memory ?? null);

@@ -1,11 +1,14 @@
 "use client";
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { embedQuery, getWebLLMEngine, routePrompt } from "@/lib/webllmAgent";
+import { getWebLLMEngine, routePrompt } from "@/lib/webllmAgent";
 import { routerDebugGroup, routerDebugLog } from "@/lib/routerDebug";
 import Image from "next/image";
 import { useChatMemory } from "./useChatMemory";
-import type { ChatMessage, RerankResponse, VectorSearchHit, VectorSearchResponse } from "./types";
+import type { ChatMessage } from "./types";
+import { RagHitsBubble } from "./components/RagHitsBubble";
+import { useRagSearch } from "./useRagSearch";
+import { answerWebsiteQuestion } from "./websiteNavigator";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -101,6 +104,8 @@ export default function AIChatPage() {
     setMessages((ms) => ms.map((m) => (m.id === id ? { ...m, ...next } : m)));
   }
 
+  const { runRagSearch } = useRagSearch({ newId, setMessages, upsertMessage, addTurnToMemory, recordRagMemory });
+
   async function handleSend(nextPrompt?: string) {
     const prompt = (nextPrompt ?? input).trim();
     if (!prompt || isSending || engineState.state !== "ready") return;
@@ -114,7 +119,10 @@ export default function AIChatPage() {
 
     try {
       // Stage 1: router plan (primary capability + secondary tasks + constraints)
-      const routerMemory = buildRouterMemorySnapshot({ role: "user", content: prompt });
+      // IMPORTANT: do NOT include the current prompt as an "extra turn" in router memory.
+      // At this point the memory state update from addTurnToMemory() may not have committed yet,
+      // and including the current prompt can make stage-1 think this is a FOLLOW_UP.
+      const routerMemory = buildRouterMemorySnapshot();
       const plan = await routePrompt(prompt, { memory: routerMemory });
       routerDebugGroup(`[router] stage2 execute primary=${plan.primary}`, () => {
         routerDebugLog("plan:", plan);
@@ -124,221 +132,7 @@ export default function AIChatPage() {
       let reply = "";
 
       if (plan.primary === "RAG_SEARCH") {
-        // Show an animated "vector search" bubble while we embed + query.
-        const pendingId = newId();
-        setMessages((m) => [...m, { id: pendingId, role: "assistant", content: VECTOR_SEARCHING_TOKEN }]);
-
-        let embedding: number[] | null = null;
-        try {
-          // Client-side: clean + embed, then send vector to backend find_nearest.
-          const searchQuery = (plan.constraints?.domain || prompt).toString();
-          embedding = await embedQuery(searchQuery);
-          routerDebugGroup("[router] stage2 RAG_SEARCH", () => {
-            routerDebugLog("searchQuery:", searchQuery);
-            routerDebugLog("secondary:", plan.secondary);
-            routerDebugLog("constraints:", plan.constraints ?? null);
-          });
-          const url = new URL(`${window.location.origin}/api/backend/search/vector`);
-          const requestedCount1 = typeof plan.constraints?.count === "number" ? plan.constraints?.count : null;
-          const wantCount = requestedCount1 && requestedCount1 > 0 ? Math.min(20, requestedCount1) : 5;
-          const res = await fetch(url.toString(), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ embedding, limit: Math.max(20, wantCount) }),
-            cache: "no-store",
-          });
-
-          if (!res.ok) {
-            // Never surface backend errors in the chat bubble. Backend logs contain details.
-            throw new Error("VECTOR_SEARCH_FAILED");
-          }
-
-          const data = (await res.json()) as VectorSearchResponse;
-          const hits = (data.items || []).slice(0, 20);
-          if (hits.length === 0) {
-            reply = "I couldn't find any relevant papers for that query. Try rephrasing with a more specific topic.";
-          } else {
-            reply = "Here are the most relevant papers I found:";
-          }
-
-          // Stage-2 screening / rerank: let the LLM pick the best 5 from the embedding candidates.
-          // If this fails, fall back to first 5 by vector distance order.
-          let picked: VectorSearchHit[] = hits;
-          try {
-            const engine = await getWebLLMEngine();
-            const wantsRecent =
-              plan.constraints?.recency === "recent" || /\brecent\b|\blatest\b|\bnewest\b|\b202\d\b/i.test(prompt);
-
-            const candidates = hits.map((h) => ({
-              id: h.paper.id,
-              title: h.paper.title,
-              year: h.paper.year ?? null,
-              abstract: (h.paper.abstract ?? "").slice(0, 240),
-            }));
-
-            const schema = JSON.stringify({
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                ids: {
-                  type: "array",
-                  items: { type: "string" },
-                  minItems: 1,
-                  maxItems: 5,
-                },
-              },
-              required: ["ids"],
-            });
-
-            const sys = [
-              "You are a strict reranker for ML paper search results.",
-              "Given the user query and a list of candidate papers, select up to 5 paper IDs that best match the user's intent.",
-              "Return ONLY JSON matching the schema. No extra text.",
-              "",
-              "Ranking rules:",
-              "- Prefer strong topical match to the query.",
-              "- If the user asks for 'recent/latest/newest', prefer higher year when relevance is similar.",
-              "- If candidates are off-topic, do not select them.",
-            ].join("\n");
-
-            const user = JSON.stringify({
-              query: prompt,
-              wants_recent: wantsRecent,
-              candidates,
-            });
-
-            const r = await (engine as any).chat.completions.create({
-              messages: [
-                { role: "system", content: sys },
-                { role: "user", content: user },
-              ],
-              temperature: 0,
-              top_p: 1,
-              max_tokens: 120,
-              response_format: { type: "json_object", schema },
-            });
-
-            const raw = r?.choices?.[0]?.message?.content ?? "";
-            const parsed = JSON.parse(raw) as RerankResponse;
-            const idSet = new Set((parsed.ids || []).filter(Boolean));
-            const ordered = hits.filter((h) => idSet.has(h.paper.id));
-            if (ordered.length > 0) picked = ordered;
-          } catch {
-            // ignore rerank failures; keep fallback
-          }
-
-          const requestedCount2 = typeof plan.constraints?.count === "number" ? plan.constraints?.count : null;
-          const k = requestedCount2 && requestedCount2 > 0 ? Math.min(10, requestedCount2) : 5;
-          const topHits = picked.slice(0, k);
-          // Replace searching bubble with a structured "hits" bubble (top 5).
-          upsertMessage(pendingId, { content: reply, ragHits: topHits });
-
-          // Optional task: one-line summaries per paper (if requested).
-          if (plan.secondary?.includes("SUMMARIZE") && topHits.length > 0) {
-            try {
-              const engine = await getWebLLMEngine();
-              const schema = JSON.stringify({
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  summaries: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      additionalProperties: false,
-                      properties: {
-                        id: { type: "string" },
-                        summary: { type: "string" },
-                      },
-                      required: ["id", "summary"],
-                    },
-                    minItems: 1,
-                    maxItems: 10,
-                  },
-                },
-                required: ["summaries"],
-              });
-
-              const sys = [
-                "You write extremely short, factual, one-line summaries of papers.",
-                "Use ONLY the provided title/year/abstract snippets; do not invent details.",
-                "Return ONLY JSON matching the schema.",
-              ].join("\n");
-
-              const user = JSON.stringify({
-                query: plan.constraints?.domain || prompt,
-                papers: topHits.map((h) => ({
-                  id: h.paper.id,
-                  title: h.paper.title,
-                  year: h.paper.year ?? null,
-                  abstract: (h.paper.abstract ?? "").slice(0, 600),
-                })),
-              });
-
-              const r = await (engine as any).chat.completions.create({
-                messages: [
-                  { role: "system", content: sys },
-                  { role: "user", content: user },
-                ],
-                temperature: 0.2,
-                top_p: 0.9,
-                max_tokens: 420,
-                response_format: { type: "json_object", schema },
-              });
-
-              const raw = r.choices?.[0]?.message?.content ?? "";
-              const parsed = JSON.parse(raw || "{}") as any;
-              const list = Array.isArray(parsed?.summaries) ? parsed.summaries : [];
-              const byId = new Map<string, string>();
-              for (const it of list) {
-                if (it?.id && typeof it?.summary === "string") byId.set(String(it.id), String(it.summary).trim());
-              }
-
-              const lines = topHits
-                .map((h, idx) => {
-                  const s = byId.get(h.paper.id);
-                  return s ? `${idx + 1}. ${h.paper.title} — ${s}` : null;
-                })
-                .filter(Boolean)
-                .join("\n");
-
-              if (lines) {
-                // Add a second assistant message with the summaries to keep the structured ragHits bubble clean.
-                const summaryMsg = { id: newId(), role: "assistant" as const, content: lines };
-                setMessages((m) => [...m, summaryMsg]);
-                addTurnToMemory({ role: "assistant", content: lines });
-              }
-            } catch {
-              // ignore summary failures; keep search results
-            }
-          }
-
-          // Keep RAG context for follow-ups.
-          recordRagMemory({
-            query: searchQuery,
-            hits: topHits.map((h) => ({
-              id: h.paper.id,
-              title: h.paper.title,
-              year: h.paper.year ?? null,
-              abstract: h.paper.abstract,
-              distance: h.distance ?? null,
-            })),
-            embedding: embedding ? [...embedding] : undefined,
-            createdAt: Date.now(),
-          });
-          addTurnToMemory({ role: "assistant", content: reply });
-          return; // IMPORTANT: avoid also appending a second assistant message below
-        } catch {
-          // Never show the error details in the UI.
-          reply = "I couldn’t run paper search right now. Please try again later.";
-        } finally {
-          // Free up embedding memory as soon as possible.
-          if (embedding) embedding.length = 0;
-        }
-
-        // Replace the searching bubble with the final reply.
-        upsertMessage(pendingId, { content: reply, ragHits: undefined });
-        addTurnToMemory({ role: "assistant", content: reply });
+        await runRagSearch({ prompt, plan, vectorSearchingToken: VECTOR_SEARCHING_TOKEN });
         return; // IMPORTANT: avoid also appending a second assistant message below
       } else if (plan.primary === "FOLLOW_UP") {
         const recentTurns = [...memory.recentTurns, { role: "user" as const, content: prompt }].slice(-10);
@@ -427,7 +221,7 @@ export default function AIChatPage() {
           return;
         }
       } else if (plan.primary === "WEBSITE") {
-        reply = "This part will be done later.";
+        reply = answerWebsiteQuestion(prompt, plan);
       } else if (plan.primary === "AMBIGUOUS") {
         try {
           const engine = await getWebLLMEngine();
@@ -577,6 +371,7 @@ export default function AIChatPage() {
                 {/* Samples */}
                 <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {SAMPLE_QUERIES.map((q, idx) => {
+                    const samplesDisabled = engineState.state !== "ready";
                     const gradient =
                       idx === 0
                         ? "from-emerald-400/25 via-teal-400/15 to-sky-400/20"
@@ -588,16 +383,22 @@ export default function AIChatPage() {
                       <button
                         key={q}
                         type="button"
+                        disabled={samplesDisabled}
                         onClick={() => {
+                          if (samplesDisabled) return;
                           setInput(q);
-                          if (engineState.state === "ready") {
-                            void handleSend(q);
-                          }
+                          void handleSend(q);
                         }}
-                        className={`text-left rounded-2xl border border-white/70 bg-gradient-to-br ${gradient} hover:brightness-[1.02] transition shadow-sm px-4 py-3`}
+                        className={[
+                          "text-left rounded-2xl border border-white/70 bg-gradient-to-br transition shadow-sm px-4 py-3",
+                          gradient,
+                          samplesDisabled ? "opacity-60 cursor-not-allowed" : "hover:brightness-[1.02]",
+                        ].join(" ")}
                       >
                         <div className="text-sm font-semibold text-gray-900 line-clamp-2">{q}</div>
-                        <div className="text-xs text-gray-700/80 mt-1">Try this</div>
+                        <div className="text-xs text-gray-700/80 mt-1">
+                          {samplesDisabled ? "Loading model…" : "Try this"}
+                        </div>
                       </button>
                     );
                   })}
@@ -681,68 +482,7 @@ export default function AIChatPage() {
                                 </span>
                               </div>
                             ) : hasRagHits ? (
-                              <div className="space-y-3">
-                                <div className="font-semibold text-gray-950">{m.content}</div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                  {(() => {
-                                    const hits = m.ragHits!;
-                                    // Rank strictly by vector distance (closest = 1). If distance is missing, treat as worst.
-                                    const ranked = [...hits].sort((a, b) => {
-                                      const da = a.distance ?? Number.POSITIVE_INFINITY;
-                                      const db = b.distance ?? Number.POSITIVE_INFINITY;
-                                      if (da !== db) return da - db;
-                                      return a.paper.id.localeCompare(b.paper.id);
-                                    });
-                                    const rankById = new Map<string, number>();
-                                    ranked.forEach((h, idx) => rankById.set(h.paper.id, idx + 1));
-
-                                    // Render in sorted order so the visual order matches the rank numbers.
-                                    return ranked.map((h) => {
-                                      const p = h.paper;
-                                      const href = `/papers/${p.id}`;
-                                      const rank = rankById.get(p.id) ?? 0;
-                                      return (
-                                        <a
-                                          key={p.id}
-                                          href={href}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="group relative rounded-2xl border border-white/70 bg-gradient-to-br from-white/70 to-white/50 hover:from-white/90 hover:to-white/70 transition shadow-sm px-3.5 py-3"
-                                          title={`${p.title}${
-                                            typeof h.distance === "number" ? ` (distance: ${h.distance.toFixed(4)})` : ""
-                                          }`}
-                                        >
-                                          <div className="flex items-start gap-2">
-                                            <div
-                                              className="mt-0.5 w-8 h-8 rounded-xl bg-gradient-to-br from-fuchsia-500 to-indigo-500 text-white flex items-center justify-center shadow-sm shrink-0 ring-2 ring-white/70"
-                                              aria-label={`Distance rank ${rank}`}
-                                              title={`Distance rank ${rank}${
-                                                typeof h.distance === "number" ? ` (distance: ${h.distance.toFixed(4)})` : ""
-                                              }`}
-                                            >
-                                              <span className="text-sm font-extrabold tabular-nums">{rank || "–"}</span>
-                                            </div>
-                                            <div className="min-w-0">
-                                              <div className="text-xs font-semibold text-gray-900 line-clamp-2 group-hover:text-gray-950">
-                                                {p.title}
-                                              </div>
-                                              <div className="mt-1 flex items-center gap-2 text-[11px] text-gray-600">
-                                                {p.year ? (
-                                                  <span className="tabular-nums">{p.year}</span>
-                                                ) : (
-                                                  <span className="text-gray-500">Paper</span>
-                                                )}
-                                                <span className="text-gray-300">•</span>
-                                                <span className="text-gray-500 group-hover:text-gray-600">Open in new tab</span>
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </a>
-                                      );
-                                    });
-                                  })()}
-                                </div>
-                              </div>
+                              <RagHitsBubble title={m.content} hits={m.ragHits!} />
                             ) : (
                               <div
                                 className={[
