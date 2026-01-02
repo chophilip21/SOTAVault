@@ -96,6 +96,8 @@ function topicHeuristic(prompt: string): WebsiteTopic {
     ])
   )
     return "DATA_SOURCES";
+  // More general pattern: "where/how ... data ... (gather/collect/source)"
+  if (/\b(where|how)\b[\s\S]{0,80}\b(data|dataset|source|collected|collection|gather|gathered)\b/.test(p)) return "DATA_SOURCES";
   if (includesAny(p, ["bookmark", "saved", "save this", "favorites"])) return "BOOKMARKS";
   if (includesAny(p, ["profile", "account settings", "edit profile"])) return "PROFILE";
   if (includesAny(p, ["login", "log in", "sign in", "sign-in", "auth"])) return "LOGIN";
@@ -161,6 +163,8 @@ export function answerWebsiteQuestion(prompt: string, plan?: RoutePlan): string 
   const p = norm(prompt);
   const wantsConference = includesAny(p, ["conference", "conferences"]);
   const wantsBookmarks = includesAny(p, ["bookmark", "bookmarks", "saved", "favorites"]);
+  const wantsPaperMetadata = includesAny(p, ["paper", "papers", "metadata", "venue", "venues", "conference", "conferences"]);
+  const mentionsAccountData = includesAny(p, ["account", "profile", "login", "log in", "sign in", "bookmark", "bookmarks", "user data"]);
 
   const nav = [
     "Here’s the quickest way to get around MLBench:",
@@ -209,26 +213,32 @@ export function answerWebsiteQuestion(prompt: string, plan?: RoutePlan): string 
         linksBlock([{ label: "Terms & Conditions", path: "/terms" }]),
       ].join("\n");
     case "DATA_SOURCES":
+      // If the user explicitly asks about papers/conferences, assume they mean paper/conference metadata.
+      if (wantsPaperMetadata && !mentionsAccountData) {
+        return [
+          "MLBench’s **papers and conferences** are built from **publicly available research metadata** (titles/abstracts/venues/years/links).",
+          "We also acknowledge sources like **arXiv** and the legacy **Papers with Code** dataset, plus information from **conference pages**.",
+          "",
+          "For attribution and details, see:",
+          linksBlock([{ label: "Acknowledgements", path: "/acknowledgement" }]),
+          "",
+          "For privacy/retention details (e.g., account/usage data), see:",
+          linksBlock([
+            { label: "Privacy Policy", path: "/privacy" },
+            { label: "Terms & Conditions", path: "/terms" },
+          ]),
+        ].join("\n");
+      }
+
+      // Otherwise, ask a concise clarification.
       return [
         "At a high level, MLBench is built around **publicly available research metadata** (e.g., titles/abstracts/venues/years/links).",
         "We also acknowledge sources like **arXiv** and the legacy **Papers with Code** dataset.",
         "",
-        "There are a few different “data types” people usually mean:",
-        "- **Paper metadata**: bibliographic info and links from public sources.",
-        "- **User account data**: what you provide when you sign in (and things you save, like bookmarks).",
-        "- **Usage/technical data**: basic analytics/technical info used to operate the site.",
-        "",
-        "For full details and attribution, see:",
+        "For attribution and details, see:",
         linksBlock([{ label: "Acknowledgements", path: "/acknowledgement" }]),
         "",
-        "For the authoritative details on what’s collected and how it’s used/retained, please see:",
-        "",
-        linksBlock([
-          { label: "Privacy Policy", path: "/privacy" },
-          { label: "Terms & Conditions", path: "/terms" },
-        ]),
-        "",
-        "Which one did you mean: **paper metadata** or **your account data**?",
+        "Did you mean **paper/conference metadata**, or **your account data** (login/profile/bookmarks)?",
       ].join("\n");
     case "LOGIN":
       return [

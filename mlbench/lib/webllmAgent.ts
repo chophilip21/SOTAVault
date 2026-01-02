@@ -472,6 +472,17 @@ function websiteSecondaryFromPrompt(prompt: string): RoutePlan["secondary"] {
   return Array.from(new Set(sec));
 }
 
+function looksLikeWebsiteDataSourceQuestion(prompt: string): boolean {
+  const p = prompt.toLowerCase();
+  // Strong signal: user is asking about how the site/app obtained or gathers its data.
+  const asksHowData = /\b(where|how)\b[\s\S]{0,80}\b(data|dataset|source|collected|collection|gather|gathered)\b/.test(p);
+  const aboutUs = /\b(mlbench|mltree|this website|this site|your website|your site|your app|this app)\b/.test(p);
+  const aboutYou = /\b(you|your)\b/.test(p);
+  // Accept "you/your" as referring to the website/app; that's common in chat UI.
+  const likely = asksHowData && (aboutUs || aboutYou);
+  return likely;
+}
+
 export async function routePrompt(
   prompt: string,
   opts?: {
@@ -480,11 +491,28 @@ export async function routePrompt(
     memory?: RouterMemoryContext;
   }
 ): Promise<RoutePlan> {
+  // Deterministic fast-path: users often say "your website" / "you" when asking about data sources.
+  // This should NEVER route to RAG_SEARCH or generic WEBSITE_PAPERS help.
+  if (looksLikeWebsiteDataSourceQuestion(prompt)) {
+    const plan = normalizeRoutePlan({
+      primary: "WEBSITE",
+      secondary: Array.from(new Set(websiteSecondaryFromPrompt(prompt).concat(["WEBSITE_DATA_SOURCES"]))),
+      constraints: { domain: prompt.slice(0, 240) },
+    });
+    routerDebugGroup("[router] stage1 fast-path WEBSITE_DATA_SOURCES", () => {
+      routerDebugLog("prompt:", prompt);
+      routerDebugLog("memory:", opts?.memory ?? null);
+      routerDebugLog("plan:", plan);
+    });
+    return plan;
+  }
+
   try {
     const engine = await getWebLLMEngine(opts?.initProgressCallback);
 
     const system = [
       "You are a router for MLBench. You must output a RoutePlan JSON object for how the app should handle the user's message.",
+      "You represent the MLTree/MLBench website. If the user says 'you' or 'your', interpret it as referring to this website/app.",
       "",
       "Return ONLY a JSON object that matches this schema:",
       ROUTE_PLAN_SCHEMA,
@@ -523,6 +551,7 @@ export async function routePrompt(
       "- Do NOT output null values. Omit constraints/fields if unknown.",
       "- Only choose FOLLOW_UP if the provided conversation memory includes prior turns or prior RAG results AND the user is referring back.",
       "- Even if memory exists, if the user asks a NEW standalone question (topic shift), choose the appropriate primary (e.g., WEBSITE) instead of FOLLOW_UP.",
+      "- If the user asks how the website/app got its data (sources/collection), choose WEBSITE with WEBSITE_DATA_SOURCES (even if they mention 'papers' or 'conferences').",
       "- If you are unsure between primaries, choose AMBIGUOUS.",
       "- Use UNRELATED only if it is clearly outside ML/app scope.",
       "- Never reveal private user data, internal code, secrets, security details, or non-public business logic.",
@@ -598,6 +627,23 @@ export async function routePrompt(
           constraints: parsed1.constraints,
         });
         routerDebugGroup("[router] stage1 corrected UNRELATED→WEBSITE", () => {
+          routerDebugLog("prompt:", prompt);
+          routerDebugLog("memory:", opts?.memory ?? null);
+          routerDebugLog("raw:", text1);
+          routerDebugLog("plan_before:", parsed1);
+          routerDebugLog("plan_after:", corrected);
+        });
+        return corrected;
+      }
+
+      // Guardrail: website data-source questions should never route to RAG_SEARCH.
+      if (parsed1.primary === "RAG_SEARCH" && looksLikeWebsiteDataSourceQuestion(prompt)) {
+        const corrected = normalizeRoutePlan({
+          primary: "WEBSITE",
+          secondary: Array.from(new Set(websiteSecondaryFromPrompt(prompt).concat(["WEBSITE_DATA_SOURCES"]))),
+          constraints: parsed1.constraints,
+        });
+        routerDebugGroup("[router] stage1 corrected RAG_SEARCH→WEBSITE_DATA_SOURCES", () => {
           routerDebugLog("prompt:", prompt);
           routerDebugLog("memory:", opts?.memory ?? null);
           routerDebugLog("raw:", text1);
@@ -690,6 +736,23 @@ export async function routePrompt(
           constraints: parsed2.constraints,
         });
         routerDebugGroup("[router] stage1 corrected UNRELATED→WEBSITE", () => {
+          routerDebugLog("prompt:", prompt);
+          routerDebugLog("memory:", opts?.memory ?? null);
+          routerDebugLog("raw:", text2);
+          routerDebugLog("plan_before:", parsed2);
+          routerDebugLog("plan_after:", corrected);
+        });
+        return corrected;
+      }
+
+      // Guardrail: website data-source questions should never route to RAG_SEARCH.
+      if (parsed2.primary === "RAG_SEARCH" && looksLikeWebsiteDataSourceQuestion(prompt)) {
+        const corrected = normalizeRoutePlan({
+          primary: "WEBSITE",
+          secondary: Array.from(new Set(websiteSecondaryFromPrompt(prompt).concat(["WEBSITE_DATA_SOURCES"]))),
+          constraints: parsed2.constraints,
+        });
+        routerDebugGroup("[router] stage1 corrected RAG_SEARCH→WEBSITE_DATA_SOURCES", () => {
           routerDebugLog("prompt:", prompt);
           routerDebugLog("memory:", opts?.memory ?? null);
           routerDebugLog("raw:", text2);
