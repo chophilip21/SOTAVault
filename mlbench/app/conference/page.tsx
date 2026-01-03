@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 
@@ -169,6 +170,7 @@ export default function ConferencePage() {
   const [selectedVenue, setSelectedVenue] = useState<VenueWithSeries | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const searchParams = useSearchParams();
 
   // Temporary filter states (not yet applied)
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -213,6 +215,10 @@ export default function ConferencePage() {
   };
 
   useEffect(() => {
+    // Allow deep-linking from global search (/conference?q=...)
+    const q = (searchParams.get("q") || "").trim();
+    if (q) setSearchQuery(q);
+
     // Fetch series first (cached), then venues
     const init = async () => {
       const series = await fetchAllSeries();
