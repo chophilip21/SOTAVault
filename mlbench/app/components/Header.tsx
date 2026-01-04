@@ -143,7 +143,9 @@ export default function Header() {
                     if (e.key === "Enter") submitSearch();
                     if (e.key === "Escape") setSuggestionsOpen(false);
                   }}
-                  className="w-full px-3 sm:px-4 py-1.5 sm:py-2 pl-8 sm:pl-10 pr-4 text-sm bg-gray-100 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  className={`w-full px-3 sm:px-4 py-1.5 sm:py-2 pl-8 sm:pl-10 pr-4 text-sm border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors ${
+                    query.trim().length > 0 ? "bg-white" : "bg-gray-100"
+                  }`}
                 />
                 <svg
                   className="absolute left-2 sm:left-3 top-1.5 sm:top-2.5 h-4 w-4 sm:h-5 sm:w-5 text-gray-400"

@@ -99,6 +99,12 @@ export default function BenchmarkPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Benchmark[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchDebounceRef = useRef<number | null>(null);
+  const MIN_CHARS = 3;
+  const DEBOUNCE_MS = 350;
   
   // Temporary filter states (not yet applied)
   const [selectedDomain, setSelectedDomain] = useState("");
@@ -181,6 +187,61 @@ export default function BenchmarkPage() {
     setCurrentCursor(null);
   }, []);
 
+  // Debounced Meilisearch-backed dataset search for benchmark tab.
+  useEffect(() => {
+    const q = searchQuery.trim();
+
+    if (q.length < MIN_CHARS) {
+      searchAbortRef.current?.abort();
+      if (searchDebounceRef.current) window.clearTimeout(searchDebounceRef.current);
+      setSearchLoading(false);
+      setSearchResults(null);
+      return;
+    }
+
+    if (searchDebounceRef.current) window.clearTimeout(searchDebounceRef.current);
+    searchAbortRef.current?.abort();
+
+    searchDebounceRef.current = window.setTimeout(() => {
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+      setSearchLoading(true);
+      setSearchResults(null);
+
+      const searchUrl = new URL(`${getBackendBaseUrl()}/search/datasets_meili`);
+      searchUrl.searchParams.set("q", q);
+      searchUrl.searchParams.set("limit", "80");
+      searchUrl.searchParams.set("min_chars", String(MIN_CHARS));
+
+      fetch(searchUrl.toString(), { signal: controller.signal })
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`datasets_meili ${res.status}`))))
+        .then((json: { query: string; hits: Array<{ id: string }> }) => {
+          const ids = (json.hits || []).map((h) => h.id).filter(Boolean);
+          if (ids.length === 0) {
+            setSearchResults([]);
+            return;
+          }
+
+          const bulkUrl = new URL(`${getBackendBaseUrl()}/datasets/bulk`);
+          ids.forEach((id) => bulkUrl.searchParams.append("ids", id));
+          return fetch(bulkUrl.toString(), { signal: controller.signal })
+            .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`datasets_bulk ${res.status}`))))
+            .then((data: BenchmarksResponse) => {
+              setSearchResults(data.items || []);
+            });
+        })
+        .catch((err) => {
+          if (err?.name === "AbortError") return;
+          setSearchResults([]);
+        })
+        .finally(() => setSearchLoading(false));
+    }, DEBOUNCE_MS);
+
+    return () => {
+      if (searchDebounceRef.current) window.clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchQuery]);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -198,9 +259,11 @@ export default function BenchmarkPage() {
   const handleApplyFilters = () => {
     setAppliedDomain(selectedDomain);
     setAppliedTask(selectedTask);
-    fetchPage(null, selectedDomain);
-    setPrevCursors([null]);
-    setCurrentCursor(null);
+    if (searchQuery.trim().length < MIN_CHARS) {
+      fetchPage(null, selectedDomain);
+      setPrevCursors([null]);
+      setCurrentCursor(null);
+    }
   };
 
   const handleClearFilters = () => {
@@ -287,23 +350,19 @@ export default function BenchmarkPage() {
     </div>
   );
 
-  // Filter benchmarks based on search query and applied task filter
-  const filteredBenchmarks = benchmarks.filter((benchmark) => {
-    // Search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      const matchesSearch = (
-        benchmark.name?.toLowerCase().includes(query) ||
-        benchmark.full_name?.toLowerCase().includes(query) ||
-        benchmark.description?.toLowerCase().includes(query) ||
-        benchmark.domain?.toLowerCase().includes(query)
-      );
-      if (!matchesSearch) return false;
-    }
+  const isSearchMode = searchQuery.trim().length >= MIN_CHARS;
+  const listToRender = searchResults !== null ? searchResults : benchmarks;
 
+  // Filter benchmarks based on applied filters (client-side).
+  const filteredBenchmarks = listToRender.filter((benchmark) => {
     // Task filter (client-side) - use applied task
     if (appliedTask && benchmark.task_ids) {
       if (!benchmark.task_ids.includes(appliedTask)) return false;
+    }
+
+    // Domain filter (client-side)
+    if (appliedDomain) {
+      if ((benchmark.domain || "") !== appliedDomain) return false;
     }
 
     return true;
@@ -328,7 +387,9 @@ export default function BenchmarkPage() {
                   placeholder="Search benchmarks..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  className={`w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors ${
+                    searchQuery.trim().length > 0 ? "bg-white" : "bg-gray-100"
+                  }`}
                 />
                 <svg
                   className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
@@ -345,25 +406,37 @@ export default function BenchmarkPage() {
                 </svg>
               </div>
               <div className="flex gap-2 flex-wrap items-center">
-                <select
-                  value={selectedDomain}
-                  onChange={(e) => setSelectedDomain(e.target.value)}
-                  className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
-                >
-                  {DOMAIN_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+                    </svg>
+                  </div>
+                  <select
+                    value={selectedDomain}
+                    onChange={(e) => setSelectedDomain(e.target.value)}
+                    className="px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                  >
+                    {DOMAIN_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 
                 {/* Custom searchable task dropdown */}
                 <div ref={taskDropdownRef} className="relative min-w-[200px]">
                   <button
                     onClick={() => setTaskSearchOpen(!taskSearchOpen)}
                     disabled={tasksLoading}
-                    className="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white disabled:bg-gray-100 text-left flex items-center justify-between"
+                    className="w-full px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white disabled:bg-gray-100 text-left flex items-center justify-between relative"
                   >
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+                      </svg>
+                    </span>
                     <span className="truncate">{getSelectedTaskName()}</span>
                     <svg
                       className={`w-4 h-4 transition-transform ${taskSearchOpen ? 'rotate-180' : ''}`}
@@ -463,12 +536,12 @@ export default function BenchmarkPage() {
           </div>
           </div>
           <div className="flex flex-col gap-2">
-            <Pager align="center" />
+            {!isSearchMode && <Pager align="center" />}
           </div>
         </div>
       </div>
 
-      {loading && (
+      {(loading || searchLoading) && (
         <div className="text-gray-500">Loading benchmarks...</div>
       )}
 
@@ -476,12 +549,16 @@ export default function BenchmarkPage() {
         <div className="text-red-600 text-sm">{error}</div>
       )}
 
-      {!loading && !error && benchmarks.length === 0 && (
+      {!loading && !searchLoading && !error && isSearchMode && (searchResults?.length === 0) && (
+        <div className="text-gray-500">No results found.</div>
+      )}
+
+      {!loading && !searchLoading && !error && !isSearchMode && benchmarks.length === 0 && (
         <div className="text-gray-500">No benchmarks found.</div>
       )}
 
-      {!loading && !error && benchmarks.length > 0 && filteredBenchmarks.length === 0 && (
-        <div className="text-gray-500">No benchmarks match your search.</div>
+      {!loading && !searchLoading && !error && listToRender.length > 0 && filteredBenchmarks.length === 0 && (
+        <div className="text-gray-500">No benchmarks match your filters.</div>
       )}
 
       <div className="space-y-5">
@@ -535,7 +612,7 @@ export default function BenchmarkPage() {
         ))}
       </div>
 
-      <Pager align="center" />
+      {!isSearchMode && <Pager align="center" />}
     </div>
   );
 }
