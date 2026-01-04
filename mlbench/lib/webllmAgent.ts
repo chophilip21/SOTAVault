@@ -12,10 +12,14 @@ import {
   type RoutePlan,
 } from "@/lib/routerSpec";
 import { routerDebugGroup, routerDebugLog } from "@/lib/routerDebug";
+import { config } from "@/lib/config";
 
+type InitProgressReport = Parameters<InitProgressCallback>[0];
 
-//TODO: probably we should not hard code this.
-export const SELECTED_MODEL = "Llama-3.2-1B-Instruct-q4f32_1-MLC";
+// Model configuration - imported from central config
+export const SELECTED_MODEL = config.webllmModel;
+export const SELECTED_EMBED_MODEL = config.webllmEmbedModel;
+export const EMBEDDING_DIM = config.embeddingDim;
 
 export type ScenarioCategory = "RAG_SEARCH" | "ML_NO_RAG" | "FOLLOW_UP" | "WEBSITE" | "AMBIGUOUS" | "UNRELATED";
 
@@ -29,13 +33,6 @@ export type RouterMemoryContext = {
   recentRag?: { query: string; titles: string[] }[];
 };
 
-// Client-side embedding (stage-2 RAG): must match backend vector dimension (384).
-export const EMBEDDING_DIM = 384;
-// NOTE: This must be an MLC embedding model that outputs 384-d vectors compatible with the backend.
-// If you change your backend embedding model, update this too.
-export const SELECTED_EMBED_MODEL =
-  process.env.NEXT_PUBLIC_WEBLLM_EMBED_MODEL || "snowflake-arctic-embed-s-q0f32-MLC-b4";
-
 const ROUTE_PLAN_SCHEMA = buildRoutePlanSchemaJson();
 
 export type { RoutePlan, RouteConstraints, PrimaryCapability };
@@ -43,10 +40,19 @@ export type { RoutePlan, RouteConstraints, PrimaryCapability };
 let enginePromise: Promise<MLCEngineInterface> | null = null;
 let embedEnginePromise: Promise<MLCEngineInterface> | null = null;
 
-async function preflightWebGPU() {
+function reportInit(cb: InitProgressCallback | undefined, progress: number, text: string) {
+  try {
+    cb?.({ progress, text } as InitProgressReport);
+  } catch {
+    // ignore UI callback errors
+  }
+}
+
+async function preflightWebGPU(initProgressCallback?: InitProgressCallback) {
   if (typeof window === "undefined") return;
 
   // Basic environment checks: WebLLM needs WebGPU and a secure context.
+  reportInit(initProgressCallback, 0.01, "Checking HTTPS / secure context");
   const secure = typeof isSecureContext !== "undefined" ? isSecureContext : window.location.protocol === "https:";
   if (!secure) {
     throw new Error(
@@ -58,6 +64,7 @@ async function preflightWebGPU() {
     );
   }
 
+  reportInit(initProgressCallback, 0.03, "Checking WebGPU availability");
   if (!("gpu" in navigator) || !navigator.gpu) {
     throw new Error(
       [
@@ -70,6 +77,7 @@ async function preflightWebGPU() {
 
   // If adapter is null, the browser couldn't find a usable GPU backend.
   // Common causes: old/buggy GPU drivers, running inside VM, remote desktop, or GPU blocklist.
+  reportInit(initProgressCallback, 0.06, "Requesting GPU adapter");
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) {
     throw new Error(
@@ -88,7 +96,8 @@ async function preflightWebGPU() {
 export function getWebLLMEngine(initProgressCallback?: InitProgressCallback) {
   if (!enginePromise) {
     enginePromise = (async () => {
-      await preflightWebGPU();
+      reportInit(initProgressCallback, 0, "Starting WebLLM");
+      await preflightWebGPU(initProgressCallback);
       return await CreateMLCEngine(SELECTED_MODEL, {
         initProgressCallback,
       });
@@ -100,7 +109,8 @@ export function getWebLLMEngine(initProgressCallback?: InitProgressCallback) {
 export function getWebLLMEmbedEngine(initProgressCallback?: InitProgressCallback) {
   if (!embedEnginePromise) {
     embedEnginePromise = (async () => {
-      await preflightWebGPU();
+      reportInit(initProgressCallback, 0, "Starting embedding model");
+      await preflightWebGPU(initProgressCallback);
       return await CreateMLCEngine(SELECTED_EMBED_MODEL, {
         initProgressCallback,
       });

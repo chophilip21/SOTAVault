@@ -19,6 +19,22 @@ function newId() {
 const VECTOR_SEARCHING_TOKEN = "__VECTOR_SEARCHING__";
 const THINKING_TOKEN = "__THINKING__";
 
+function deriveInitStage(progress: number, text: string): string {
+  const t = (text || "").toLowerCase();
+  if (t.includes("secure context") || t.includes("https")) return "Checking HTTPS / secure context";
+  if (t.includes("webgpu") || t.includes("gpu adapter") || t.includes("requesting gpu")) return "Checking WebGPU";
+  if (t.includes("download") || t.includes("fetch") || t.includes("retriev")) return "Downloading model";
+  if (t.includes("cache") || t.includes("indexeddb")) return "Loading from cache";
+  if (t.includes("compil") || t.includes("shader") || t.includes("kernel")) return "Compiling shaders";
+  if (t.includes("warm") || t.includes("prefill") || t.includes("final")) return "Warming up";
+
+  // Fallback by progress when the engine doesn't provide descriptive text.
+  if (progress < 0.08) return "Starting";
+  if (progress < 0.6) return "Downloading model";
+  if (progress < 0.9) return "Compiling & warming up";
+  return "Finalizing";
+}
+
 function renderBoldMarkdown(text: string) {
   // Minimal, safe subset: only supports **bold** (no HTML).
   const parts = text.split("**");
@@ -328,7 +344,7 @@ export default function AIChatPage() {
         addTurnToMemory({ role: "assistant", content: reply });
         return;
       }
-    } catch (err: unknown) {
+    } catch {
       // Never disclose error details in chat.
       const fallback = "Sorry — I couldn’t complete that request.";
       upsertMessage(pendingId, { content: fallback });
@@ -576,7 +592,10 @@ export default function AIChatPage() {
                         <div className="text-left">
                           <div className="text-sm font-semibold text-gray-900">Loading LLM Agent to your browser...</div>
                           <div className="text-xs text-gray-600 mt-0.5">
-                            Initializing the local model
+                            Stage:{" "}
+                            <span className="font-semibold text-gray-800">
+                              {deriveInitStage(engineState.progress, engineState.text)}
+                            </span>
                             <span className="inline-flex w-6 justify-start">
                               <span className="animate-pulse">…</span>
                             </span>
@@ -586,7 +605,7 @@ export default function AIChatPage() {
 
                       <div className="mt-4">
                         <div className="flex items-center justify-between text-[11px] text-gray-600">
-                          <span className="truncate">{engineState.text}</span>
+                          <span className="truncate">Details: {engineState.text}</span>
                           <span className="tabular-nums">{Math.round(engineState.progress * 100)}%</span>
                         </div>
                         <div className="mt-2 h-2 bg-white/70 rounded-full overflow-hidden">

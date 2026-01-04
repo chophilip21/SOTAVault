@@ -21,14 +21,22 @@ export const config = {
   // Firebase Emulator Configuration
   useFirebaseEmulator: process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true",
   firebaseAuthEmulatorHost: process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || "127.0.0.1:9099",
+
+  // WebLLM Model Configuration
+  // Main model for chat/routing tasks
+  webllmModel: process.env.NEXT_PUBLIC_WEBLLM_MODEL || "Llama-3.2-1B-Instruct-q4f32_1-MLC",
+  // Embedding model for RAG (must output 384-d vectors compatible with backend)
+  webllmEmbedModel: process.env.NEXT_PUBLIC_WEBLLM_EMBED_MODEL || "snowflake-arctic-embed-s-q0f32-MLC-b4",
+  // Embedding dimension (must match backend vector dimension)
+  embeddingDim: 384,
 };
 
 // Validate required config in local environment
 if (config.isLocal) {
   if (!config.firebase.apiKey || !config.firebase.projectId) {
-    console.warn("Warning: Firebase configuration may be missing. Check your .env.local file.");
+    console.warn("Warning: Firebase configuration may be missing. Check your backend/.env file.");
   }
   if (!config.backendUrl) {
-    console.warn("Warning: Backend URL is not configured. Check your .env.local file.");
+    console.warn("Warning: Backend URL is not configured. Check your backend/.env file.");
   }
 }
