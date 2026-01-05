@@ -9,7 +9,6 @@ import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import ProtectedLink from "./components/ProtectedLink";
 import { PaperCoverArt } from "./components/PaperCoverArt";
-import { DomainBadge } from "./components/DomainBadge";
 import AuthModal from "./components/AuthModal";
 import { useAuth } from "@/lib/authContext";
 
@@ -631,7 +630,11 @@ export default function Home() {
             >
               <div className="flex items-start gap-3 mb-3">
                 <div className="flex-shrink-0 w-12 h-12 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-                  <DomainBadge domain={dataset.domain} size={24} />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-xs font-semibold text-gray-600">
+                      {(dataset.domain || "DS").slice(0, 2).toUpperCase()}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-base font-semibold text-gray-900 group-hover:text-green-600 transition line-clamp-2">
