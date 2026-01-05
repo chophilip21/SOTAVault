@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
+import { PaperCoverArt } from "../../components/PaperCoverArt";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 
@@ -128,12 +129,13 @@ export default function PaperDetailPage() {
         <div className="space-y-4">
           <div className="flex items-start gap-4">
             <div className="flex-shrink-0 w-24 h-24 relative rounded border border-gray-200 overflow-hidden bg-gray-50">
-              <Image
-                src="/ArXiv_logo_2022.png"
-                alt="Paper thumbnail"
-                fill
-                sizes="96px"
-                className="object-contain p-2"
+              <PaperCoverArt
+                seed={paper.arxiv_id || paper.id}
+                title={paper.title}
+                authors={paper.authors}
+                year={paper.year}
+                className="absolute inset-0"
+                ariaLabel={paper.title ? `Paper cover: ${paper.title}` : "Paper cover"}
               />
             </div>
             <div className="flex-1 space-y-2">

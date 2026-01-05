@@ -8,6 +8,8 @@ import dynamic from "next/dynamic";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import ProtectedLink from "./components/ProtectedLink";
+import { PaperCoverArt } from "./components/PaperCoverArt";
+import { DomainBadge } from "./components/DomainBadge";
 import AuthModal from "./components/AuthModal";
 import { useAuth } from "@/lib/authContext";
 
@@ -22,6 +24,7 @@ interface Paper {
   authors?: string[];
   venue?: string | null;
   year?: number | null;
+  arxiv_id?: string | null;
   bookmark_count?: number;
   created_at?: string;
 }
@@ -82,22 +85,6 @@ interface ConferenceMarker {
   venues: Venue[];
   color: string;
 }
-
-const DOMAIN_ICONS: Record<string, string> = {
-  cv: "/icons/cv.png",
-  nlp: "/icons/nlp.png",
-  audio: "/icons/audio.png",
-  robots: "/icons/robotics.png",
-  time_series: "/icons/timeseries.png",
-  multimodal: "/icons/multi.png",
-  theory: "/icons/theory.png",
-  other: "/icons/cv.png",
-};
-
-const getDomainIcon = (domain?: string): string => {
-  if (!domain) return "/icons/cv.png";
-  return DOMAIN_ICONS[domain] || "/icons/cv.png";
-};
 
 // Simple geocoding function - maps common city names to coordinates
 // For production, you might want to use a proper geocoding service
@@ -564,12 +551,13 @@ export default function Home() {
             >
               <div className="flex items-start gap-3 mb-3">
                 <div className="flex-shrink-0 w-12 h-12 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-                  <Image
-                    src="/ArXiv_logo_2022.png"
-                    alt="Paper thumbnail"
-                    fill
-                    sizes="48px"
-                    className="object-contain p-1.5"
+                  <PaperCoverArt
+                    seed={paper.arxiv_id || paper.id}
+                    title={paper.title}
+                    authors={paper.authors}
+                    year={paper.year}
+                    className="absolute inset-0"
+                    ariaLabel={paper.title ? `Paper cover: ${paper.title}` : "Paper cover"}
                   />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -643,13 +631,7 @@ export default function Home() {
             >
               <div className="flex items-start gap-3 mb-3">
                 <div className="flex-shrink-0 w-12 h-12 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-                  <Image
-                    src={getDomainIcon(dataset.domain)}
-                    alt={`${dataset.domain || 'dataset'} icon`}
-                    fill
-                    sizes="48px"
-                    className="object-contain p-1.5"
-                  />
+                  <DomainBadge domain={dataset.domain} size={24} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-base font-semibold text-gray-900 group-hover:text-green-600 transition line-clamp-2">

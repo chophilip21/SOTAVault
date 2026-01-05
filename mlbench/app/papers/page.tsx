@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { PaperCoverArt } from "../components/PaperCoverArt";
 import { Playfair_Display } from "next/font/google";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
@@ -40,6 +41,7 @@ interface Paper {
   authors?: string[];
   venue?: string | null;
   year?: number | null;
+  arxiv_id?: string | null;
   created_at?: string;
   score?: number;
   task_ids?: string[];
@@ -599,12 +601,13 @@ export default function PapersPage() {
           >
             <div className="flex justify-between items-start gap-4">
               <div className="flex-shrink-0 w-24 h-24 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-                <Image
-                  src="/ArXiv_logo_2022.png"
-                  alt="Paper thumbnail"
-                  fill
-                  sizes="96px"
-                  className="object-contain p-2"
+                <PaperCoverArt
+                  seed={paper.arxiv_id || paper.id}
+                  title={paper.title}
+                  authors={paper.authors}
+                  year={paper.year}
+                  className="absolute inset-0"
+                  ariaLabel={paper.title ? `Paper cover: ${paper.title}` : "Paper cover"}
                 />
               </div>
               <div className="flex-1">
