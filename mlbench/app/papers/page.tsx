@@ -15,6 +15,24 @@ let tasksCache: Task[] | null = null;
 let tasksCacheTime: number | null = null;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
+// Persist Papers tab state so navigating to a paper and back doesn't reset filters/page.
+const PAPERS_STATE_KEY = "mlbench:papers_state:v1";
+const PAPERS_STATE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function hasMeaningfulPapersState(s: any): boolean {
+  if (!s || typeof s !== "object") return false;
+  if (Array.isArray(s.papers) && s.papers.length > 0) return true;
+  if (Array.isArray(s.searchResults)) return true; // search mode explicitly stores an array
+  if (typeof s.searchQuery === "string" && s.searchQuery.trim().length > 0) return true;
+  if (typeof s.currentCursor === "string" && s.currentCursor.length > 0) return true;
+  if (typeof s.nextCursor === "string" && s.nextCursor.length > 0) return true;
+  if (s.hasMore === true) return true;
+  if (typeof s.sortDir === "string" && (s.sortDir === "asc" || s.sortDir === "desc")) return true;
+  if (typeof s.appliedDomain === "string" && s.appliedDomain.length > 0) return true;
+  if (Array.isArray(s.appliedTasks) && s.appliedTasks.length > 0) return true;
+  return false;
+}
+
 const PRESET_TASKS = [
   "face-detection",
   "learning-theory",
@@ -99,6 +117,9 @@ export default function PapersPage() {
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
   const taskDropdownRef = useRef<HTMLDivElement>(null);
+  const skipNextSearchEffectRef = useRef(false);
+  const skipNextSortEffectRef = useRef(false);
+  const persistTimerRef = useRef<number | null>(null);
 
   const fetchPage = async (cursor: string | null, taskIds?: string[]) => {
     setLoading(true);
@@ -164,6 +185,52 @@ export default function PapersPage() {
   };
 
   useEffect(() => {
+    // Best-effort restore of prior state (so Back works even if the route remounts).
+    try {
+      const raw = sessionStorage.getItem(PAPERS_STATE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as any;
+        const ts = Number(parsed?.ts || 0);
+        if (ts && (Date.now() - ts) < PAPERS_STATE_TTL_MS && hasMeaningfulPapersState(parsed)) {
+          // Restore list/search state
+          setPapers(Array.isArray(parsed?.papers) ? parsed.papers : []);
+          setNextCursor(typeof parsed?.nextCursor === "string" ? parsed.nextCursor : null);
+          setPrevCursors(Array.isArray(parsed?.prevCursors) ? parsed.prevCursors : [null]);
+          setCurrentCursor(typeof parsed?.currentCursor === "string" ? parsed.currentCursor : null);
+          setHasMore(Boolean(parsed?.hasMore));
+
+          // Restore filters/sort
+          if (parsed?.sortDir === "asc" || parsed?.sortDir === "desc") {
+            setSortDir(parsed.sortDir);
+            skipNextSortEffectRef.current = true;
+          }
+          setSelectedDomain(typeof parsed?.selectedDomain === "string" ? parsed.selectedDomain : "");
+          setSelectedTasks(Array.isArray(parsed?.selectedTasks) ? parsed.selectedTasks : []);
+          setAppliedDomain(typeof parsed?.appliedDomain === "string" ? parsed.appliedDomain : "");
+          setAppliedTasks(Array.isArray(parsed?.appliedTasks) ? parsed.appliedTasks : []);
+
+          const q = typeof parsed?.searchQuery === "string" ? parsed.searchQuery : "";
+          const sr = Array.isArray(parsed?.searchResults) ? parsed.searchResults : null;
+          if (q) {
+            setSearchQuery(q);
+            setSearchResults(sr);
+            skipNextSearchEffectRef.current = true;
+          }
+
+          const scrollY = Number(parsed?.scrollY || 0);
+          if (Number.isFinite(scrollY) && scrollY > 0) {
+            setTimeout(() => window.scrollTo(0, scrollY), 0);
+          }
+
+          // Still load the task list for dropdown (cached client-side).
+          fetchTasks();
+          return;
+        }
+      }
+    } catch {
+      // ignore restore errors
+    }
+
     fetchPage(null);
     fetchTasks();
     setPrevCursors([null]);
@@ -171,6 +238,10 @@ export default function PapersPage() {
   }, []);
 
   useEffect(() => {
+    if (skipNextSortEffectRef.current) {
+      skipNextSortEffectRef.current = false;
+      return;
+    }
     fetchPage(null);
     setPrevCursors([null]);
     setCurrentCursor(null);
@@ -179,6 +250,10 @@ export default function PapersPage() {
   // Debounced Meilisearch-backed search for papers tab (single-index search).
   useEffect(() => {
     const q = searchQuery.trim();
+    if (skipNextSearchEffectRef.current) {
+      skipNextSearchEffectRef.current = false;
+      return;
+    }
 
     if (q.length < MIN_CHARS) {
       searchAbortRef.current?.abort();
@@ -263,6 +338,12 @@ export default function PapersPage() {
     setAppliedTasks([]);
     setSearchQuery("");
     setTaskSearchQuery("");
+    setSearchResults(null);
+    try {
+      sessionStorage.removeItem(PAPERS_STATE_KEY);
+    } catch {
+      // ignore
+    }
     fetchPage(null, []);
     setPrevCursors([null]);
     setCurrentCursor(null);
@@ -334,6 +415,67 @@ export default function PapersPage() {
     setHasMore(false);
     setSortDir((prev) => (prev === "desc" ? "asc" : "desc"));
   };
+
+  // Persist state for Back/forward nav. Debounced to avoid blocking navigation.
+  useEffect(() => {
+    try {
+      // Avoid persisting a blank state before initial fetch completes.
+      const shouldPersist =
+        papers.length > 0 ||
+        searchResults !== null ||
+        searchQuery.trim().length > 0 ||
+        (currentCursor ?? "") !== "" ||
+        (nextCursor ?? "") !== "" ||
+        hasMore ||
+        appliedDomain !== "" ||
+        appliedTasks.length > 0 ||
+        sortDir !== "desc";
+      if (!shouldPersist) return;
+
+      if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = window.setTimeout(() => {
+        try {
+          const payload = {
+            ts: Date.now(),
+            papers,
+            nextCursor,
+            prevCursors,
+            currentCursor,
+            hasMore,
+            sortDir,
+            selectedDomain,
+            selectedTasks,
+            appliedDomain,
+            appliedTasks,
+            searchQuery,
+            searchResults,
+            scrollY: typeof window !== "undefined" ? window.scrollY : 0,
+          };
+          sessionStorage.setItem(PAPERS_STATE_KEY, JSON.stringify(payload));
+        } catch {
+          // ignore
+        }
+      }, 150);
+    } catch {
+      // ignore
+    }
+    return () => {
+      if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current);
+    };
+  }, [
+    papers,
+    nextCursor,
+    prevCursors,
+    currentCursor,
+    hasMore,
+    sortDir,
+    selectedDomain,
+    selectedTasks,
+    appliedDomain,
+    appliedTasks,
+    searchQuery,
+    searchResults,
+  ]);
 
   const Pager = ({ align }: { align: "right" | "center" }) => (
     <div

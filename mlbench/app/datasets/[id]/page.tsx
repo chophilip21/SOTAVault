@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -23,6 +23,21 @@ interface Dataset {
   paper_count?: number;
   created_at?: string;
   updated_at?: string;
+}
+
+interface Task {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  domain?: string;
+}
+
+interface TasksResponse {
+  items: Task[];
+  limit: number;
+  next_cursor?: string | null;
+  has_more: boolean;
 }
 
 const DOMAIN_ICONS: Record<string, string> = {
@@ -48,6 +63,9 @@ export default function DatasetDetailPage() {
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tasksById, setTasksById] = useState<Record<string, Task>>({});
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [showAllTasks, setShowAllTasks] = useState(false);
 
   useEffect(() => {
     const fetchDataset = async () => {
@@ -74,6 +92,53 @@ export default function DatasetDetailPage() {
       fetchDataset();
     }
   }, [datasetId]);
+
+  const taskIds = dataset?.task_ids || [];
+  const totalTaskCount = taskIds.length;
+  const visibleTaskIds = useMemo(() => {
+    if (showAllTasks) return taskIds;
+    return taskIds.slice(0, 7);
+  }, [taskIds, showAllTasks]);
+
+  // Resolve task_ids -> task names for this dataset.
+  // Performance: only fetch the first 7 initially; fetch all when expanded.
+  useEffect(() => {
+    if (!dataset || visibleTaskIds.length === 0) return;
+
+    const controller = new AbortController();
+    setTasksLoading(true);
+    (async () => {
+      try {
+        // Only request IDs we don't already have.
+        const missing = visibleTaskIds.filter((id) => !tasksById[id]);
+        if (missing.length === 0) return;
+
+        const chunks: string[][] = [];
+        for (let i = 0; i < missing.length; i += 200) chunks.push(missing.slice(i, i + 200));
+
+        for (const chunk of chunks) {
+          const url = new URL(`${getBackendBaseUrl()}/tasks/bulk`);
+          chunk.forEach((id) => url.searchParams.append("ids", id));
+          const res = await fetch(url.toString(), { signal: controller.signal });
+          if (!res.ok) continue;
+          const data: TasksResponse = await res.json();
+          const items = data.items || [];
+          if (items.length === 0) continue;
+          setTasksById((prev) => {
+            const next = { ...prev };
+            for (const t of items) next[t.id] = t;
+            return next;
+          });
+        }
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
+      } finally {
+        setTasksLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [dataset, visibleTaskIds, tasksById]);
 
   if (loading) {
     return (
@@ -120,15 +185,53 @@ export default function DatasetDetailPage() {
             
             <div className="flex flex-wrap gap-2 mt-4">
               {dataset.domain && (
-                <span className="px-3 py-1 text-sm bg-green-100 text-green-800 rounded-full">
+                <span className="px-3 py-1 text-sm bg-gray-100 text-gray-800 rounded-full">
                   {dataset.domain}
                 </span>
               )}
               {dataset.modalities && dataset.modalities.map((modality) => (
-                <span key={modality} className="px-3 py-1 text-sm bg-blue-100 text-blue-800 rounded-full">
+                <span key={modality} className="px-3 py-1 text-sm bg-green-50 text-green-700 border border-green-100 rounded-full">
                   {modality}
                 </span>
               ))}
+              {(dataset.task_ids && dataset.task_ids.length > 0) && (
+                <>
+                  {visibleTaskIds
+                    .map((id) => tasksById[id]?.name)
+                    .filter(Boolean)
+                    .map((name) => (
+                      <span
+                        key={name as string}
+                        className="px-3 py-1 text-sm bg-blue-50 text-blue-700 border border-blue-100 rounded-full"
+                      >
+                        {name as string}
+                      </span>
+                    ))}
+                  {!showAllTasks && totalTaskCount > 7 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllTasks(true)}
+                      className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1 px-1 py-0.5"
+                    >
+                      Show all tasks <span aria-hidden>»</span>
+                    </button>
+                  )}
+                  {showAllTasks && totalTaskCount > 7 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllTasks(false)}
+                      className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1 px-1 py-0.5"
+                    >
+                      <span aria-hidden>«</span> Hide tasks
+                    </button>
+                  )}
+                  {tasksLoading && (
+                    <span className="px-3 py-1 text-sm bg-blue-50 text-blue-400 border border-blue-100 rounded-full">
+                      Loading tasks…
+                    </span>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>

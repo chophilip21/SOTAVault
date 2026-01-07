@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Playfair_Display } from "next/font/google";
@@ -13,6 +13,23 @@ const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] }
 let tasksCache: Task[] | null = null;
 let tasksCacheTime: number | null = null;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Persist Benchmark tab state so navigating to a dataset and back doesn't reset filters/page.
+const BENCHMARK_STATE_KEY = "mlbench:benchmark_state:v1";
+const BENCHMARK_STATE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function hasMeaningfulBenchmarkState(s: any): boolean {
+  if (!s || typeof s !== "object") return false;
+  if (Array.isArray(s.benchmarks) && s.benchmarks.length > 0) return true;
+  if (Array.isArray(s.searchResults)) return true; // search mode explicitly stores an array
+  if (typeof s.searchQuery === "string" && s.searchQuery.trim().length > 0) return true;
+  if (typeof s.currentCursor === "string" && s.currentCursor.length > 0) return true;
+  if (typeof s.nextCursor === "string" && s.nextCursor.length > 0) return true;
+  if (s.hasMore === true) return true;
+  if (typeof s.appliedDomain === "string" && s.appliedDomain.length > 0) return true;
+  if (typeof s.appliedTask === "string" && s.appliedTask.length > 0) return true;
+  return false;
+}
 
 const PRESET_TASKS = [
   "face-detection",
@@ -115,10 +132,16 @@ export default function BenchmarkPage() {
   const [appliedTask, setAppliedTask] = useState("");
   
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [bulkTasksById, setBulkTasksById] = useState<Record<string, Task>>({});
   const [tasksLoading, setTasksLoading] = useState(false);
+  const requestedTaskIdsRef = useRef<Set<string>>(new Set());
+  const missingTaskIdsRef = useRef<Set<string>>(new Set());
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
   const taskDropdownRef = useRef<HTMLDivElement>(null);
+  const restoredRef = useRef(false);
+  const skipNextSearchEffectRef = useRef(false);
+  const persistTimerRef = useRef<number | null>(null);
 
   const fetchPage = async (cursor: string | null, domain?: string) => {
     setLoading(true);
@@ -180,16 +203,172 @@ export default function BenchmarkPage() {
     }
   };
 
+  const fetchTasksBulk = async (taskIds: string[]) => {
+    const unique = Array.from(new Set(taskIds.filter(Boolean)));
+    if (unique.length === 0) return;
+
+    const localKnown = new Set<string>();
+    for (const t of tasks) localKnown.add(t.id);
+    if (tasksCache) for (const t of tasksCache) localKnown.add(t.id);
+    for (const id of Object.keys(bulkTasksById)) localKnown.add(id);
+
+    const missing = unique.filter((id) => !localKnown.has(id) && !requestedTaskIdsRef.current.has(id));
+    if (missing.length === 0) return;
+
+    // Mark as requested up-front to prevent request storms.
+    for (const id of missing) requestedTaskIdsRef.current.add(id);
+
+    const chunks: string[][] = [];
+    for (let i = 0; i < missing.length; i += 200) chunks.push(missing.slice(i, i + 200));
+
+    for (const chunk of chunks) {
+      try {
+        const url = new URL(`${getBackendBaseUrl()}/tasks/bulk`);
+        chunk.forEach((id) => url.searchParams.append("ids", id));
+        const res = await fetch(url.toString());
+        if (!res.ok) {
+          // Allow retry later.
+          for (const id of chunk) requestedTaskIdsRef.current.delete(id);
+          continue;
+        }
+        const data: TasksResponse = await res.json();
+        const items = data.items || [];
+        const returned = new Set(items.map((t) => t.id));
+        // If the backend returns 200 but doesn't include some ids, treat them as missing
+        // so we don't show "Loading tasks…" forever.
+        for (const id of chunk) {
+          if (!returned.has(id)) missingTaskIdsRef.current.add(id);
+        }
+        if (items.length === 0) continue;
+        setBulkTasksById((prev) => {
+          const next = { ...prev };
+          for (const t of items) next[t.id] = t;
+          return next;
+        });
+      } catch {
+        // Allow retry later.
+        for (const id of chunk) requestedTaskIdsRef.current.delete(id);
+      }
+    }
+  };
+
   useEffect(() => {
+    // Best-effort restore of prior state (so Back works even if the route remounts).
+    try {
+      const raw = sessionStorage.getItem(BENCHMARK_STATE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as any;
+        const ts = Number(parsed?.ts || 0);
+        if (ts && (Date.now() - ts) < BENCHMARK_STATE_TTL_MS && hasMeaningfulBenchmarkState(parsed)) {
+          restoredRef.current = true;
+
+          setBenchmarks(Array.isArray(parsed?.benchmarks) ? parsed.benchmarks : []);
+          setNextCursor(typeof parsed?.nextCursor === "string" ? parsed.nextCursor : null);
+          setPrevCursors(Array.isArray(parsed?.prevCursors) ? parsed.prevCursors : [null]);
+          setCurrentCursor(typeof parsed?.currentCursor === "string" ? parsed.currentCursor : null);
+          setHasMore(Boolean(parsed?.hasMore));
+
+          setSelectedDomain(typeof parsed?.selectedDomain === "string" ? parsed.selectedDomain : "");
+          setSelectedTask(typeof parsed?.selectedTask === "string" ? parsed.selectedTask : "");
+          setAppliedDomain(typeof parsed?.appliedDomain === "string" ? parsed.appliedDomain : "");
+          setAppliedTask(typeof parsed?.appliedTask === "string" ? parsed.appliedTask : "");
+
+          const q = typeof parsed?.searchQuery === "string" ? parsed.searchQuery : "";
+          const sr = Array.isArray(parsed?.searchResults) ? parsed.searchResults : null;
+          if (q) {
+            setSearchQuery(q);
+            setSearchResults(sr);
+            // Prevent immediate re-fetch that would wipe restored results.
+            skipNextSearchEffectRef.current = true;
+          }
+
+          const scrollY = Number(parsed?.scrollY || 0);
+          if (Number.isFinite(scrollY) && scrollY > 0) {
+            setTimeout(() => window.scrollTo(0, scrollY), 0);
+          }
+
+          // Still load the task list for the dropdown (cached client-side).
+          fetchTasks();
+          return;
+        }
+      }
+    } catch {
+      // ignore restore errors
+    }
+
     fetchPage(null);
     fetchTasks();
     setPrevCursors([null]);
     setCurrentCursor(null);
   }, []);
 
+  // Persist state for Back/forward nav. Keep it conservative: only store what we need to restore UX.
+  useEffect(() => {
+    try {
+      // Avoid persisting a "blank" state on first mount before initial fetch completes.
+      // Otherwise we can restore emptiness and skip loading on subsequent mounts.
+      const shouldPersist =
+        benchmarks.length > 0 ||
+        searchResults !== null ||
+        searchQuery.trim().length > 0 ||
+        (currentCursor ?? "") !== "" ||
+        (nextCursor ?? "") !== "" ||
+        hasMore ||
+        appliedDomain !== "" ||
+        appliedTask !== "";
+      if (!shouldPersist) return;
+
+      if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = window.setTimeout(() => {
+        try {
+          const payload = {
+            ts: Date.now(),
+            benchmarks,
+            nextCursor,
+            prevCursors,
+            currentCursor,
+            hasMore,
+            selectedDomain,
+            selectedTask,
+            appliedDomain,
+            appliedTask,
+            searchQuery,
+            searchResults,
+            scrollY: typeof window !== "undefined" ? window.scrollY : 0,
+          };
+          sessionStorage.setItem(BENCHMARK_STATE_KEY, JSON.stringify(payload));
+        } catch {
+          // ignore storage errors
+        }
+      }, 150);
+    } catch {
+      // ignore storage errors
+    }
+    return () => {
+      if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current);
+    };
+  }, [
+    benchmarks,
+    nextCursor,
+    prevCursors,
+    currentCursor,
+    hasMore,
+    selectedDomain,
+    selectedTask,
+    appliedDomain,
+    appliedTask,
+    searchQuery,
+    searchResults,
+  ]);
+
   // Debounced Meilisearch-backed dataset search for benchmark tab.
   useEffect(() => {
     const q = searchQuery.trim();
+
+    if (skipNextSearchEffectRef.current) {
+      skipNextSearchEffectRef.current = false;
+      return;
+    }
 
     if (q.length < MIN_CHARS) {
       searchAbortRef.current?.abort();
@@ -273,6 +452,15 @@ export default function BenchmarkPage() {
     setAppliedTask("");
     setSearchQuery("");
     setTaskSearchQuery("");
+    setSearchResults(null);
+    setBulkTasksById({});
+    requestedTaskIdsRef.current = new Set();
+    missingTaskIdsRef.current = new Set();
+    try {
+      sessionStorage.removeItem(BENCHMARK_STATE_KEY);
+    } catch {
+      // ignore
+    }
     fetchPage(null, "");
     setPrevCursors([null]);
     setCurrentCursor(null);
@@ -354,19 +542,88 @@ export default function BenchmarkPage() {
   const listToRender = searchResults !== null ? searchResults : benchmarks;
 
   // Filter benchmarks based on applied filters (client-side).
-  const filteredBenchmarks = listToRender.filter((benchmark) => {
-    // Task filter (client-side) - use applied task
-    if (appliedTask && benchmark.task_ids) {
-      if (!benchmark.task_ids.includes(appliedTask)) return false;
-    }
+  const filteredBenchmarks = useMemo(() => {
+    return listToRender.filter((benchmark) => {
+      // Task filter (client-side) - use applied task
+      if (appliedTask && benchmark.task_ids) {
+        if (!benchmark.task_ids.includes(appliedTask)) return false;
+      }
 
-    // Domain filter (client-side)
-    if (appliedDomain) {
-      if ((benchmark.domain || "") !== appliedDomain) return false;
-    }
+      // Domain filter (client-side)
+      if (appliedDomain) {
+        if ((benchmark.domain || "") !== appliedDomain) return false;
+      }
 
-    return true;
-  });
+      return true;
+    });
+  }, [listToRender, appliedTask, appliedDomain]);
+
+  const taskIdsForBenchmarks = useMemo(() => {
+    const ids: string[] = [];
+    for (const b of filteredBenchmarks) {
+      for (const tid of b.task_ids || []) ids.push(tid);
+    }
+    return ids;
+  }, [filteredBenchmarks]);
+
+  // Best-effort: fetch task names for tasks referenced by the currently displayed benchmarks.
+  useEffect(() => {
+    fetchTasksBulk(taskIdsForBenchmarks);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskIdsForBenchmarks]);
+
+  const taskById: Record<string, Task> = (() => {
+    const out: Record<string, Task> = { ...bulkTasksById };
+    for (const t of tasks) out[t.id] = t;
+    // also merge cached tasks (if present) so we don't depend on state timing
+    if (tasksCache) {
+      for (const t of tasksCache) out[t.id] = t;
+    }
+    return out;
+  })();
+
+  const renderBubbles = (benchmark: Benchmark) => {
+    const modalityBubbles = (benchmark.modalities || []).map((m) => (
+      <span
+        key={`m:${m}`}
+        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100"
+      >
+        {m}
+      </span>
+    ));
+
+    const taskNames = (benchmark.task_ids || [])
+      .map((id) => taskById[id]?.name)
+      .filter(Boolean)
+      .map((name) => formatTaskName(name as string));
+    const uniq = Array.from(new Set(taskNames)).sort((a, b) => a.localeCompare(b));
+    const taskBubbles = uniq.slice(0, 7).map((t) => (
+      <span
+        key={`t:${t}`}
+        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100"
+      >
+        {t}
+      </span>
+    ));
+
+    const hasUnresolvedTasks = (benchmark.task_ids || []).some(
+      (id) => !taskById[id] && !missingTaskIdsRef.current.has(id),
+    );
+
+    if (modalityBubbles.length === 0 && taskBubbles.length === 0) return null;
+
+    return (
+      <div className="mt-3 flex flex-wrap gap-1">
+        {modalityBubbles}
+        {taskBubbles}
+        {taskBubbles.length === 0 && hasUnresolvedTasks && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-400 border border-blue-100">
+            Loading tasks…
+          </span>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -589,11 +846,7 @@ export default function BenchmarkPage() {
                 {benchmark.description && (
                   <p className="text-sm text-gray-700 mt-2 line-clamp-3">{benchmark.description}</p>
                 )}
-                {(benchmark.modalities && benchmark.modalities.length > 0) && (
-                  <p className="text-xs text-gray-500 mt-2">
-                    Modalities: {benchmark.modalities.join(", ")}
-                  </p>
-                )}
+                {renderBubbles(benchmark)}
                 {benchmark.paper_count !== undefined && (
                   <div className="flex gap-4 mt-3 text-sm text-gray-600">
                     <span>{benchmark.paper_count} {benchmark.paper_count === 1 ? 'paper' : 'papers'}</span>
