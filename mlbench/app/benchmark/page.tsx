@@ -503,7 +503,8 @@ export default function BenchmarkPage() {
 
   const handleNext = () => {
     if (!hasMore || !nextCursor) return;
-    setPrevCursors((prev) => [...prev, currentCursor]);
+    // Store the *next page cursor* so "page N" corresponds to a stable cursor.
+    setPrevCursors((prev) => [...prev, nextCursor]);
     fetchPage(nextCursor);
   };
 
@@ -517,6 +518,10 @@ export default function BenchmarkPage() {
     });
   };
 
+  const currentPage = prevCursors.length; // 1-indexed
+  // currentPage is derived from cursor history; cursor-based pagination doesn't support arbitrary page jumps
+  // without precomputing cursors / total counts.
+
   const Pager = ({ align }: { align: "right" | "center" }) => (
     <div
       className={`flex gap-2 ${align === "center" ? "justify-center" : "justify-end"} flex-wrap`}
@@ -524,14 +529,22 @@ export default function BenchmarkPage() {
       <button
         onClick={handlePrev}
         disabled={prevCursors.length <= 1 || loading}
-        className="px-4 py-2 text-sm rounded border border-gray-200 text-gray-700 disabled:opacity-50"
+        className="px-4 py-2 text-sm rounded border border-gray-200 text-gray-700 disabled:opacity-50 enabled:hover:bg-gray-50 enabled:hover:border-gray-300"
       >
         Previous
       </button>
+      <div
+        className="inline-flex items-center justify-center w-9 h-9 rounded bg-cyan-500/80 text-white font-semibold select-none"
+        aria-label={`Current page ${currentPage}`}
+        title={`Page ${currentPage}`}
+        role="status"
+      >
+        {currentPage}
+      </div>
       <button
         onClick={handleNext}
         disabled={!hasMore || loading}
-        className="px-4 py-2 text-sm rounded bg-green-500 text-white disabled:opacity-50"
+        className="px-4 py-2 text-sm rounded bg-green-500 text-white disabled:opacity-50 enabled:hover:bg-green-600"
       >
         Next
       </button>

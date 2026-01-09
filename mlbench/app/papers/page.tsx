@@ -393,8 +393,9 @@ export default function PapersPage() {
 
   const handleNext = () => {
     if (!hasMore || !nextCursor) return;
-    // Store the current cursor so we can go back
-    setPrevCursors((prev) => [...prev, currentCursor]);
+    // Store the *next page cursor* so "page N" corresponds to a stable cursor.
+    // This makes multi-step back navigation and numbered jumping correct.
+    setPrevCursors((prev) => [...prev, nextCursor]);
     fetchPage(nextCursor);
   };
 
@@ -407,6 +408,10 @@ export default function PapersPage() {
       return updated;
     });
   };
+
+  const currentPage = prevCursors.length; // 1-indexed
+  // currentPage is derived from cursor history; cursor-based pagination doesn't support arbitrary page jumps
+  // without precomputing cursors / total counts.
 
   const handleSortToggle = () => {
     setPrevCursors([null]);
@@ -484,14 +489,22 @@ export default function PapersPage() {
       <button
         onClick={handlePrev}
         disabled={prevCursors.length <= 1 || loading}
-        className="px-4 py-2 text-sm rounded border border-gray-200 text-gray-700 disabled:opacity-50"
+        className="px-4 py-2 text-sm rounded border border-gray-200 text-gray-700 disabled:opacity-50 enabled:hover:bg-gray-50 enabled:hover:border-gray-300"
       >
         Previous
       </button>
+      <div
+        className="inline-flex items-center justify-center w-9 h-9 rounded bg-cyan-500/80 text-white font-semibold select-none"
+        aria-label={`Current page ${currentPage}`}
+        title={`Page ${currentPage}`}
+        role="status"
+      >
+        {currentPage}
+      </div>
       <button
         onClick={handleNext}
         disabled={!hasMore || loading}
-        className="px-4 py-2 text-sm rounded bg-green-500 text-white disabled:opacity-50"
+        className="px-4 py-2 text-sm rounded bg-green-500 text-white disabled:opacity-50 enabled:hover:bg-green-600"
       >
         Next
       </button>
@@ -527,7 +540,7 @@ export default function PapersPage() {
             <div>
               <h1 className={`text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>Papers</h1>
               <p className="text-gray-600 text-base mt-3 break-words">
-                Discover the latest papers and groundbreaking research in machine learning and AI.
+                Discover the latest papers and groundbreaking research in machine learing.
               </p>
             </div>
             <div className="flex flex-col gap-2">
