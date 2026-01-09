@@ -53,6 +53,22 @@ interface DatasetsResponse {
   has_more: boolean;
 }
 
+const DOMAIN_ICONS: Record<string, string> = {
+  cv: "/icons/cv.png",
+  nlp: "/icons/nlp.png",
+  audio: "/icons/audio.png",
+  robots: "/icons/robotics.png",
+  time_series: "/icons/timeseries.png",
+  multimodal: "/icons/multi.png",
+  theory: "/icons/theory.png",
+  other: "/icons/cv.png",
+};
+
+const getDomainIcon = (domain?: string): string => {
+  if (!domain) return "/icons/cv.png";
+  return DOMAIN_ICONS[domain] || "/icons/cv.png";
+};
+
 interface VenueTimeline {
   pdf_deadline?: string | null;
 }
@@ -630,11 +646,13 @@ export default function Home() {
             >
               <div className="flex items-start gap-3 mb-3">
                 <div className="flex-shrink-0 w-12 h-12 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-xs font-semibold text-gray-600">
-                      {(dataset.domain || "DS").slice(0, 2).toUpperCase()}
-                    </span>
-                  </div>
+                  <Image
+                    src={getDomainIcon(dataset.domain)}
+                    alt={`${dataset.domain || "dataset"} icon`}
+                    fill
+                    sizes="48px"
+                    className="object-contain p-2"
+                  />
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-base font-semibold text-gray-900 group-hover:text-green-600 transition line-clamp-2">
