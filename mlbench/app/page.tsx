@@ -19,8 +19,7 @@ const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] }
 
 const annoucement_header = `Welcome to MLTree 👋`;
 const description = `
-MLTree is a non-commercial project to help researchers and machine learning enthusiasts around the world to
-discover machine learning conferences, research papers, and benchmark scores on various datasets.
+MLTree is a non-commercial project to help researchers and machine learning enthusiasts discover machine learning conferences, research papers, and benchmark scores on various datasets.
 Stay up-to-date with upcoming deadlines, explore venues worldwide, and access a curated collection
 of impactful research from the ML community.
 `;
@@ -78,22 +77,6 @@ interface DatasetsResponse {
   next_cursor?: string | null;
   has_more: boolean;
 }
-
-const DOMAIN_ICONS: Record<string, string> = {
-  cv: "/icons/cv.png",
-  nlp: "/icons/nlp.png",
-  audio: "/icons/audio.png",
-  robots: "/icons/robotics.png",
-  time_series: "/icons/timeseries.png",
-  multimodal: "/icons/multi.png",
-  theory: "/icons/theory.png",
-  other: "/icons/cv.png",
-};
-
-const getDomainIcon = (domain?: string): string => {
-  if (!domain) return "/icons/cv.png";
-  return DOMAIN_ICONS[domain] || "/icons/cv.png";
-};
 
 interface VenueTimeline {
   pdf_deadline?: string | null;

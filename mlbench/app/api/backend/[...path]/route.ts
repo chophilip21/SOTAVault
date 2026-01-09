@@ -46,7 +46,23 @@ async function proxy(req: NextRequest) {
     redirect: "follow",
   };
 
-  const upstream = await fetch(url, init);
+  let upstream: Response;
+  try {
+    upstream = await fetch(url, init);
+  } catch (e: any) {
+    const detail = e?.message ? String(e.message) : String(e);
+    return new Response(
+      JSON.stringify({
+        error: "Backend is unreachable",
+        backendOrigin: BACKEND_ORIGIN,
+        url: url.toString(),
+        detail,
+        hint:
+          "Start the backend (e.g. `./local.sh`) or set INTERNAL_BACKEND_URL/BACKEND_URL/NEXT_PUBLIC_BACKEND_URL for the frontend.",
+      }),
+      { status: 502, headers: { "content-type": "application/json", "cache-control": "no-store" } }
+    );
+  }
   // FastAPI can be configured to not redirect on missing trailing slashes.
   // Some Next deployments normalize away trailing slashes on incoming requests.
   // If we get a 404, retry once with a trailing slash (GET/HEAD only).
