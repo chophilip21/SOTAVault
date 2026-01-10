@@ -534,7 +534,7 @@ export default function BenchmarkPage() {
         Previous
       </button>
       <div
-        className="inline-flex items-center justify-center w-9 h-9 rounded bg-cyan-500/80 text-white font-semibold select-none"
+        className="inline-flex items-center justify-center w-9 h-9 rounded bg-cyan-500/80 text-white font-serif font-thin select-none"
         aria-label={`Current page ${currentPage}`}
         title={`Page ${currentPage}`}
         role="status"

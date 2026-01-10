@@ -21,6 +21,16 @@ type FuzzySearchResponse = {
   venues: FuzzyHit[];
 };
 
+function stripWrappingQuotes(s: string): string {
+  const t = s.trim();
+  if (t.length >= 2) {
+    if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+      return t.slice(1, -1).trim();
+    }
+  }
+  return t;
+}
+
 export default function Header() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -185,7 +195,7 @@ export default function Header() {
                                   className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
                                   onClick={() => navigateHit(h)}
                                 >
-                                  {(h as any).title || h.id}
+                                  {stripWrappingQuotes((h as any).title || h.id)}
                                 </button>
                               ))}
                             </div>
