@@ -94,6 +94,14 @@ interface TasksResponse {
   has_more: boolean;
 }
 
+type PaperRef = { id: string; title?: string | null };
+type PaperListResponse = {
+  items: PaperRef[];
+  limit: number;
+  next_cursor?: string | null;
+  has_more: boolean;
+};
+
 const DOMAIN_OPTIONS = [
   { value: "", label: "All Domains" },
   { value: "cv", label: "Computer Vision" },
@@ -138,6 +146,11 @@ export default function BenchmarkPage() {
   const missingTaskIdsRef = useRef<Set<string>>(new Set());
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
+
+  // On-demand "papers using this dataset" preview.
+  const [openPapersFor, setOpenPapersFor] = useState<string | null>(null);
+  const [papersByDatasetId, setPapersByDatasetId] = useState<Record<string, PaperRef[]>>({});
+  const [papersLoadingByDatasetId, setPapersLoadingByDatasetId] = useState<Record<string, boolean>>({});
   const taskDropdownRef = useRef<HTMLDivElement>(null);
   const restoredRef = useRef(false);
   const skipNextSearchEffectRef = useRef(false);
@@ -638,6 +651,25 @@ export default function BenchmarkPage() {
     );
   };
 
+  const togglePapersPreview = async (datasetId: string) => {
+    setOpenPapersFor((prev) => (prev === datasetId ? null : datasetId));
+    if (papersByDatasetId[datasetId]) return;
+    if (papersLoadingByDatasetId[datasetId]) return;
+
+    setPapersLoadingByDatasetId((prev) => ({ ...prev, [datasetId]: true }));
+    try {
+      const url = new URL(`${getBackendBaseUrl()}/datasets/${datasetId}/papers`);
+      url.searchParams.set("limit", "6");
+      url.searchParams.set("offset", "0");
+      const res = await fetch(url.toString());
+      if (!res.ok) return;
+      const data: PaperListResponse = await res.json();
+      setPapersByDatasetId((prev) => ({ ...prev, [datasetId]: data.items || [] }));
+    } finally {
+      setPapersLoadingByDatasetId((prev) => ({ ...prev, [datasetId]: false }));
+    }
+  };
+
   return (
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       <div className="bg-gray-50 rounded-2xl p-6 shadow-sm border border-gray-100">
@@ -862,7 +894,45 @@ export default function BenchmarkPage() {
                 {renderBubbles(benchmark)}
                 {benchmark.paper_count !== undefined && (
                   <div className="flex gap-4 mt-3 text-sm text-gray-600">
-                    <span>{benchmark.paper_count} {benchmark.paper_count === 1 ? 'paper' : 'papers'}</span>
+                    <div className="w-full">
+                      <button
+                        type="button"
+                        onClick={() => togglePapersPreview(benchmark.id)}
+                        className="inline-flex items-center gap-2 text-gray-700 hover:text-green-700"
+                        aria-expanded={openPapersFor === benchmark.id}
+                      >
+                        <span>
+                          {benchmark.paper_count} {benchmark.paper_count === 1 ? "paper" : "papers"}
+                        </span>
+                        <span className="text-gray-400" aria-hidden>
+                          {openPapersFor === benchmark.id ? "▴" : "▾"}
+                        </span>
+                      </button>
+
+                      {openPapersFor === benchmark.id && (
+                        <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                          {papersLoadingByDatasetId[benchmark.id] ? (
+                            <div className="text-sm text-gray-500">Loading papers…</div>
+                          ) : (papersByDatasetId[benchmark.id] || []).length === 0 ? (
+                            <div className="text-sm text-gray-500">No paper references found.</div>
+                          ) : (
+                            <div className="space-y-1">
+                              {(papersByDatasetId[benchmark.id] || []).slice(0, 6).map((p) => (
+                                <a
+                                  key={p.id}
+                                  href={`/papers/${p.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block text-sm text-green-700 hover:underline"
+                                >
+                                  {p.title || p.id}
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

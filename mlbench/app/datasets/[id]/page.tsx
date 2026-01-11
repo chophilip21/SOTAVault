@@ -40,6 +40,37 @@ interface TasksResponse {
   has_more: boolean;
 }
 
+type PaperRef = { id: string; title?: string | null };
+type PaperListResponse = {
+  items: PaperRef[];
+  limit: number;
+  next_cursor?: string | null;
+  has_more: boolean;
+};
+
+type DatasetLeaderboardEntry = {
+  paper_id: string;
+  paper_result_id: string;
+  metric_value: number;
+  created_at?: string;
+};
+
+type DatasetLeaderboard = {
+  id: string;
+  dataset_id: string;
+  task_id: string;
+  metric_name: string;
+  higher_is_better: boolean;
+  entries: DatasetLeaderboardEntry[];
+  top_k: number;
+  computed_at?: string;
+};
+
+type DatasetLeaderboardListResponse = {
+  items: DatasetLeaderboard[];
+  limit_entries?: number | null;
+};
+
 const DOMAIN_ICONS: Record<string, string> = {
   cv: "/icons/cv.png",
   nlp: "/icons/nlp.png",
@@ -67,6 +98,15 @@ export default function DatasetDetailPage() {
   const [tasksLoading, setTasksLoading] = useState(false);
   const [showAllTasks, setShowAllTasks] = useState(false);
 
+  const [papersOpen, setPapersOpen] = useState(false);
+  const [papersLoading, setPapersLoading] = useState(false);
+  const [papers, setPapers] = useState<PaperRef[]>([]);
+
+  const [leaderboardsLoading, setLeaderboardsLoading] = useState(false);
+  const [leaderboards, setLeaderboards] = useState<DatasetLeaderboard[]>([]);
+  const [paperTitleById, setPaperTitleById] = useState<Record<string, string>>({});
+  const [selectedLeaderboardId, setSelectedLeaderboardId] = useState<string>("");
+
   useEffect(() => {
     const fetchDataset = async () => {
       setLoading(true);
@@ -92,6 +132,113 @@ export default function DatasetDetailPage() {
       fetchDataset();
     }
   }, [datasetId]);
+
+  // Fetch dataset leaderboards (derived view).
+  useEffect(() => {
+    if (!datasetId) return;
+    const controller = new AbortController();
+    setLeaderboardsLoading(true);
+    (async () => {
+      try {
+        const url = new URL(`${getBackendBaseUrl()}/datasets/${datasetId}/leaderboards`);
+        url.searchParams.set("limit_entries", "10");
+        const res = await fetch(url.toString(), { signal: controller.signal });
+        if (!res.ok) {
+          setLeaderboards([]);
+          return;
+        }
+        const data: DatasetLeaderboardListResponse = await res.json();
+        const items = data.items || [];
+        setLeaderboards(items);
+
+        // Bulk fetch paper titles for entries shown.
+        const paperIds = Array.from(
+          new Set(
+            items
+              .flatMap((lb) => lb.entries || [])
+              .map((e) => e.paper_id)
+              .filter(Boolean)
+          )
+        );
+        if (paperIds.length === 0) return;
+
+        const missing = paperIds.filter((id) => !paperTitleById[id]);
+        if (missing.length === 0) return;
+
+        const chunks: string[][] = [];
+        for (let i = 0; i < missing.length; i += 200) chunks.push(missing.slice(i, i + 200));
+
+        for (const chunk of chunks) {
+          const bulkUrl = new URL(`${getBackendBaseUrl()}/papers/bulk`);
+          chunk.forEach((id) => bulkUrl.searchParams.append("ids", id));
+          const r = await fetch(bulkUrl.toString(), { signal: controller.signal });
+          if (!r.ok) continue;
+          const papersData: PaperListResponse = await r.json();
+          const fetched = papersData.items || [];
+          if (fetched.length === 0) continue;
+          setPaperTitleById((prev) => {
+            const next = { ...prev };
+            for (const p of fetched) {
+              if (p?.id) next[p.id] = (p.title || "").trim();
+            }
+            return next;
+          });
+        }
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
+        setLeaderboards([]);
+      } finally {
+        setLeaderboardsLoading(false);
+      }
+    })();
+    return () => controller.abort();
+    // paperTitleById intentionally omitted: we only use it to skip already-known titles.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId]);
+
+  const leaderboardsSorted = useMemo(() => {
+    const copy = [...(leaderboards || [])];
+    copy.sort((a, b) => {
+      const am = (a.metric_name || "").toLowerCase();
+      const bm = (b.metric_name || "").toLowerCase();
+      if (am < bm) return -1;
+      if (am > bm) return 1;
+      const at = (a.task_id || "").toLowerCase();
+      const bt = (b.task_id || "").toLowerCase();
+      if (at < bt) return -1;
+      if (at > bt) return 1;
+      return (a.id || "").localeCompare(b.id || "");
+    });
+    return copy;
+  }, [leaderboards]);
+
+  // Default to first metric (alphabetical) once we have data.
+  useEffect(() => {
+    if (selectedLeaderboardId) return;
+    if (leaderboardsSorted.length === 0) return;
+    setSelectedLeaderboardId(leaderboardsSorted[0].id);
+  }, [leaderboardsSorted, selectedLeaderboardId]);
+
+  const togglePapers = async () => {
+    const next = !papersOpen;
+    setPapersOpen(next);
+    if (!next) return;
+    if (papers.length > 0) return;
+    if (papersLoading) return;
+
+    setPapersLoading(true);
+    try {
+      const url = new URL(`${getBackendBaseUrl()}/datasets/${datasetId}/papers`);
+      url.searchParams.set("limit", "10");
+      url.searchParams.set("offset", "0");
+      const res = await fetch(url.toString());
+      if (!res.ok) return;
+      const data: PaperListResponse = await res.json();
+      setPapers(data.items || []);
+    } finally {
+      setPapersLoading(false);
+    }
+  };
 
   const taskIds = dataset?.task_ids || [];
   const totalTaskCount = taskIds.length;
@@ -139,6 +286,37 @@ export default function DatasetDetailPage() {
 
     return () => controller.abort();
   }, [dataset, visibleTaskIds, tasksById]);
+
+  const formatMetricValue = (v: number) => {
+    if (!Number.isFinite(v)) return "-";
+    // Keep it readable but compact (Geekbench-style "Score" column).
+    const abs = Math.abs(v);
+    if (abs >= 1000) return Math.round(v).toString();
+    if (abs >= 10) return v.toFixed(2);
+    return v.toFixed(4);
+  };
+
+  const selectedLeaderboard = useMemo(() => {
+    if (!selectedLeaderboardId) return null;
+    return leaderboardsSorted.find((lb) => lb.id === selectedLeaderboardId) || null;
+  }, [leaderboardsSorted, selectedLeaderboardId]);
+
+  const leaderboardLabel = (lb: DatasetLeaderboard) => {
+    const taskName = tasksById[lb.task_id]?.name;
+    // Never show raw IDs to users (task_id is often a hash-like identifier).
+    return taskName ? `${lb.metric_name} · ${taskName}` : lb.metric_name;
+  };
+
+  const barPct = (lb: DatasetLeaderboard, value: number, best: number) => {
+    if (!Number.isFinite(value) || !Number.isFinite(best)) return 0;
+    if (lb.higher_is_better) {
+      if (best === 0) return 0;
+      return Math.max(0, Math.min(100, (value / best) * 100));
+    }
+    // Lower is better: normalize against best (min). If values are non-positive, fall back to 0.
+    if (value <= 0 || best <= 0) return 0;
+    return Math.max(0, Math.min(100, (best / value) * 100));
+  };
 
   if (loading) {
     return (
@@ -282,18 +460,161 @@ export default function DatasetDetailPage() {
           {dataset.paper_count !== undefined && (
             <div>
               <h3 className="text-sm font-semibold text-gray-900 mb-2">Papers</h3>
-              <p className="text-gray-700">
-                {dataset.paper_count} {dataset.paper_count === 1 ? 'paper' : 'papers'}
-              </p>
+              <button
+                type="button"
+                onClick={togglePapers}
+                className="inline-flex items-center gap-2 text-gray-700 hover:text-green-700"
+                aria-expanded={papersOpen}
+              >
+                <span>
+                  {dataset.paper_count} {dataset.paper_count === 1 ? "paper" : "papers"}
+                </span>
+                <span className="text-gray-400" aria-hidden>
+                  {papersOpen ? "▴" : "▾"}
+                </span>
+              </button>
+
+              {papersOpen && (
+                <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  {papersLoading ? (
+                    <div className="text-sm text-gray-500">Loading papers…</div>
+                  ) : papers.length === 0 ? (
+                    <div className="text-sm text-gray-500">No paper references found.</div>
+                  ) : (
+                    <div className="space-y-1">
+                      {papers.slice(0, 10).map((p) => (
+                        <a
+                          key={p.id}
+                          href={`/papers/${p.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-sm text-green-700 hover:underline"
+                        >
+                          {p.title || p.id}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {dataset.created_at && (
-          <div className="mt-6 pt-6 border-t border-gray-100 text-sm text-gray-400">
-            Added {new Date(dataset.created_at).toLocaleDateString()}
-          </div>
-        )}
+        {/* Leaderboards */}
+        <div className="mt-6 pt-6 border-t border-gray-100">
+          <h2 className="text-lg font-semibold text-gray-900">Leaderboards</h2>
+
+          {leaderboardsLoading ? (
+            <div className="mt-4 text-sm text-gray-500">Loading leaderboards…</div>
+          ) : leaderboardsSorted.length === 0 ? (
+            <div className="mt-4 text-sm text-gray-500">No leaderboard data yet for this dataset.</div>
+          ) : (
+            <div className="mt-4">
+              {/* Metric selector (Geekbench-style: one chart at a time) */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-sm font-medium bg-green-50 text-green-700 border border-green-100 w-fit">
+                  Metric
+                </span>
+                <div className="relative w-full sm:w-auto">
+                  <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                      className="w-5 h-5"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75"
+                      />
+                    </svg>
+                  </div>
+                  <select
+                    value={selectedLeaderboardId || leaderboardsSorted[0]?.id || ""}
+                    onChange={(e) => setSelectedLeaderboardId(e.target.value)}
+                    className="w-full sm:w-auto pl-11 pr-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  >
+                    {leaderboardsSorted.map((lb) => (
+                      <option key={lb.id} value={lb.id}>
+                        {leaderboardLabel(lb)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Selected metric bar chart */}
+              {selectedLeaderboard ? (
+                (() => {
+                  const lb = selectedLeaderboard;
+                  const entries = lb.entries || [];
+                  const values = entries.map((e) => e.metric_value).filter((v) => Number.isFinite(v)) as number[];
+                  const best = lb.higher_is_better ? Math.max(...values, 0) : Math.min(...values, 0);
+                  return (
+                    <div className="mt-4 rounded-xl border border-gray-200 bg-white overflow-hidden">
+                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-semibold text-gray-900 truncate">{leaderboardLabel(lb)}</div>
+                            <div className="text-xs text-gray-500 mt-0.5">
+                              {lb.higher_is_better ? "Higher is better" : "Lower is better"}
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-500 whitespace-nowrap">Top {entries.length}</div>
+                        </div>
+                      </div>
+
+                      {entries.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-gray-500">No entries.</div>
+                      ) : (
+                        <div className="divide-y divide-gray-100">
+                          {entries.map((e, idx) => {
+                            const paperTitle = paperTitleById[e.paper_id] || "";
+                            const paperLabel = paperTitle || "Untitled paper";
+                            const pct = barPct(lb, e.metric_value, best);
+                            return (
+                              <div
+                                key={`${lb.id}:${e.paper_id}:${e.paper_result_id}`}
+                                className="px-4 py-3 flex items-center gap-4"
+                              >
+                                <div className="w-8 text-sm text-gray-500 tabular-nums">{idx + 1}</div>
+                                <div className="flex-1 min-w-0">
+                                  <a
+                                    href={`/papers/${e.paper_id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm font-medium text-gray-900 hover:text-green-700 hover:underline truncate block"
+                                    title={paperLabel}
+                                  >
+                                    {paperLabel}
+                                  </a>
+                                  <div className="mt-2 h-2 w-full rounded bg-gray-200 overflow-hidden">
+                                    <div
+                                      className="h-2 rounded bg-green-500"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="w-24 text-right text-sm font-semibold text-gray-900 tabular-nums">
+                                  {formatMetricValue(e.metric_value)}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : null}
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );
