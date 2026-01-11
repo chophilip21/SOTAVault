@@ -10,6 +10,7 @@ import { getBackendBaseUrl } from "@/lib/backendUrl";
 
 interface PaperDetail {
   id: string;
+  logical_id?: string | null;
   title: string;
   abstract?: string;
   authors?: string[];
@@ -49,6 +50,8 @@ export default function PaperDetailPage() {
   const [results, setResults] = useState<PaperResult[]>([]);
   const [resultsLoading, setResultsLoading] = useState(false);
   const [resultsError, setResultsError] = useState<string | null>(null);
+  const [related, setRelated] = useState<PaperDetail[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -104,6 +107,33 @@ export default function PaperDetailPage() {
     };
     loadResults();
   }, [paper]);
+
+  useEffect(() => {
+    const loadRelated = async () => {
+      if (!paperId) return;
+      if (!paper?.logical_id) {
+        setRelated([]);
+        return;
+      }
+      setRelatedLoading(true);
+      try {
+        const url = new URL(`${getBackendBaseUrl()}/papers/${paperId}/related`);
+        url.searchParams.set("limit", "10");
+        const res = await fetch(url.toString());
+        if (!res.ok) {
+          setRelated([]);
+          return;
+        }
+        const data = await res.json();
+        setRelated((data.items || []) as PaperDetail[]);
+      } catch {
+        setRelated([]);
+      } finally {
+        setRelatedLoading(false);
+      }
+    };
+    loadRelated();
+  }, [paperId, paper?.logical_id]);
 
   const created = paper?.created_at
     ? new Date(paper.created_at).toLocaleDateString()
@@ -172,6 +202,36 @@ export default function PaperDetailPage() {
               </p>
             </div>
           )}
+
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div className="inline-flex items-center gap-2">
+                <span role="img" aria-label="versions">🧩</span>
+                <h2 className="text-lg font-semibold text-gray-900">Other versions</h2>
+              </div>
+              {relatedLoading ? <span className="text-xs text-gray-500">Loading...</span> : null}
+            </div>
+            {!relatedLoading && related.length === 0 ? (
+              <div className="mt-2 text-sm text-gray-500">No other versions found.</div>
+            ) : related.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {related.map((p) => (
+                  <Link
+                    key={p.id}
+                    href={`/papers/${p.id}`}
+                    className="block rounded-md border border-gray-200 px-3 py-2 hover:bg-gray-50"
+                  >
+                    <div className="text-sm font-medium text-gray-900">{p.title}</div>
+                    {(p.venue || p.year) && (
+                      <div className="text-xs text-gray-600 mt-0.5">
+                        {[p.venue, p.year].filter(Boolean).join(" · ")}
+                      </div>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+          </div>
 
           <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-2 text-sm text-gray-800">
             {paper.arxiv_id && (

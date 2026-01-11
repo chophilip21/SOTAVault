@@ -40,7 +40,7 @@ interface TasksResponse {
   has_more: boolean;
 }
 
-type PaperRef = { id: string; title?: string | null };
+type PaperRef = { id: string; title?: string | null; logical_id?: string | null };
 type PaperListResponse = {
   items: PaperRef[];
   limit: number;
@@ -70,6 +70,31 @@ type DatasetLeaderboardListResponse = {
   items: DatasetLeaderboard[];
   limit_entries?: number | null;
 };
+
+function stripTrailingSourceLink(desc: string): string {
+  let s = (desc || "").trim();
+  if (!s) return s;
+
+  // Remove a trailing "Source: <url>" (or "source <url>") suffix, common in ingested descriptions.
+  // Do this iteratively to handle repeated "Source:" lines.
+  // Examples we want to catch:
+  // - "Source:https://example.com"
+  // - "Source: https://example.com"
+  // - "\nSource: https://example.com\n"
+  const re = /\s*(?:source)\s*:?\s*https?:\/\/\S+\s*$/i;
+  while (re.test(s)) s = s.replace(re, "").trim();
+  return s;
+}
+
+function stripWrappingQuotes(s: string): string {
+  const t = (s || "").trim();
+  if (t.length >= 2) {
+    if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+      return t.slice(1, -1).trim();
+    }
+  }
+  return t;
+}
 
 const DOMAIN_ICONS: Record<string, string> = {
   cv: "/icons/cv.png",
@@ -105,6 +130,7 @@ export default function DatasetDetailPage() {
   const [leaderboardsLoading, setLeaderboardsLoading] = useState(false);
   const [leaderboards, setLeaderboards] = useState<DatasetLeaderboard[]>([]);
   const [paperTitleById, setPaperTitleById] = useState<Record<string, string>>({});
+  const [paperLogicalIdById, setPaperLogicalIdById] = useState<Record<string, string>>({});
   const [selectedLeaderboardId, setSelectedLeaderboardId] = useState<string>("");
 
   useEffect(() => {
@@ -179,7 +205,14 @@ export default function DatasetDetailPage() {
           setPaperTitleById((prev) => {
             const next = { ...prev };
             for (const p of fetched) {
-              if (p?.id) next[p.id] = (p.title || "").trim();
+              if (p?.id) next[p.id] = stripWrappingQuotes(p.title || "");
+            }
+            return next;
+          });
+          setPaperLogicalIdById((prev) => {
+            const next = { ...prev };
+            for (const p of fetched) {
+              if (p?.id && p.logical_id) next[p.id] = String(p.logical_id);
             }
             return next;
           });
@@ -417,7 +450,9 @@ export default function DatasetDetailPage() {
         {dataset.description && (
           <div className="mt-6 pt-6 border-t border-gray-100">
             <h2 className="text-lg font-semibold text-gray-900 mb-2">Description</h2>
-            <p className="text-gray-700 leading-relaxed">{dataset.description}</p>
+            <p className="text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
+              {stripTrailingSourceLink(dataset.description)}
+            </p>
           </div>
         )}
 
@@ -551,7 +586,16 @@ export default function DatasetDetailPage() {
               {selectedLeaderboard ? (
                 (() => {
                   const lb = selectedLeaderboard;
-                  const entries = lb.entries || [];
+                  const entriesAll = lb.entries || [];
+                  // Dedupe by logical_id (if available), otherwise by paper_id.
+                  const seenLogical = new Set<string>();
+                  const entries = entriesAll.filter((e) => {
+                    const lid = paperLogicalIdById[e.paper_id] || e.paper_id;
+                    if (!lid) return false;
+                    if (seenLogical.has(lid)) return false;
+                    seenLogical.add(lid);
+                    return true;
+                  });
                   const values = entries.map((e) => e.metric_value).filter((v) => Number.isFinite(v)) as number[];
                   const best = lb.higher_is_better ? Math.max(...values, 0) : Math.min(...values, 0);
                   return (
@@ -573,7 +617,7 @@ export default function DatasetDetailPage() {
                       ) : (
                         <div className="divide-y divide-gray-100">
                           {entries.map((e, idx) => {
-                            const paperTitle = paperTitleById[e.paper_id] || "";
+                            const paperTitle = stripWrappingQuotes(paperTitleById[e.paper_id] || "");
                             const paperLabel = paperTitle || "Untitled paper";
                             const pct = barPct(lb, e.metric_value, best);
                             return (
