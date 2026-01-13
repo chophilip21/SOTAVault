@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { PaperCoverArt } from "../components/PaperCoverArt";
+import { GithubRepoStats } from "../components/GithubRepoStats";
 import { Playfair_Display } from "next/font/google";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse } from "@/lib/github";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -63,6 +65,8 @@ interface Paper {
   created_at?: string;
   score?: number;
   task_ids?: string[];
+  official_code?: string[];
+  unofficial_code?: string[];
 }
 
 interface PapersResponse {
@@ -70,6 +74,12 @@ interface PapersResponse {
   limit: number;
   next_cursor?: string | null;
   has_more: boolean;
+}
+
+function stripOuterQuotes(s: string): string {
+  // Some ingestion sources include literal quotes around titles. Strip only outer quotes for display.
+  const t = (s || "").trim();
+  return t.replace(/^["'“”]+/, "").replace(/["'“”]+$/, "").trim();
 }
 
 interface Task {
@@ -120,6 +130,14 @@ export default function PapersPage() {
   const skipNextSearchEffectRef = useRef(false);
   const skipNextSortEffectRef = useRef(false);
   const persistTimerRef = useRef<number | null>(null);
+
+  // GitHub metadata (batched per visible page). Backend is authoritative cache.
+  const [githubMeta, setGithubMeta] = useState<Record<string, GithubRepoMetadataItem>>({});
+  // Local-only bookmarks (UI toggle only for now).
+  const [bookmarkedIds, setBookmarkedIds] = useState<Record<string, boolean>>({});
+  // Unofficial code is shown on-demand only (collapsed by default).
+  const [showUnofficial, setShowUnofficial] = useState<Record<string, boolean>>({});
+  const lastGithubBatchKeyRef = useRef<string>("");
 
   const fetchPage = async (cursor: string | null, taskIds?: string[]) => {
     setLoading(true);
@@ -489,12 +507,12 @@ export default function PapersPage() {
       <button
         onClick={handlePrev}
         disabled={prevCursors.length <= 1 || loading}
-        className="px-4 py-2 text-sm rounded border border-gray-200 text-gray-700 disabled:opacity-50 enabled:hover:bg-gray-50 enabled:hover:border-gray-300"
+        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-gray-200 text-gray-700 disabled:opacity-50 enabled:hover:bg-gray-50 enabled:hover:border-gray-300"
       >
         Previous
       </button>
       <div
-        className="inline-flex items-center justify-center w-9 h-9 rounded bg-cyan-500/80 text-white font-thin font-serif select-none"
+        className="inline-flex items-center justify-center w-9 h-9 rounded bg-cyan-500/80 text-white text-sm font-medium tabular-nums leading-none select-none"
         aria-label={`Current page ${currentPage}`}
         title={`Page ${currentPage}`}
         role="status"
@@ -504,7 +522,7 @@ export default function PapersPage() {
       <button
         onClick={handleNext}
         disabled={!hasMore || loading}
-        className="px-4 py-2 text-sm rounded bg-green-500 text-white disabled:opacity-50 enabled:hover:bg-green-600"
+        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-transparent bg-green-500 text-white disabled:opacity-50 enabled:hover:bg-green-600"
       >
         Next
       </button>
@@ -530,6 +548,89 @@ export default function PapersPage() {
 
     return true;
   });
+
+  const officialRepoKeys = useMemo(() => {
+    const repos = new Set<string>();
+    for (const p of filteredPapers || []) {
+      for (const url of (p as any)?.official_code || []) {
+        const key = normalizeGithubRepo(String(url));
+        if (key) repos.add(key);
+      }
+    }
+    return Array.from(repos).sort();
+  }, [filteredPapers]);
+
+  useEffect(() => {
+    // Batch fetch GitHub metadata for visible papers (official_code only).
+    // Only request missing/pending keys, and dedupe identical batches across re-renders.
+    if (officialRepoKeys.length === 0) return;
+
+    const missing = officialRepoKeys.filter((k) => !githubMeta[k] || githubMeta[k]?.status === "pending");
+    if (missing.length === 0) return;
+
+    const batchKey = missing.join(",");
+    if (lastGithubBatchKeyRef.current === batchKey) return;
+    lastGithubBatchKeyRef.current = batchKey;
+
+    const controller = new AbortController();
+    const run = async () => {
+      try {
+        const res = await fetch(`${getBackendBaseUrl()}/github/repo-metadata`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repos: missing }),
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const data: GithubRepoMetadataResponse = await res.json();
+        if (!data?.items) return;
+        setGithubMeta((prev) => ({ ...prev, ...data.items }));
+      } catch {
+        // ignore
+      }
+    };
+    run();
+    return () => controller.abort();
+  }, [officialRepoKeys, githubMeta]);
+
+  const fetchGithubGetMany = async (reposOrUrls: string[]) => {
+    // Lazy batch via GET (used when user expands unofficial code).
+    if (!reposOrUrls || reposOrUrls.length === 0) return;
+    try {
+      const url = new URL(`${getBackendBaseUrl()}/github/repo-metadata`);
+      reposOrUrls.forEach((r) => url.searchParams.append("repo", r));
+      const res = await fetch(url.toString(), { method: "GET" });
+      if (!res.ok) return;
+      const data: GithubRepoMetadataResponse = await res.json();
+      if (!data?.items) return;
+      setGithubMeta((prev) => ({ ...prev, ...data.items }));
+    } catch {
+      // ignore
+    }
+  };
+
+  const toggleBookmark = (paperId: string) => {
+    setBookmarkedIds((prev) => ({ ...prev, [paperId]: !prev[paperId] }));
+  };
+
+  const toggleUnofficial = (paperId: string, urls: string[]) => {
+    setShowUnofficial((prev) => {
+      const next = !prev[paperId];
+      // If opening, fetch missing GitHub metadata for the unofficial repos in a single GET.
+      if (next) {
+        const keys = Array.from(
+          new Set(
+            (urls || [])
+              .map((u) => normalizeGithubRepo(u))
+              .filter((x): x is string => Boolean(x))
+          )
+        ).sort();
+        const missing = keys.filter((k) => !githubMeta[k] || githubMeta[k]?.status === "pending");
+        if (missing.length > 0) fetchGithubGetMany(missing);
+      }
+      return { ...prev, [paperId]: next };
+    });
+  };
 
   return (
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -749,28 +850,96 @@ export default function PapersPage() {
       )}
 
       <div className="space-y-5">
-        {filteredPapers.map((paper) => (
-          <div
-            key={paper.id}
-            className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-gray-200 transition-all duration-200"
-          >
-            <div className="flex justify-between items-start gap-4">
-              <div className="flex-shrink-0 w-24 h-24 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-                <PaperCoverArt
-                  seed={paper.arxiv_id || paper.id}
-                  title={paper.title}
-                  authors={paper.authors}
-                  year={paper.year}
-                  className="absolute inset-0"
-                  ariaLabel={paper.title ? `Paper cover: ${paper.title}` : "Paper cover"}
-                />
-              </div>
-              <div className="flex-1">
-                <Link href={`/papers/${paper.id}`}>
-                  <h2 className="text-lg font-semibold text-gray-900 hover:text-green-600 transition">
-                    {paper.title}
-                  </h2>
-                </Link>
+        {filteredPapers.map((paper) => {
+          const displayTitle = stripOuterQuotes(paper.title || "");
+          return (
+            <div
+              key={paper.id}
+              className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-gray-200 transition-all duration-200"
+            >
+              <div className="flex justify-between items-start gap-4">
+                <div className="flex-shrink-0 w-24 h-24 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+                  <PaperCoverArt
+                    seed={paper.arxiv_id || paper.id}
+                    title={displayTitle}
+                    authors={paper.authors}
+                    year={paper.year}
+                    className="absolute inset-0"
+                    ariaLabel={displayTitle ? `Paper cover: ${displayTitle}` : "Paper cover"}
+                  />
+                </div>
+                <div className="flex-1">
+                  <Link href={`/papers/${paper.id}`}>
+                    <h2 className="text-lg font-semibold text-gray-900 hover:text-green-600 transition">
+                      {displayTitle}
+                    </h2>
+                  </Link>
+                {/* Code badges + GitHub stats */}
+                <div className="mt-2 space-y-1 text-xs">
+                  {paper.official_code && paper.official_code.length > 0 ? (
+                    <div className="space-y-1">
+                      {paper.official_code.map((u) => {
+                        const key = normalizeGithubRepo(u);
+                        const meta = key ? githubMeta[key] : undefined;
+                        return (
+                          <div key={u} className="flex flex-wrap items-center gap-2">
+                            <GithubRepoStats
+                              status={(meta?.status as any) || (key ? "pending" : "invalid")}
+                              stars={meta?.data?.stars}
+                              forks={meta?.data?.forks}
+                            />
+                            <a className="text-green-600 hover:underline break-all" href={u} target="_blank" rel="noreferrer">
+                              Official
+                            </a>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <GithubRepoStats status="ok" stars={0} forks={0} />
+                      <span className="text-gray-400">No official code available.</span>
+                    </div>
+                  )}
+
+                  {paper.unofficial_code && paper.unofficial_code.length > 0 && (
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleUnofficial(paper.id, paper.unofficial_code || [])}
+                        className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700"
+                      >
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-gray-200 bg-gray-50 text-gray-500">
+                          {showUnofficial[paper.id] ? "−" : "+"}
+                        </span>
+                        <span className="underline underline-offset-2">
+                          Unofficial code ({paper.unofficial_code.length})
+                        </span>
+                      </button>
+
+                      {showUnofficial[paper.id] && (
+                        <div className="space-y-1 pl-7">
+                          {paper.unofficial_code.map((u) => {
+                            const key = normalizeGithubRepo(u);
+                            const meta = key ? githubMeta[key] : undefined;
+                            return (
+                              <div key={u} className="flex flex-wrap items-center gap-2">
+                                <GithubRepoStats
+                                  status={(meta?.status as any) || (key ? "pending" : "invalid")}
+                                  stars={meta?.data?.stars}
+                                  forks={meta?.data?.forks}
+                                />
+                                <a className="text-green-600 hover:underline break-all" href={u} target="_blank" rel="noreferrer">
+                                  Unofficial
+                                </a>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
                 {paper.authors && paper.authors.length > 0 && (
                   <p className="text-sm text-gray-600 mt-1">{paper.authors.join(", ")}</p>
                 )}
@@ -791,18 +960,20 @@ export default function PapersPage() {
                 </p>
               )}
               <button
-                disabled
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-gray-200 text-gray-600 bg-gray-50 cursor-not-allowed"
+                onClick={() => toggleBookmark(paper.id)}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border transition ${
+                  bookmarkedIds[paper.id]
+                    ? "border-green-300 bg-green-50 text-green-800"
+                    : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+                }`}
               >
-                <span className="text-amber-500">★</span>
-                <span className="text-sm">Star</span>
-                <span className="px-2 py-1 text-sm rounded-full bg-gray-200 border border-gray-300 text-gray-800">
-                  {paper.score ?? 0}
-                </span>
+                <span aria-hidden="true">{bookmarkedIds[paper.id] ? "🔖" : "📑"}</span>
+                <span className="text-sm">{bookmarkedIds[paper.id] ? "Bookmarked" : "Bookmark"}</span>
               </button>
             </div>
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
 
       {!isSearchMode && <Pager align="center" />}

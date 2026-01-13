@@ -5,8 +5,15 @@ import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { PaperCoverArt } from "../../components/PaperCoverArt";
+import { GithubRepoStats } from "../../components/GithubRepoStats";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse } from "@/lib/github";
+
+function stripOuterQuotes(s: string): string {
+  const t = (s || "").trim();
+  return t.replace(/^["'“”]+/, "").replace(/["'“”]+$/, "").trim();
+}
 
 interface PaperDetail {
   id: string;
@@ -52,6 +59,10 @@ export default function PaperDetailPage() {
   const [resultsError, setResultsError] = useState<string | null>(null);
   const [related, setRelated] = useState<PaperDetail[]>([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
+  const [githubMeta, setGithubMeta] = useState<Record<string, GithubRepoMetadataItem>>({});
+  const [showUnofficial, setShowUnofficial] = useState(false);
+
+  const displayTitle = paper ? stripOuterQuotes(paper.title || "") : "";
 
   useEffect(() => {
     const load = async () => {
@@ -78,6 +89,55 @@ export default function PaperDetailPage() {
     };
     load();
   }, [paperId]);
+
+  useEffect(() => {
+    // Fetch GitHub metadata for official_code repos (best-effort; do not block render).
+    if (!paper?.official_code || paper.official_code.length === 0) return;
+
+    const repos = Array.from(
+      new Set(
+        paper.official_code
+          .map((u) => normalizeGithubRepo(u))
+          .filter((x): x is string => Boolean(x))
+      )
+    );
+    if (repos.length === 0) return;
+
+    const controller = new AbortController();
+    const run = async () => {
+      try {
+        const res = await fetch(`${getBackendBaseUrl()}/github/repo-metadata`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repos }),
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const data: GithubRepoMetadataResponse = await res.json();
+        if (!data?.items) return;
+        setGithubMeta((prev) => ({ ...prev, ...data.items }));
+      } catch {
+        // ignore
+      }
+    };
+    run();
+    return () => controller.abort();
+  }, [paper?.id, paper?.official_code]);
+
+  const fetchGithubGetMany = async (reposOrUrls: string[]) => {
+    if (!reposOrUrls || reposOrUrls.length === 0) return;
+    try {
+      const url = new URL(`${getBackendBaseUrl()}/github/repo-metadata`);
+      reposOrUrls.forEach((r) => url.searchParams.append("repo", r));
+      const res = await fetch(url.toString(), { method: "GET" });
+      if (!res.ok) return;
+      const data: GithubRepoMetadataResponse = await res.json();
+      if (!data?.items) return;
+      setGithubMeta((prev) => ({ ...prev, ...data.items }));
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     const loadResults = async () => {
@@ -161,15 +221,15 @@ export default function PaperDetailPage() {
             <div className="flex-shrink-0 w-24 h-24 relative rounded border border-gray-200 overflow-hidden bg-gray-50">
               <PaperCoverArt
                 seed={paper.arxiv_id || paper.id}
-                title={paper.title}
+                title={displayTitle}
                 authors={paper.authors}
                 year={paper.year}
                 className="absolute inset-0"
-                ariaLabel={paper.title ? `Paper cover: ${paper.title}` : "Paper cover"}
+                ariaLabel={displayTitle ? `Paper cover: ${displayTitle}` : "Paper cover"}
               />
             </div>
             <div className="flex-1 space-y-2">
-              <h1 className="text-2xl font-bold text-gray-900">{paper.title}</h1>
+              <h1 className="text-2xl font-bold text-gray-900">{displayTitle}</h1>
               {paper.authors && paper.authors.length > 0 && (
                 <p className="text-sm text-gray-700">
                   {paper.authors.join(", ")}
@@ -221,7 +281,7 @@ export default function PaperDetailPage() {
                     href={`/papers/${p.id}`}
                     className="block rounded-md border border-gray-200 px-3 py-2 hover:bg-gray-50"
                   >
-                    <div className="text-sm font-medium text-gray-900">{p.title}</div>
+                    <div className="text-sm font-medium text-gray-900">{stripOuterQuotes(p.title || "")}</div>
                     {(p.venue || p.year) && (
                       <div className="text-xs text-gray-600 mt-0.5">
                         {[p.venue, p.year].filter(Boolean).join(" · ")}
@@ -300,7 +360,7 @@ export default function PaperDetailPage() {
             )}
             <div className="pt-2 border-t border-gray-200 mt-2 space-y-1">
               <div className="text-gray-600 font-semibold">Code</div>
-              {paper.official_code && paper.official_code.length > 0 && (
+              {paper.official_code && paper.official_code.length > 0 ? (
                 <div className="space-y-1">
                   {paper.official_code.map((url) => (
                     <div key={url} className="flex justify-between items-center gap-3">
@@ -308,41 +368,101 @@ export default function PaperDetailPage() {
                         <span role="img" aria-label="code">💻</span>
                         Official
                       </span>
-                      <a
-                        className="text-green-600 hover:underline break-all text-right"
-                        href={url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {url}
-                      </a>
+                      <div className="text-right min-w-0">
+                        {(() => {
+                          const key = normalizeGithubRepo(url);
+                          const meta = key ? githubMeta[key] : undefined;
+                          if (!key) return null;
+                          return (
+                            <div className="mb-1 flex justify-end">
+                              <GithubRepoStats
+                                status={meta?.status as any}
+                                stars={meta?.data?.stars}
+                                forks={meta?.data?.forks}
+                              />
+                            </div>
+                          );
+                        })()}
+                        <a
+                          className="text-green-600 hover:underline break-all max-w-full inline-block"
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {url}
+                        </a>
+                      </div>
                     </div>
                   ))}
                 </div>
+              ) : (
+                <div className="text-gray-500 text-sm">No official code available.</div>
               )}
               {paper.unofficial_code && paper.unofficial_code.length > 0 && (
                 <div className="space-y-1">
-                  {paper.unofficial_code.map((url) => (
-                    <div key={url} className="flex justify-between items-center gap-3">
-                      <span className="inline-flex items-center gap-2 text-gray-600">
-                        <span role="img" aria-label="code">💻</span>
-                        Unofficial
-                      </span>
-                      <a
-                        className="text-green-600 hover:underline break-all text-right"
-                        href={url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {url}
-                      </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !showUnofficial;
+                      setShowUnofficial(next);
+                      if (next) {
+                        const keys = Array.from(
+                          new Set(
+                            (paper.unofficial_code || [])
+                              .map((u) => normalizeGithubRepo(u))
+                              .filter((x): x is string => Boolean(x))
+                          )
+                        ).sort();
+                        const missing = keys.filter((k) => !githubMeta[k] || githubMeta[k]?.status === "pending");
+                        if (missing.length > 0) fetchGithubGetMany(missing);
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-800"
+                  >
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-gray-200 bg-gray-50 text-gray-500">
+                      {showUnofficial ? "−" : "+"}
+                    </span>
+                    <span className="underline underline-offset-2">
+                      Unofficial code ({paper.unofficial_code.length})
+                    </span>
+                  </button>
+
+                  {showUnofficial && (
+                    <div className="space-y-1 pl-7">
+                      {paper.unofficial_code.map((url) => {
+                        const key = normalizeGithubRepo(url);
+                        const meta = key ? githubMeta[key] : undefined;
+                        return (
+                          <div key={url} className="flex justify-between items-center gap-3">
+                            <span className="inline-flex items-center gap-2 text-gray-600">
+                              <span role="img" aria-label="code">💻</span>
+                              Unofficial
+                            </span>
+                            <div className="text-right min-w-0">
+                              {key && (
+                                <div className="mb-1 flex justify-end">
+                                  <GithubRepoStats
+                                    status={meta?.status as any}
+                                    stars={meta?.data?.stars}
+                                    forks={meta?.data?.forks}
+                                  />
+                                </div>
+                              )}
+                              <a
+                                className="text-green-600 hover:underline break-all text-right max-w-full inline-block"
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                {url}
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
-              {(!paper.official_code || paper.official_code.length === 0) &&
-               (!paper.unofficial_code || paper.unofficial_code.length === 0) && (
-                <div className="text-gray-500 text-sm">Code is not available yet.</div>
               )}
             </div>
           </div>
