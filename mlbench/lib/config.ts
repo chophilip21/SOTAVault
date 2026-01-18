@@ -18,9 +18,7 @@ export const config = {
   // Backend API
   backendUrl: process.env.NEXT_PUBLIC_BACKEND_URL || "",
 
-  // Firebase Emulator Configuration
-  useFirebaseEmulator: process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true",
-  firebaseAuthEmulatorHost: process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || "127.0.0.1:9099",
+
 
   // WebLLM Model Configuration
   // Main model for chat/routing tasks

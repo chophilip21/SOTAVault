@@ -8,11 +8,27 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: [
-          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
+          // { key: "Cross-Origin-Embedder-Policy", value: "require-corp" }, // Relaxing for now to ensure compatibility
         ],
       },
     ];
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "lh3.googleusercontent.com",
+      },
+      {
+        protocol: "https",
+        hostname: "lh*.googleusercontent.com", // Wildcard to catch lh4, lh5 etc.
+      },
+      {
+        protocol: "https",
+        hostname: "*.googleusercontent.com", // Safer general catch
+      },
+    ],
   },
 };
 

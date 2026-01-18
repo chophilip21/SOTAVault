@@ -22,19 +22,19 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   const bypass = isAuthBypassed();
 
-  const requiresAuth = useMemo(() => 
+  const requiresAuth = useMemo(() =>
     protectedRoutes.some(route => pathname.startsWith(route)),
     [pathname]
   );
 
   useEffect(() => {
     if (!loading) {
-      if (!bypass && requiresAuth && !user) {
+      if (requiresAuth && !user) {
         setShowAuthModal(true);
       }
       setHasChecked(true);
     }
-  }, [user, loading, requiresAuth, bypass]);
+  }, [user, loading, requiresAuth]);
 
   const handleModalClose = () => {
     setShowAuthModal(false);
@@ -51,7 +51,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   // If route requires auth and user is not logged in, show modal and prevent content display
-  if (!bypass && requiresAuth && !user) {
+  if (requiresAuth && !user) {
     return (
       <>
         <div className="min-h-screen flex items-center justify-center">

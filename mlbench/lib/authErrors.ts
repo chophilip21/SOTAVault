@@ -15,7 +15,7 @@ function sanitizeErrorMessage(error: any): string {
   if (!error) return "An unexpected error occurred. Please try again.";
 
   let message = error.message || String(error);
-  
+
   // Remove Firebase-specific keywords and patterns (case-insensitive)
   message = message
     .replace(/Firebase:/gi, "")
@@ -47,7 +47,7 @@ function sanitizeErrorMessage(error: any): string {
  */
 export function getUserFriendlyAuthError(error: any, context: "signup" | "login" = "signup"): string {
   if (!error) {
-    return context === "signup" 
+    return context === "signup"
       ? "We couldn't create your account. Please try again."
       : "We couldn't sign you in. Please try again.";
   }
@@ -60,6 +60,10 @@ export function getUserFriendlyAuthError(error: any, context: "signup" | "login"
     return context === "signup"
       ? "This email is already registered. Please sign in instead or use a different email address."
       : "This email is already registered. Please sign in instead.";
+  }
+
+  if (code.includes("popup-closed-by-user") || code.includes("cancelled-popup-request")) {
+    return "Sign in was cancelled.";
   }
 
   if (code.includes("user-not-found") || sanitizedMessage.toLowerCase().includes("user not found")) {
@@ -93,10 +97,10 @@ export function getUserFriendlyAuthError(error: any, context: "signup" | "login"
   }
 
   // Handle backend registration errors
-  if (sanitizedMessage.toLowerCase().includes("backend") || 
-      sanitizedMessage.toLowerCase().includes("profile") ||
-      sanitizedMessage.toLowerCase().includes("firestore") ||
-      sanitizedMessage.toLowerCase().includes("failed to create")) {
+  if (sanitizedMessage.toLowerCase().includes("backend") ||
+    sanitizedMessage.toLowerCase().includes("profile") ||
+    sanitizedMessage.toLowerCase().includes("firestore") ||
+    sanitizedMessage.toLowerCase().includes("failed to create")) {
     return context === "signup"
       ? "We couldn't complete your signup. Your account was not created. Please try again in a moment."
       : "We couldn't complete your sign-in. Please try again.";
@@ -133,7 +137,7 @@ export function getUserFriendlyRegistrationError(error: any, authUserCreated: bo
     if (sanitizedMessage.toLowerCase().includes("network") || sanitizedMessage.toLowerCase().includes("fetch")) {
       return "We started creating your account, but couldn't complete the setup due to a network issue. Your account was cleaned up. Please check your internet connection and try again.";
     }
-    
+
     if (sanitizedMessage.toLowerCase().includes("authentication") || sanitizedMessage.toLowerCase().includes("401")) {
       return "We started creating your account, but couldn't verify it. Your account was cleaned up. Please try signing up again.";
     }

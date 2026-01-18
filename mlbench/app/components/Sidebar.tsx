@@ -5,11 +5,10 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useSidebar } from "./LayoutContent";
 import { useAuth } from "@/lib/authContext";
-import { isAuthBypassed } from "@/lib/devFlags";
 
 const navItems = [
-  { 
-    name: "Home", 
+  {
+    name: "Home",
     href: "/",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -17,8 +16,8 @@ const navItems = [
       </svg>
     )
   },
-  { 
-    name: "Papers", 
+  {
+    name: "Papers",
     href: "/papers",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -26,8 +25,8 @@ const navItems = [
       </svg>
     )
   },
-  { 
-    name: "Benchmark", 
+  {
+    name: "Benchmark",
     href: "/benchmark",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -35,8 +34,8 @@ const navItems = [
       </svg>
     )
   },
-  { 
-    name: "Conference", 
+  {
+    name: "Conference",
     href: "/conference",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -44,8 +43,8 @@ const navItems = [
       </svg>
     )
   },
-  { 
-    name: "Bookmarks", 
+  {
+    name: "Bookmarks",
     href: "/bookmarks",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -53,8 +52,8 @@ const navItems = [
       </svg>
     )
   },
-  { 
-    name: "AI Chat", 
+  {
+    name: "AI Chat",
     href: "/ai-chat",
     beta: true,
     icon: (
@@ -76,11 +75,10 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
   const pathname = usePathname();
   const { isSidebarOpen, setIsSidebarOpen } = useSidebar();
   const { user } = useAuth();
-  const bypass = isAuthBypassed();
   const [isMobile, setIsMobile] = useState(
     typeof window !== "undefined" ? window.innerWidth < 768 : false
   );
-  
+
   const isOpen = isSidebarOpen;
   const onClose = () => setIsSidebarOpen(false);
 
@@ -152,11 +150,10 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
       {/* Toggle Button - Always visible at the edge, positioned based on sidebar state */}
       <button
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className={`fixed z-[45] border-2 rounded-full p-2.5 transition-all duration-300 ease-in-out top-20 md:top-1/2 md:-translate-y-1/2 flex ${
-          isOpen
-            ? 'bg-white border-gray-300 shadow-md hover:bg-gray-50'
-            : 'bg-green-500 border-green-600 shadow-lg shadow-green-500/50 hover:bg-green-600 hover:shadow-xl hover:shadow-green-600/60 hover:scale-110'
-        }`}
+        className={`fixed z-[45] border-2 rounded-full p-2.5 transition-all duration-300 ease-in-out top-20 md:top-1/2 md:-translate-y-1/2 flex ${isOpen
+          ? 'bg-white border-gray-300 shadow-md hover:bg-gray-50'
+          : 'bg-green-500 border-green-600 shadow-lg shadow-green-500/50 hover:bg-green-600 hover:shadow-xl hover:shadow-green-600/60 hover:scale-110'
+          }`}
         style={{
           left: isOpen
             ? (isMobile ? '0.75rem' : 'calc(16rem - 0.75rem)')
@@ -218,10 +215,10 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
                 const requiresAuth = protectedRoutes.includes(item.href);
-                
+
                 return (
                   <li key={item.name}>
-                    {requiresAuth && !user && !bypass ? (
+                    {requiresAuth && !user ? (
                       <button
                         onClick={(e) => {
                           e.preventDefault();
@@ -231,11 +228,10 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                             onClose();
                           }
                         }}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                          isActive
-                            ? "bg-green-50 text-green-600 border-l-4 border-green-500"
-                            : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                        }`}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${isActive
+                          ? "bg-green-50 text-green-600 border-l-4 border-green-500"
+                          : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                          }`}
                       >
                         <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
                           {item.icon}
@@ -258,11 +254,10 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                             onClose();
                           }
                         }}
-                        className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                          isActive
-                            ? "bg-green-50 text-green-600 border-l-4 border-green-500"
-                            : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                        }`}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${isActive
+                          ? "bg-green-50 text-green-600 border-l-4 border-green-500"
+                          : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                          }`}
                       >
                         <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
                           {item.icon}
@@ -295,11 +290,10 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                       onClose();
                     }
                   }}
-                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
-                    pathname === "/terms"
-                      ? "bg-gray-50 text-gray-900"
-                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                  }`}
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${pathname === "/terms"
+                    ? "bg-gray-50 text-gray-900"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                    }`}
                 >
                   <span>Terms and Conditions</span>
                 </Link>
@@ -312,11 +306,10 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                       onClose();
                     }
                   }}
-                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
-                    pathname === "/privacy"
-                      ? "bg-gray-50 text-gray-900"
-                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                  }`}
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${pathname === "/privacy"
+                    ? "bg-gray-50 text-gray-900"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                    }`}
                 >
                   <span>Privacy Policy</span>
                 </Link>
@@ -344,11 +337,10 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                       onClose();
                     }
                   }}
-                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
-                    pathname === "/acknowledgement"
-                      ? "bg-gray-50 text-gray-900"
-                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                  }`}
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${pathname === "/acknowledgement"
+                    ? "bg-gray-50 text-gray-900"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                    }`}
                 >
                   <span>Acknowledgements</span>
                 </Link>
