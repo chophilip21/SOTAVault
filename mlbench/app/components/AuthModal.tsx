@@ -7,6 +7,7 @@ import {
   signInWithPopup,
   sendEmailVerification,
   signOut,
+  getAdditionalUserInfo
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
@@ -30,6 +31,9 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   // Track if we are in the middle of a Google Signup flow (authenticated but not registered backend)
   const [googleUser, setGoogleUser] = useState<any>(null);
+  // Track if the current google user was newly created in Firebase during this session
+  // We use this to decide whether to DELETE them or just SIGN OUT when aborting signup.
+  const [isNewGoogleUser, setIsNewGoogleUser] = useState(false);
 
   // Stage 1 (Credentials) fields
   const [email, setEmail] = useState("");
@@ -62,6 +66,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const resetSignupState = () => {
     setSignupStage(1);
     setGoogleUser(null);
+    setIsNewGoogleUser(false);
     setFirstName("");
     setLastName("");
     setAffiliation("");
@@ -85,13 +90,34 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     // But for UX, maybe we should reset if they successfully login.
   };
 
-  const handleClose = () => {
+  const handleCleanupGoogleUser = async () => {
+    if (googleUser && auth.currentUser) {
+      try {
+        if (isNewGoogleUser) {
+          // It was a brand new auth entry, so we delete it to keep it clean
+          await deleteUser(auth.currentUser);
+        } else {
+          // It was an existing user (who just lacked a backend profile, presumably), 
+          // so we just sign out to avoid destroying their main account.
+          await signOut(auth);
+        }
+      } catch (error) {
+        console.error("Error cleaning up incomplete Google signup:", error);
+        // Fallback to ensure we aren't left logged in
+        await signOut(auth);
+      }
+    }
+  };
+
+  const handleClose = async () => {
+    await handleCleanupGoogleUser();
     resetSignupState();
     setIsLogin(true);
     onClose();
   };
 
-  const handleToggleMode = () => {
+  const handleToggleMode = async () => {
+    await handleCleanupGoogleUser();
     resetSignupState();
     setIsLogin(!isLogin);
   };
@@ -164,18 +190,47 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
     try {
       const provider = new GoogleAuthProvider();
-      const userCredential = await signInWithPopup(auth, provider);
+      // Force account selection prompt
+      provider.setCustomParameters({
+        prompt: 'select_account'
+      });
 
+      const userCredential = await signInWithPopup(auth, provider);
       const user = userCredential.user;
 
-      if (isLogin) {
-        // Login Flow
+      // Check if user profile exists in backend
+      const token = await user.getIdToken();
+      const res = await fetch(`${getBackendBaseUrl()}/users/me`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      const userExists = res.ok;
+
+      if (userExists) {
+        // User is already registered
         await refreshUserProfile();
-        setFailedLoginAttempts(0); // Reset on success
+        setFailedLoginAttempts(0);
+
+        if (!isLogin) {
+          // User was trying to sign up but already exists
+          alert("You are already registered with this email. Logging you in...");
+        }
+
         onClose();
         resetSignupState();
       } else {
-        // Signup Flow
+        // User needs registration
+        if (isLogin) {
+          // User tried to login but has no profile -> Redirect to Signup
+          setIsLogin(false);
+        }
+
+        // Capture if this is a new Firebase user for cleanup purposes
+        const additionalInfo = getAdditionalUserInfo(userCredential);
+        setIsNewGoogleUser(additionalInfo?.isNewUser ?? false);
+
         setGoogleUser(user);
         if (user.displayName) {
           const parts = user.displayName.split(" ");
@@ -423,6 +478,8 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 <div className="flex justify-center my-2">
                   <Turnstile
                     sitekey={TURNSTILE_SITE_KEY}
+                    appearance="always"
+                    theme="light"
                     onVerify={(token) => {
                       setTurnstileToken(token);
                       setIsTurnstileSolved(true);
@@ -593,11 +650,14 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   />
                 </div>
                 <div className="flex gap-3 mt-6">
+
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
+                      await handleCleanupGoogleUser();
                       setGoogleUser(null);
                       setSignupStage(1);
+                      setIsNewGoogleUser(false);
                     }}
                     className="flex-1 py-2 px-4 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300"
                   >
@@ -652,18 +712,26 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
                   {/* Turnstile for Signup */}
                   <div className="flex justify-center mt-2">
-                    <Turnstile
-                      sitekey={TURNSTILE_SITE_KEY}
-                      onVerify={(token) => {
-                        setTurnstileToken(token);
-                        setIsTurnstileSolved(true);
-                        setError("");
-                      }}
-                      onExpire={() => {
-                        setTurnstileToken("");
-                        setIsTurnstileSolved(false);
-                      }}
-                    />
+                    {TURNSTILE_SITE_KEY ? (
+                      <Turnstile
+                        sitekey={TURNSTILE_SITE_KEY}
+                        appearance="always"
+                        theme="light"
+                        onVerify={(token) => {
+                          setTurnstileToken(token);
+                          setIsTurnstileSolved(true);
+                          setError("");
+                        }}
+                        onExpire={() => {
+                          setTurnstileToken("");
+                          setIsTurnstileSolved(false);
+                        }}
+                      />
+                    ) : (
+                      <div className="text-red-500 text-sm border border-red-200 p-2 rounded bg-red-50">
+                        Captcha Configuration Error: Site Key Missing
+                      </div>
+                    )}
                   </div>
 
                 </div>
