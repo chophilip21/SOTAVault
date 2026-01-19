@@ -1,6 +1,4 @@
-"use client";
-
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -15,8 +13,11 @@ import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { getUserFriendlyAuthError, getUserFriendlyRegistrationError } from "@/lib/authErrors";
 import { useAuth } from "@/lib/authContext";
 import Link from "next/link";
+import Turnstile from "react-turnstile";
 
 export type JobTitle = "Student" | "Researcher" | "Software Engineer" | "Others";
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_CLOUDFLARE_SITE_KEY || "";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -48,11 +49,16 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const [ageCheckbox, setAgeCheckbox] = useState(false);
   const [consentCheckbox, setConsentCheckbox] = useState(false);
 
+  // Turnstile State
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [failedLoginAttempts, setFailedLoginAttempts] = useState(0);
+  const [isTurnstileSolved, setIsTurnstileSolved] = useState(false);
+
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { refreshUserProfile } = useAuth();
 
-  // Cleanup function to reset all signup state
+  // Reset function
   const resetSignupState = () => {
     setSignupStage(1);
     setGoogleUser(null);
@@ -69,22 +75,28 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     setAgeCheckbox(false);
     setConsentCheckbox(false);
     setError("");
+    setLoading(false);
+
+    // Reset Turnstile for next time
+    setTurnstileToken("");
+    setIsTurnstileSolved(false);
+    // Note: We intentionally don't reset newFailedAttempts here in a simple way
+    // because we want to persist the "need captcha" state if they just closed the modal.
+    // But for UX, maybe we should reset if they successfully login.
   };
 
-  // Handle modal close
   const handleClose = () => {
     resetSignupState();
     setIsLogin(true);
     onClose();
   };
 
-  // Handle switching between login and signup
   const handleToggleMode = () => {
     resetSignupState();
     setIsLogin(!isLogin);
   };
 
-  // Stage 1 validation
+  // Validation Helpers
   const validateStage1 = (): string | null => {
     if (!email.trim()) return "Email is required";
     if (!password) return "Password is required";
@@ -104,7 +116,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     setSignupStage(2);
   };
 
-  // Stage 2 validation
   const validateStage2 = (): string | null => {
     if (!firstName.trim()) return "First name is required";
     if (!lastName.trim()) return "Last name is required";
@@ -123,7 +134,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     setSignupStage(3);
   };
 
-  // Stage 3 validation (Consent)
   const validateStage3 = (): string | null => {
     if (!ageCheckbox) {
       return "You must confirm that you are 13 years old or older to register.";
@@ -131,11 +141,25 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     if (!consentCheckbox) {
       return "You must agree to the Privacy Policy and Terms and Conditions to register.";
     }
+    // Turnstile Check (always required for signup stage 3)
+    if (!turnstileToken) {
+      return "Please complete the security check.";
+    }
     return null;
   };
 
+  // --- Login Logic ---
+
   const handleGoogleLogin = async () => {
     setError("");
+
+    // If rate limited, require turnstile even for Google? 
+    // Usually Google login is safe, but let's effectively enforce it if attempts > 3
+    if (failedLoginAttempts >= 3 && !isTurnstileSolved) {
+      setError("Please complete the security check.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -145,16 +169,14 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       const user = userCredential.user;
 
       if (isLogin) {
-        // --- LOGIN FLOW ---
-        // Just sync and close. If profile is missing, sidebar/UI will likely handle it or show "User"
+        // Login Flow
         await refreshUserProfile();
+        setFailedLoginAttempts(0); // Reset on success
         onClose();
         resetSignupState();
       } else {
-        // --- SIGNUP FLOW ---
+        // Signup Flow
         setGoogleUser(user);
-
-        // Pre-fill profile
         if (user.displayName) {
           const parts = user.displayName.split(" ");
           if (parts.length > 0) setFirstName(parts[0]);
@@ -162,12 +184,10 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         }
         if (user.email) setEmail(user.email);
         if (user.photoURL) setPhotoUrl(user.photoURL);
-
-        // Suggest a username from email
         if (user.email) setUsername(user.email.split("@")[0]);
 
         setLoading(false);
-        setSignupStage(2); // Advance to Profile Stage
+        setSignupStage(2);
       }
 
     } catch (loginError: any) {
@@ -179,6 +199,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         return;
       }
       console.error("Google login error:", loginError);
+      setFailedLoginAttempts(prev => prev + 1);
       setError(getUserFriendlyAuthError(loginError, "login"));
       setLoading(false);
     }
@@ -187,6 +208,12 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (failedLoginAttempts >= 3 && !isTurnstileSolved) {
+      setError("Please complete the security check.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -198,10 +225,12 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       }
 
       await refreshUserProfile();
+      setFailedLoginAttempts(0); // Reset on success
       onClose();
       setEmail("");
       setPassword("");
     } catch (loginError: any) {
+      setFailedLoginAttempts(prev => prev + 1);
       if (loginError.message === "Please verify your email address before logging in. Check your inbox.") {
         setError(loginError.message);
       } else {
@@ -211,6 +240,8 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       setLoading(false);
     }
   };
+
+  // --- Signup Logic ---
 
   const handleSignupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -223,19 +254,19 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     }
 
     setLoading(true);
-    let firebaseUser: any = googleUser; // If googleUser is set, we use it
+    let firebaseUser: any = googleUser;
 
     try {
-      // Step 1: Create Firebase Auth user (if not already done via Google)
+      // 1. Create Firebase Auth user
       if (!firebaseUser) {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         firebaseUser = userCredential.user;
       }
 
-      // Step 2: Get token
+      // 2. Get token
       const token = await firebaseUser.getIdToken();
 
-      // Step 3: Registration data
+      // 3. Prepare data
       const registrationData: any = {
         username: username.trim(),
         firstName: firstName.trim(),
@@ -246,12 +277,13 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       if (jobTitle && jobTitle !== "Others") registrationData.jobTitle = jobTitle;
       if (photoUrl.trim()) registrationData.photoUrl = photoUrl.trim();
 
-      // Step 4: Backend Create
+      // 4. Send to Backend with Turnstile Token
       const response = await fetch(`${getBackendBaseUrl()}/users/register`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json",
+          "x-turnstile-token": turnstileToken, // Pass token header
         },
         body: JSON.stringify(registrationData),
       });
@@ -261,16 +293,13 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         throw new Error(errorData.message || "Registration failed");
       }
 
-      // Step 5: Email Verification & Cleanup
-      // If it was an Email Signup, send verification and force logout
+      // 5. Success Handling
       if (!googleUser) {
         await sendEmailVerification(firebaseUser);
         await signOut(auth);
         alert("Account created! We've sent you a verification email. Please verify your email before logging in.");
         setIsLogin(true);
       } else {
-        // If Google Signup, they are already verified (usually) and logged in
-        // Just refresh profile and close
         await refreshUserProfile();
         alert("Account created successfully!");
         onClose();
@@ -279,13 +308,12 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       resetSignupState();
 
     } catch (error: any) {
-      // If we created a NEW Firebase user (email flow) but backend failed, cleanup
       if (firebaseUser && !googleUser) {
         try {
           await deleteUser(firebaseUser);
-          console.log("Cleaned up Firebase Auth user after backend failure");
+          console.log("Cleaned up Firebase after failure");
         } catch (cleanupError) {
-          console.error("Failed to cleanup Firebase user:", cleanupError);
+          console.error("Cleanup failed:", cleanupError);
         }
       }
       setError(getUserFriendlyRegistrationError(error, !!firebaseUser));
@@ -312,7 +340,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         </button>
 
         <div className="mb-6 text-center">
-          {/* Mode Icon */}
           <div className={`mx-auto w-12 h-12 flex items-center justify-center rounded-full mb-3 ${isLogin ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-500'}`}>
             {isLogin ? (
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" /></svg>
@@ -341,12 +368,12 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           </div>
         )}
 
-        {/* Login Form */}
+        {/* LOGIN FORM */}
         {isLogin ? (
           <>
             <button
               onClick={handleGoogleLogin}
-              disabled={loading}
+              disabled={loading || (failedLoginAttempts >= 3 && !isTurnstileSolved)}
               className="w-full flex items-center justify-center gap-2 py-2 px-4 mb-4 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -390,9 +417,28 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   placeholder="••••••••"
                 />
               </div>
+
+              {/* Turnstile for Login */}
+              {failedLoginAttempts >= 3 && (
+                <div className="flex justify-center my-2">
+                  <Turnstile
+                    sitekey={TURNSTILE_SITE_KEY}
+                    onVerify={(token) => {
+                      setTurnstileToken(token);
+                      setIsTurnstileSolved(true);
+                      setError("");
+                    }}
+                    onExpire={() => {
+                      setTurnstileToken("");
+                      setIsTurnstileSolved(false);
+                    }}
+                  />
+                </div>
+              )}
+
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || (failedLoginAttempts >= 3 && !isTurnstileSolved)}
                 className="w-full py-2 px-4 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50"
               >
                 {loading ? "Please wait..." : "Login"}
@@ -550,9 +596,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   <button
                     type="button"
                     onClick={() => {
-                      // If backing out from Google flow, maybe clear google user?
-                      // Or just go back to stage 1 and keep user?
-                      // Resetting makes more sense if they want to switch methdos.
                       setGoogleUser(null);
                       setSignupStage(1);
                     }}
@@ -606,6 +649,23 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                       <span className="text-red-500">*</span>
                     </label>
                   </div>
+
+                  {/* Turnstile for Signup */}
+                  <div className="flex justify-center mt-2">
+                    <Turnstile
+                      sitekey={TURNSTILE_SITE_KEY}
+                      onVerify={(token) => {
+                        setTurnstileToken(token);
+                        setIsTurnstileSolved(true);
+                        setError("");
+                      }}
+                      onExpire={() => {
+                        setTurnstileToken("");
+                        setIsTurnstileSolved(false);
+                      }}
+                    />
+                  </div>
+
                 </div>
 
                 <div className="flex gap-3 mt-6">
@@ -646,3 +706,4 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     </div>
   );
 }
+

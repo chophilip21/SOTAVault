@@ -45,11 +45,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const cached = localStorage.getItem(USER_PROFILE_CACHE_KEY);
       const timestamp = localStorage.getItem(USER_PROFILE_CACHE_TIMESTAMP_KEY);
-      
+
       if (cached && timestamp) {
         const cacheTime = parseInt(timestamp, 10);
         const now = Date.now();
-        
+
         // Check if cache is still valid and matches current user
         if (now - cacheTime < CACHE_DURATION) {
           const profile = JSON.parse(cached);
@@ -61,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Failed to load cached user profile:", error);
     }
-    
+
     return null;
   };
 
@@ -169,19 +169,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
-      
+
       if (firebaseUser) {
         // Check cache first
         const cachedProfile = loadCachedProfile(firebaseUser.uid);
-        
+
         if (cachedProfile) {
           setUserProfile(cachedProfile);
           setLoading(false);
-          
+
           // Only refresh in background if cache is older than 5 seconds
           const cacheTimestamp = localStorage.getItem(USER_PROFILE_CACHE_TIMESTAMP_KEY);
           const cacheAge = cacheTimestamp ? Date.now() - parseInt(cacheTimestamp, 10) : Infinity;
-          
+
           if (cacheAge > 5000) { // 5 seconds
             fetchUserProfile(firebaseUser.uid, firebaseUser.email || "").then((profile) => {
               if (profile) {
@@ -225,6 +225,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserProfile(profile);
     saveCachedProfile(profile);
   };
+
+  // Health Check State
+  const [isServiceUnavailable, setIsServiceUnavailable] = useState(false);
+  const [isHealthChecked, setIsHealthChecked] = useState(false);
+
+  // Perform initial health check
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const res = await fetch(`${getBackendBaseUrl()}/health`, {
+          // Short timeout for health check to fail fast
+          signal: AbortSignal.timeout(5000)
+        });
+        if (!res.ok) {
+          // If backend is responding with error, we might consider it unavailable too
+          // But user emphasized critical connection failures. 
+          // Let's stick to catching exceptions + maybe 5xx.
+          if (res.status >= 500) {
+            setIsServiceUnavailable(true);
+          }
+        }
+      } catch (e) {
+        console.error("Critical: Backend unreachable", e);
+        setIsServiceUnavailable(true);
+      } finally {
+        setIsHealthChecked(true);
+      }
+    };
+
+    checkHealth();
+  }, []);
+
+  if (isServiceUnavailable) {
+    const ServiceUnavailable = require("@/app/components/ServiceUnavailable").default;
+    return <ServiceUnavailable />;
+  }
+
+  // Prevent loading children until we know if service is available
+  // This prevents the "trying to load" behavior the user complained about
+  if (!isHealthChecked) {
+    return null; // Or a simple loading spinner if preferred, but null is safest to avoid flashing
+  }
 
   return (
     <AuthContext.Provider value={{ user, userProfile, loading, logout, refreshUserProfile, updateUserProfileOptimistic }}>
