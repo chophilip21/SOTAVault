@@ -114,9 +114,9 @@ interface ConferenceMarker {
 // For production, you might want to use a proper geocoding service
 const geocodeCity = (place: string): [number, number] | null => {
   if (!place) return null;
-  
+
   const normalizedPlace = place.toLowerCase().trim();
-  
+
   // Common conference cities mapping
   const cityMap: Record<string, [number, number]> = {
     // North America
@@ -139,7 +139,7 @@ const geocodeCity = (place: string): [number, number] | null => {
     "montreal": [-73.5673, 45.5017],
     "calgary": [-114.0719, 51.0447],
     "mexico city": [-99.1332, 19.4326],
-    
+
     // Europe
     "london": [-0.1276, 51.5074],
     "paris": [2.3522, 48.8566],
@@ -171,7 +171,7 @@ const geocodeCity = (place: string): [number, number] | null => {
     "frankfurt": [8.6821, 50.1109],
     "hamburg": [9.9937, 53.5511],
     "cologne": [6.9603, 50.9375],
-    
+
     // Asia Pacific
     "tokyo": [139.6503, 35.6762],
     "kyoto": [135.7681, 35.0116],
@@ -199,7 +199,7 @@ const geocodeCity = (place: string): [number, number] | null => {
     "new delhi": [77.1025, 28.7041],
     "hyderabad": [78.4867, 17.3850],
     "pune": [73.8567, 18.5204],
-    
+
     // Middle East & Africa
     "dubai": [55.2708, 25.2048],
     "abu dhabi": [54.3773, 24.4539],
@@ -210,7 +210,7 @@ const geocodeCity = (place: string): [number, number] | null => {
     "cape town": [18.4241, -33.9249],
     "johannesburg": [28.0473, -26.2041],
     "nairobi": [36.8219, -1.2921],
-    
+
     // South America
     "rio de janeiro": [-43.1729, -22.9068],
     "são paulo": [-46.6333, -23.5505],
@@ -218,7 +218,7 @@ const geocodeCity = (place: string): [number, number] | null => {
     "santiago": [-70.6693, -33.4489],
     "bogotá": [-74.0721, 4.7110],
     "lima": [-77.0428, -12.0464],
-    
+
     // Additional specific variations
     "san jose": [-121.8863, 37.3382],
     "philadelphia": [-75.1652, 39.9526],
@@ -229,25 +229,25 @@ const geocodeCity = (place: string): [number, number] | null => {
     "fields institute, toronto": [-79.3832, 43.6532],
     "mumbai, india": [72.8777, 19.0760],
   };
-  
+
   // Try exact match first
   if (cityMap[normalizedPlace]) {
     return cityMap[normalizedPlace];
   }
-  
+
   // Try partial matches (e.g., "New York, USA" -> "new york")
   for (const [city, coords] of Object.entries(cityMap)) {
     if (normalizedPlace.includes(city) || city.includes(normalizedPlace)) {
       return coords;
     }
   }
-  
+
   // Try extracting city name from common patterns
   const patterns = [
     /^([^,]+),/i,  // "City, Country"
     /^([^,]+)$/i,  // Just city name
   ];
-  
+
   for (const pattern of patterns) {
     const match = normalizedPlace.match(pattern);
     if (match) {
@@ -257,7 +257,7 @@ const geocodeCity = (place: string): [number, number] | null => {
       }
     }
   }
-  
+
   return null;
 };
 
@@ -285,32 +285,31 @@ export default function Home() {
         // Fetch papers (we'll fetch more and sort by bookmark_count)
         const papersUrl = new URL(`${getBackendBaseUrl()}/papers/`);
         papersUrl.searchParams.set("limit", "50"); // Fetch more to get better selection
-        
+
         const papersRes = await fetch(papersUrl.toString());
         if (!papersRes.ok) throw new Error("Failed to load papers");
         const papersData: PapersResponse = await papersRes.json();
-        
+
         // Sort by bookmark_count descending and take top 3
         const sortedPapers = [...(papersData.items || [])]
-          .sort((a, b) => (b.bookmark_count || 0) - (a.bookmark_count || 0))
           .slice(0, 3);
-        
+
         setPopularPapers(sortedPapers);
 
         // Fetch datasets (we'll fetch more and sort by paper_count)
         const datasetsUrl = new URL(`${getBackendBaseUrl()}/datasets/`);
         datasetsUrl.searchParams.set("limit", "50"); // Fetch more to get better selection
-        
+
         const datasetsRes = await fetch(datasetsUrl.toString());
         if (!datasetsRes.ok) throw new Error("Failed to load datasets");
         const datasetsData: DatasetsResponse = await datasetsRes.json();
-        
+
         // Sort by paper_count descending and take ONLY top 3
         const allDatasets = datasetsData.items || [];
         const sortedDatasets = [...allDatasets]
           .sort((a, b) => (b.paper_count || 0) - (a.paper_count || 0))
           .slice(0, 3); // Explicitly limit to 3 datasets
-        
+
         // Ensure we only set exactly 3 datasets
         if (sortedDatasets.length > 3) {
           console.warn('Warning: More than 3 datasets in sortedDatasets');
@@ -321,11 +320,11 @@ export default function Home() {
         const venuesUrl = new URL(`${getBackendBaseUrl()}/venues/`);
         venuesUrl.searchParams.set("limit", "500");
         venuesUrl.searchParams.set("min_date", toISODate(new Date())); // Only upcoming conferences
-        
+
         const venuesRes = await fetch(venuesUrl.toString());
         if (!venuesRes.ok) throw new Error("Failed to load venues");
         const venuesData: VenuesResponse = await venuesRes.json();
-        
+
         setUpcomingVenues(venuesData.items || []);
       } catch (err: any) {
         setError(err.message || "Failed to load data");
@@ -340,7 +339,7 @@ export default function Home() {
   // Get conferences with closest submission deadlines
   const featuredDeadlineConferences = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
-    
+
     // Filter venues with upcoming deadlines
     const withDeadlines = upcomingVenues
       .filter(venue => {
@@ -354,14 +353,14 @@ export default function Home() {
       }))
       .sort((a, b) => a.deadline.localeCompare(b.deadline))
       .slice(0, 3);
-    
+
     return withDeadlines;
   }, [upcomingVenues]);
 
   // Group venues by place and geocode them
   const conferenceMarkers = useMemo(() => {
     const placeMap = new Map<string, Venue[]>();
-    
+
     // Group venues by place
     upcomingVenues.forEach((venue) => {
       if (venue.place) {
@@ -372,7 +371,7 @@ export default function Home() {
         placeMap.get(normalizedPlace)!.push(venue);
       }
     });
-    
+
     // Color palette for markers
     const markerColors = [
       "#10B981", // green
@@ -387,7 +386,7 @@ export default function Home() {
 
     // Create markers with coordinates
     const markers: ConferenceMarker[] = [];
-    const missingCities: string[] = [];
+
     let colorIndex = 0;
     placeMap.forEach((venues, place) => {
       const coords = geocodeCity(place);
@@ -400,16 +399,11 @@ export default function Home() {
           color: markerColors[colorIndex % markerColors.length],
         });
         colorIndex++;
-      } else {
-        missingCities.push(place);
       }
     });
-    
-    // Log missing cities for debugging
-    if (missingCities.length > 0) {
-      console.log('Missing geocoding for cities:', missingCities);
-    }
-    
+
+
+
     return markers;
   }, [upcomingVenues]);
 
@@ -447,8 +441,8 @@ export default function Home() {
           <h2 className={`text-3xl font-bold text-gray-900 ${playfairDisplay.className}`}>
             Upcoming Conferences
           </h2>
-          <ProtectedLink 
-            href="/conference" 
+          <ProtectedLink
+            href="/conference"
             className="text-green-600 hover:text-green-700 text-sm font-medium transition"
             onLoginRequired={() => setIsAuthModalOpen(true)}
           >
@@ -463,7 +457,7 @@ export default function Home() {
               const deadline = new Date(venue.deadline);
               const today = new Date();
               const daysUntil = Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-              
+
               return (
                 <div
                   key={venue.id}
@@ -481,7 +475,7 @@ export default function Home() {
                       )}
                     </div>
                   </div>
-                  
+
                   <div className="mt-3 pt-3 border-t border-green-200">
                     <div className="flex items-center justify-between">
                       <div>
@@ -520,7 +514,7 @@ export default function Home() {
             })}
           </div>
         )}
-        
+
         <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
           {conferenceMarkers.length > 0 ? (
             <ConferenceMap markers={conferenceMarkers} />
@@ -529,10 +523,10 @@ export default function Home() {
               {loading ? "Loading conferences..." : "No upcoming conferences found."}
             </div>
           )}
-          
+
           {conferenceMarkers.length > 0 && (
             <div className="mt-4 flex flex-wrap gap-2 text-sm text-gray-600">
-              <span className="font-medium">Locations:</span>
+
               {conferenceMarkers.slice(0, 10).map((marker) => (
                 <span key={marker.name} className="px-2 py-1 bg-gray-100 rounded">
                   {marker.name} ({marker.venues.length})
@@ -554,15 +548,15 @@ export default function Home() {
           <h2 className={`text-3xl font-bold text-gray-900 ${playfairDisplay.className}`}>
             Popular Papers
           </h2>
-          <ProtectedLink 
-            href="/papers" 
+          <ProtectedLink
+            href="/papers"
             className="text-green-600 hover:text-green-700 text-sm font-medium transition"
             onLoginRequired={() => setIsAuthModalOpen(true)}
           >
             View all →
           </ProtectedLink>
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {popularPapers.map((paper) => (
             <ProtectedLink
@@ -588,31 +582,28 @@ export default function Home() {
                   </h3>
                 </div>
               </div>
-              
+
               {paper.authors && paper.authors.length > 0 && (
                 <p className="text-xs text-gray-600 mb-2 line-clamp-1">
                   {paper.authors.slice(0, 3).join(", ")}
                   {paper.authors.length > 3 && " et al."}
                 </p>
               )}
-              
+
               {(paper.venue || paper.year) && (
                 <p className="text-xs text-gray-500 mb-3">
                   {[paper.venue, paper.year].filter(Boolean).join(" · ")}
                 </p>
               )}
-              
+
               {paper.abstract && (
                 <p className="text-sm text-gray-700 mb-3 line-clamp-3">
                   {paper.abstract}
                 </p>
               )}
-              
+
               <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <span className="text-amber-500">★</span>
-                  <span>{paper.bookmark_count || 0} bookmarks</span>
-                </div>
+
                 {paper.created_at && (
                   <span className="text-xs text-gray-400">
                     {new Date(paper.created_at).toLocaleDateString()}
@@ -622,7 +613,7 @@ export default function Home() {
             </ProtectedLink>
           ))}
         </div>
-        
+
         {popularPapers.length === 0 && (
           <div className="text-gray-500 text-center py-8">No popular papers found.</div>
         )}
@@ -634,15 +625,15 @@ export default function Home() {
           <h2 className={`text-3xl font-bold text-gray-900 ${playfairDisplay.className}`}>
             Popular Datasets
           </h2>
-          <ProtectedLink 
-            href="/benchmark" 
+          <ProtectedLink
+            href="/benchmark"
             className="text-green-600 hover:text-green-700 text-sm font-medium transition"
             onLoginRequired={() => setIsAuthModalOpen(true)}
           >
             View all →
           </ProtectedLink>
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {popularDatasets.slice(0, 3).map((dataset) => (
             <ProtectedLink
@@ -672,13 +663,13 @@ export default function Home() {
                   )}
                 </div>
               </div>
-              
+
               {dataset.description && (
                 <p className="text-sm text-gray-700 mb-3 line-clamp-3">
                   {dataset.description}
                 </p>
               )}
-              
+
               <div className="flex items-center justify-between pt-3 border-t border-gray-100">
                 <div className="flex items-center gap-2">
                   {dataset.domain && (
@@ -700,7 +691,7 @@ export default function Home() {
             </ProtectedLink>
           ))}
         </div>
-        
+
         {popularDatasets.length === 0 && (
           <div className="text-gray-500 text-center py-8">No popular datasets found.</div>
         )}

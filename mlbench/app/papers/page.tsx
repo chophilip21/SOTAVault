@@ -9,6 +9,7 @@ import { Playfair_Display } from "next/font/google";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse } from "@/lib/github";
+import { useAuth } from "@/lib/authContext";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -113,15 +114,15 @@ export default function PapersPage() {
   const searchDebounceRef = useRef<number | null>(null);
   const MIN_CHARS = 3;
   const DEBOUNCE_MS = 350;
-  
+
   // Temporary filter states (not yet applied)
   const [selectedDomain, setSelectedDomain] = useState("");
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
-  
+
   // Applied filter states (used for actual filtering)
   const [appliedDomain, setAppliedDomain] = useState("");
   const [appliedTasks, setAppliedTasks] = useState<string[]>([]);
-  
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
@@ -136,8 +137,14 @@ export default function PapersPage() {
   // Local-only bookmarks (UI toggle only for now).
   const [bookmarkedIds, setBookmarkedIds] = useState<Record<string, boolean>>({});
   // Unofficial code is shown on-demand only (collapsed by default).
+  // Unofficial code is shown on-demand only (collapsed by default).
   const [showUnofficial, setShowUnofficial] = useState<Record<string, boolean>>({});
   const lastGithubBatchKeyRef = useRef<string>("");
+  const { user } = useAuth();
+
+  // Debounce refs for bookmark toggles
+  const bookmarkTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const bookmarkCheckpointsRef = useRef<Record<string, boolean>>({}); // Last confirmed server state
 
   const fetchPage = async (cursor: string | null, taskIds?: string[]) => {
     setLoading(true);
@@ -148,7 +155,7 @@ export default function PapersPage() {
       url.searchParams.set("limit", "10");
       url.searchParams.set("sort_dir", sortDir);
       if (cursor) url.searchParams.set("cursor", cursor);
-      
+
       const taskToUse = taskIds !== undefined ? taskIds : appliedTasks;
       if (taskToUse && taskToUse.length > 0) {
         taskToUse.forEach((t) => url.searchParams.append("task_id", t));
@@ -191,7 +198,7 @@ export default function PapersPage() {
 
       const taskList = data.items || [];
       setTasks(taskList);
-      
+
       // Update cache
       tasksCache = taskList;
       tasksCacheTime = Date.now();
@@ -399,10 +406,10 @@ export default function PapersPage() {
         .sort((a, b) => a.name.localeCompare(b.name));
       return [...presetTaskObjects, ...otherTasks];
     }
-    
+
     const query = taskSearchQuery.toLowerCase();
     return tasks
-      .filter(task => 
+      .filter(task =>
         task.name.toLowerCase().replace(/-/g, " ").includes(query) ||
         task.id.toLowerCase().includes(query)
       )
@@ -609,8 +616,95 @@ export default function PapersPage() {
     }
   };
 
-  const toggleBookmark = (paperId: string) => {
-    setBookmarkedIds((prev) => ({ ...prev, [paperId]: !prev[paperId] }));
+
+
+  const fetchUserBookmarks = async () => {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`${getBackendBaseUrl()}/users/me/bookmarks`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const map: Record<string, boolean> = {};
+        (data.items || []).forEach((b: any) => {
+          // Handle both legacy paper_id (if returned) and resource_id
+          const rId = b.resource_id || b.paper_id;
+          if (rId) map[rId] = true;
+        });
+        setBookmarkedIds(map);
+        // Initialize checkpoints with fetched state
+        bookmarkCheckpointsRef.current = { ...map };
+      }
+    } catch {
+      // ignore silently
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchUserBookmarks();
+    } else {
+      setBookmarkedIds({});
+      bookmarkCheckpointsRef.current = {};
+    }
+  }, [user]);
+
+  const toggleBookmark = async (paperId: string) => {
+    // 1. Clear any pending timer for this paper
+    if (bookmarkTimersRef.current[paperId]) {
+      clearTimeout(bookmarkTimersRef.current[paperId]);
+      delete bookmarkTimersRef.current[paperId];
+    }
+
+    // 2. Optimistic UI update
+    const nextState = !bookmarkedIds[paperId];
+    setBookmarkedIds((prev) => ({ ...prev, [paperId]: nextState }));
+
+    if (!user) return; // Local toggle only if not logged in (ephemeral)
+
+    // 3. Set debounce timer (coalescing)
+    bookmarkTimersRef.current[paperId] = setTimeout(async () => {
+      // Remove timer ref
+      delete bookmarkTimersRef.current[paperId];
+
+      // Coalescing check: if current intention matches last confirmed checkpoint, do nothing.
+      const lastConfirmed = !!bookmarkCheckpointsRef.current[paperId];
+      if (nextState === lastConfirmed) {
+        return; // User toggled back to original state, no API call needed.
+      }
+
+      try {
+        const token = await user.getIdToken();
+        const url = nextState
+          ? `${getBackendBaseUrl()}/users/me/bookmarks`
+          : `${getBackendBaseUrl()}/users/me/bookmarks/${paperId}`;
+
+        const method = nextState ? "POST" : "DELETE";
+        const body = nextState ? JSON.stringify({ resource_id: paperId, resource_type: "paper" }) : undefined;
+
+        const res = await fetch(url, {
+          method,
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body
+        });
+
+        if (res.ok) {
+          // Success: update checkpoint
+          bookmarkCheckpointsRef.current[paperId] = nextState;
+        } else {
+          // Failure: revert UI to match checkpoint (truth)
+          setBookmarkedIds((prev) => ({ ...prev, [paperId]: lastConfirmed }));
+        }
+      } catch (e) {
+        // Error: revert UI
+        setBookmarkedIds((prev) => ({ ...prev, [paperId]: lastConfirmed }));
+      }
+    }, 1000); // 1s debounce window
   };
 
   const toggleUnofficial = (paperId: string, urls: string[]) => {
@@ -637,193 +731,190 @@ export default function PapersPage() {
       <div className="bg-gray-50 rounded-2xl p-6 shadow-sm border border-gray-100">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
-          <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3">
-            <div>
-              <h1 className={`text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>Papers</h1>
-              <p className="text-gray-600 text-base mt-3 break-words">
-                Discover the latest papers and groundbreaking research in machine learing.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search papers by title..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className={`w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors ${
-                    searchQuery.trim().length > 0 ? "bg-white" : "bg-gray-100"
-                  }`}
-                />
-                <svg
-                  className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
+            <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3">
+              <div>
+                <h1 className={`text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>Papers</h1>
+                <p className="text-gray-600 text-base mt-3 break-words">
+                  Discover the latest papers and groundbreaking research in machine learing.
+                </p>
               </div>
-              <div className="flex gap-2 flex-wrap items-center">
+              <div className="flex flex-col gap-2">
                 <div className="relative">
-                  <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
-                    </svg>
-                  </div>
-                  <select
-                    value={selectedDomain}
-                    onChange={(e) => setSelectedDomain(e.target.value)}
-                    className="w-48 px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                  <input
+                    type="text"
+                    placeholder="Search papers by title..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className={`w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors ${searchQuery.trim().length > 0 ? "bg-white" : "bg-gray-100"
+                      }`}
+                  />
+                  <svg
+                    className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
                   >
-                    {DOMAIN_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
                 </div>
-                
-                {/* Custom searchable task dropdown */}
-                <div ref={taskDropdownRef} className="relative min-w-[200px]">
-                  <button
-                    onClick={() => setTaskSearchOpen(!taskSearchOpen)}
-                    disabled={tasksLoading}
-                    className="w-48 px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white disabled:bg-gray-100 text-left flex items-center justify-between relative"
-                  >
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                <div className="flex gap-2 flex-wrap items-center">
+                  <div className="relative">
+                    <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
                       </svg>
-                    </span>
-                    <span className="truncate">{getSelectedTaskName()}</span>
-                    <svg
-                      className={`w-4 h-4 transition-transform ${taskSearchOpen ? 'rotate-180' : ''}`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                  
-                  {taskSearchOpen && (
-                    <div className="absolute z-50 mt-1 w-full max-w-md bg-white border border-gray-300 rounded-lg shadow-lg max-h-96 overflow-hidden">
-                      <div className="p-2 border-b border-gray-200">
-                        <input
-                          type="text"
-                          placeholder="Search tasks..."
-                          value={taskSearchQuery}
-                          onChange={(e) => setTaskSearchQuery(e.target.value)}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
-                          autoFocus
-                        />
-                      </div>
-
-                      <div className="p-2 border-b border-gray-200 flex items-center justify-between gap-2">
-                        <p className="text-xs text-gray-500">Select up to 10 tasks</p>
-                        <button
-                          onClick={() => setSelectedTasks([])}
-                          className="text-xs text-gray-700 hover:text-gray-900 underline"
-                          type="button"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                      
-                      {!taskSearchQuery && (
-                        <div className="p-2 border-b border-gray-200">
-                          <p className="text-xs text-gray-500 mb-2">Quick select:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {PRESET_TASKS.map((taskId) => {
-                              const task = tasks.find(t => t.id === taskId);
-                              if (!task) return null;
-                              const active = selectedTasks.includes(taskId);
-                              return (
-                                <button
-                                  key={taskId}
-                                  onClick={() => toggleTask(taskId)}
-                                  className={`px-3 py-1 text-xs rounded-full transition ${
-                                    active ? "bg-green-100 text-green-800" : "bg-green-50 text-green-700 hover:bg-green-100"
-                                  }`}
-                                >
-                                  {formatTaskName(task.name)}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                      
-                      <div className="overflow-y-auto max-h-64">
-                        {getFilteredTasks().map((task) => {
-                          const checked = selectedTasks.includes(task.id);
-                          return (
-                            <label
-                              key={task.id}
-                              className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition cursor-pointer"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleTask(task.id)}
-                                className="h-4 w-4 shrink-0 accent-green-600"
-                              />
-                              <span className={`${checked ? "text-green-700" : "text-gray-800"}`}>
-                                {formatTaskName(task.name)}
-                              </span>
-                            </label>
-                          );
-                        })}
-                        {getFilteredTasks().length === 0 && (
-                          <div className="px-3 py-2 text-sm text-gray-500">No tasks found</div>
-                        )}
-                      </div>
                     </div>
-                  )}
-                </div>
-                
-                <div className="flex items-center space-x-2">
+                    <select
+                      value={selectedDomain}
+                      onChange={(e) => setSelectedDomain(e.target.value)}
+                      className="w-48 px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                    >
+                      {DOMAIN_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Custom searchable task dropdown */}
+                  <div ref={taskDropdownRef} className="relative min-w-[200px]">
+                    <button
+                      onClick={() => setTaskSearchOpen(!taskSearchOpen)}
+                      disabled={tasksLoading}
+                      className="w-48 px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white disabled:bg-gray-100 text-left flex items-center justify-between relative"
+                    >
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+                        </svg>
+                      </span>
+                      <span className="truncate">{getSelectedTaskName()}</span>
+                      <svg
+                        className={`w-4 h-4 transition-transform ${taskSearchOpen ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+
+                    {taskSearchOpen && (
+                      <div className="absolute z-50 mt-1 w-full max-w-md bg-white border border-gray-300 rounded-lg shadow-lg max-h-96 overflow-hidden">
+                        <div className="p-2 border-b border-gray-200">
+                          <input
+                            type="text"
+                            placeholder="Search tasks..."
+                            value={taskSearchQuery}
+                            onChange={(e) => setTaskSearchQuery(e.target.value)}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                            autoFocus
+                          />
+                        </div>
+
+                        <div className="p-2 border-b border-gray-200 flex items-center justify-between gap-2">
+                          <p className="text-xs text-gray-500">Select up to 10 tasks</p>
+                          <button
+                            onClick={() => setSelectedTasks([])}
+                            className="text-xs text-gray-700 hover:text-gray-900 underline"
+                            type="button"
+                          >
+                            Clear
+                          </button>
+                        </div>
+
+                        {!taskSearchQuery && (
+                          <div className="p-2 border-b border-gray-200">
+                            <p className="text-xs text-gray-500 mb-2">Quick select:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {PRESET_TASKS.map((taskId) => {
+                                const task = tasks.find(t => t.id === taskId);
+                                if (!task) return null;
+                                const active = selectedTasks.includes(taskId);
+                                return (
+                                  <button
+                                    key={taskId}
+                                    onClick={() => toggleTask(taskId)}
+                                    className={`px-3 py-1 text-xs rounded-full transition ${active ? "bg-green-100 text-green-800" : "bg-green-50 text-green-700 hover:bg-green-100"
+                                      }`}
+                                  >
+                                    {formatTaskName(task.name)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="overflow-y-auto max-h-64">
+                          {getFilteredTasks().map((task) => {
+                            const checked = selectedTasks.includes(task.id);
+                            return (
+                              <label
+                                key={task.id}
+                                className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleTask(task.id)}
+                                  className="h-4 w-4 shrink-0 accent-green-600"
+                                />
+                                <span className={`${checked ? "text-green-700" : "text-gray-800"}`}>
+                                  {formatTaskName(task.name)}
+                                </span>
+                              </label>
+                            );
+                          })}
+                          {getFilteredTasks().length === 0 && (
+                            <div className="px-3 py-2 text-sm text-gray-500">No tasks found</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={handleApplyFilters}
+                      className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      onClick={handleClearFilters}
+                      className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition"
+                    >
+                      Clear
+                    </button>
+                  </div>
                   <button
-                    onClick={handleApplyFilters}
-                    className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition"
-                  >
-                    Apply
-                  </button>
-                  <button
-                    onClick={handleClearFilters}
-                    className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition"
-                  >
-                    Clear
-                  </button>
-                </div>
-                <button
-                  onClick={handleSortToggle}
-                  className={`inline-flex items-center px-4 py-2 text-sm rounded-full border transition ${
-                    sortDir === "desc"
+                    onClick={handleSortToggle}
+                    className={`inline-flex items-center px-4 py-2 text-sm rounded-full border transition ${sortDir === "desc"
                       ? "bg-blue-100 border-blue-300 text-blue-800"
                       : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  Sort by newest
-                </button>
+                      }`}
+                  >
+                    Sort by newest
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex-1 flex items-center justify-center min-h-[280px]">
-            <Image
-              src="/papers.png"
-              alt="Research papers illustration"
-              width={350}
-              height={350}
-              className="opacity-80 max-w-full h-auto"
-            />
-          </div>
+            <div className="flex-1 flex items-center justify-center min-h-[280px]">
+              <Image
+                src="/papers.png"
+                alt="Research papers illustration"
+                width={350}
+                height={350}
+                className="opacity-80 max-w-full h-auto"
+              />
+            </div>
           </div>
           {!isSearchMode && <Pager align="center" />}
         </div>
@@ -874,103 +965,102 @@ export default function PapersPage() {
                       {displayTitle}
                     </h2>
                   </Link>
-                {/* Code badges + GitHub stats */}
-                <div className="mt-2 space-y-1 text-xs">
-                  {paper.official_code && paper.official_code.length > 0 ? (
-                    <div className="space-y-1">
-                      {paper.official_code.map((u) => {
-                        const key = normalizeGithubRepo(u);
-                        const meta = key ? githubMeta[key] : undefined;
-                        return (
-                          <div key={u} className="flex flex-wrap items-center gap-2">
-                            <GithubRepoStats
-                              status={(meta?.status as any) || (key ? "pending" : "invalid")}
-                              stars={meta?.data?.stars}
-                              forks={meta?.data?.forks}
-                            />
-                            <a className="text-green-600 hover:underline break-all" href={u} target="_blank" rel="noreferrer">
-                              Official
-                            </a>
+                  {/* Code badges + GitHub stats */}
+                  <div className="mt-2 space-y-1 text-xs">
+                    {paper.official_code && paper.official_code.length > 0 ? (
+                      <div className="space-y-1">
+                        {paper.official_code.map((u) => {
+                          const key = normalizeGithubRepo(u);
+                          const meta = key ? githubMeta[key] : undefined;
+                          return (
+                            <div key={u} className="flex flex-wrap items-center gap-2">
+                              <GithubRepoStats
+                                status={(meta?.status as any) || (key ? "pending" : "invalid")}
+                                stars={meta?.data?.stars}
+                                forks={meta?.data?.forks}
+                              />
+                              <a className="text-green-600 hover:underline break-all" href={u} target="_blank" rel="noreferrer">
+                                Official
+                              </a>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <GithubRepoStats status="ok" stars={0} forks={0} />
+                        <span className="text-gray-400">No official code available.</span>
+                      </div>
+                    )}
+
+                    {paper.unofficial_code && paper.unofficial_code.length > 0 && (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => toggleUnofficial(paper.id, paper.unofficial_code || [])}
+                          className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700"
+                        >
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-gray-200 bg-gray-50 text-gray-500">
+                            {showUnofficial[paper.id] ? "−" : "+"}
+                          </span>
+                          <span className="underline underline-offset-2">
+                            Unofficial code ({paper.unofficial_code.length})
+                          </span>
+                        </button>
+
+                        {showUnofficial[paper.id] && (
+                          <div className="space-y-1 pl-7">
+                            {paper.unofficial_code.map((u) => {
+                              const key = normalizeGithubRepo(u);
+                              const meta = key ? githubMeta[key] : undefined;
+                              return (
+                                <div key={u} className="flex flex-wrap items-center gap-2">
+                                  <GithubRepoStats
+                                    status={(meta?.status as any) || (key ? "pending" : "invalid")}
+                                    stars={meta?.data?.stars}
+                                    forks={meta?.data?.forks}
+                                  />
+                                  <a className="text-green-600 hover:underline break-all" href={u} target="_blank" rel="noreferrer">
+                                    Unofficial
+                                  </a>
+                                </div>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <GithubRepoStats status="ok" stars={0} forks={0} />
-                      <span className="text-gray-400">No official code available.</span>
-                    </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {paper.authors && paper.authors.length > 0 && (
+                    <p className="text-sm text-gray-600 mt-1">{paper.authors.join(", ")}</p>
                   )}
-
-                  {paper.unofficial_code && paper.unofficial_code.length > 0 && (
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        onClick={() => toggleUnofficial(paper.id, paper.unofficial_code || [])}
-                        className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700"
-                      >
-                        <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-gray-200 bg-gray-50 text-gray-500">
-                          {showUnofficial[paper.id] ? "−" : "+"}
-                        </span>
-                        <span className="underline underline-offset-2">
-                          Unofficial code ({paper.unofficial_code.length})
-                        </span>
-                      </button>
-
-                      {showUnofficial[paper.id] && (
-                        <div className="space-y-1 pl-7">
-                          {paper.unofficial_code.map((u) => {
-                            const key = normalizeGithubRepo(u);
-                            const meta = key ? githubMeta[key] : undefined;
-                            return (
-                              <div key={u} className="flex flex-wrap items-center gap-2">
-                                <GithubRepoStats
-                                  status={(meta?.status as any) || (key ? "pending" : "invalid")}
-                                  stars={meta?.data?.stars}
-                                  forks={meta?.data?.forks}
-                                />
-                                <a className="text-green-600 hover:underline break-all" href={u} target="_blank" rel="noreferrer">
-                                  Unofficial
-                                </a>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
+                  {(paper.venue || paper.year) && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {[paper.venue, paper.year].filter(Boolean).join(" · ")}
+                    </p>
                   )}
                 </div>
-                {paper.authors && paper.authors.length > 0 && (
-                  <p className="text-sm text-gray-600 mt-1">{paper.authors.join(", ")}</p>
-                )}
-                {(paper.venue || paper.year) && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    {[paper.venue, paper.year].filter(Boolean).join(" · ")}
+              </div>
+              {paper.abstract && (
+                <p className="text-sm text-gray-700 mt-3 line-clamp-3">{paper.abstract}</p>
+              )}
+              <div className="mt-4 flex flex-col items-center gap-2">
+                {paper.created_at && (
+                  <p className="text-xs text-gray-400">
+                    Created {new Date(paper.created_at).toLocaleDateString()}
                   </p>
                 )}
-              </div>
-            </div>
-            {paper.abstract && (
-              <p className="text-sm text-gray-700 mt-3 line-clamp-3">{paper.abstract}</p>
-            )}
-            <div className="mt-4 flex flex-col items-center gap-2">
-              {paper.created_at && (
-                <p className="text-xs text-gray-400">
-                  Created {new Date(paper.created_at).toLocaleDateString()}
-                </p>
-              )}
-              <button
-                onClick={() => toggleBookmark(paper.id)}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border transition ${
-                  bookmarkedIds[paper.id]
+                <button
+                  onClick={() => toggleBookmark(paper.id)}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border transition ${bookmarkedIds[paper.id]
                     ? "border-green-300 bg-green-50 text-green-800"
                     : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <span aria-hidden="true">{bookmarkedIds[paper.id] ? "🔖" : "📑"}</span>
-                <span className="text-sm">{bookmarkedIds[paper.id] ? "Bookmarked" : "Bookmark"}</span>
-              </button>
-            </div>
+                    }`}
+                >
+                  <span aria-hidden="true">{bookmarkedIds[paper.id] ? "🔖" : "📑"}</span>
+                  <span className="text-sm">{bookmarkedIds[paper.id] ? "Bookmarked" : "Bookmark"}</span>
+                </button>
+              </div>
             </div>
           );
         })}

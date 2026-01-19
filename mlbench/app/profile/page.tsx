@@ -4,10 +4,8 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useAuth } from "@/lib/authContext";
 import { useRouter } from "next/navigation";
-import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import EditProfileTab from "./EditProfileTab";
-import BookmarksTab from "./BookmarksTab";
 import AccountManagementTab from "./AccountManagementTab";
 
 interface UserProfileData {
@@ -22,7 +20,7 @@ interface UserProfileData {
   job_title: string | null;
 }
 
-type TabType = "edit" | "bookmarks" | "account";
+type TabType = "edit" | "account";
 
 export default function ProfilePage() {
   const { user, loading: authLoading } = useAuth();
@@ -86,9 +84,9 @@ export default function ProfilePage() {
     );
   }
 
-  const displayName = profileData.display_name || 
-    (profileData.first_name && profileData.last_name 
-      ? `${profileData.first_name} ${profileData.last_name}` 
+  const displayName = profileData.display_name ||
+    (profileData.first_name && profileData.last_name
+      ? `${profileData.first_name} ${profileData.last_name}`
       : profileData.first_name || profileData.last_name || "User");
   const photoUrl = profileData.photo_url || "/Gemini_Generated_Image_hojkkjhojkkjhojk.png";
 
@@ -109,25 +107,25 @@ export default function ProfilePage() {
                   className="object-cover w-full h-full"
                 />
               </div>
-              
+
               {/* Name */}
               <h1 className="text-3xl font-bold text-gray-900 mb-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif' }}>
                 {displayName}
               </h1>
-              
+
               {/* Job Title */}
               {profileData.job_title && (
-                <p 
-                  className="text-lg text-gray-600 mb-1" 
+                <p
+                  className="text-lg text-gray-600 mb-1"
                   style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                 >
                   {profileData.job_title.charAt(0).toUpperCase() + profileData.job_title.slice(1).toLowerCase()}
                 </p>
               )}
-              
+
               {/* Affiliation */}
               {profileData.affiliation && (
-                <p 
+                <p
                   className="text-gray-500 mb-4"
                   style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                 >
@@ -144,31 +142,19 @@ export default function ProfilePage() {
             <nav className="flex justify-center -mb-px min-w-max">
               <button
                 onClick={() => setActiveTab("edit")}
-                className={`px-4 sm:px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-                  activeTab === "edit"
+                className={`px-4 sm:px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${activeTab === "edit"
                     ? "border-green-600 text-green-600"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
+                  }`}
               >
                 Edit Profile
               </button>
               <button
-                onClick={() => setActiveTab("bookmarks")}
-                className={`px-4 sm:px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-                  activeTab === "bookmarks"
-                    ? "border-green-600 text-green-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                Bookmarks
-              </button>
-              <button
                 onClick={() => setActiveTab("account")}
-                className={`px-4 sm:px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-                  activeTab === "account"
+                className={`px-4 sm:px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${activeTab === "account"
                     ? "border-green-600 text-green-600"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
+                  }`}
               >
                 Account Management
               </button>
@@ -178,12 +164,11 @@ export default function ProfilePage() {
           {/* Tab Content */}
           <div className="p-6">
             {activeTab === "edit" && (
-              <EditProfileTab 
-                profileData={profileData} 
+              <EditProfileTab
+                profileData={profileData}
                 onProfileUpdate={fetchProfile}
               />
             )}
-            {activeTab === "bookmarks" && <BookmarksTab />}
             {activeTab === "account" && <AccountManagementTab />}
           </div>
         </div>
