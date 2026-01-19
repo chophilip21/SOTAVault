@@ -127,7 +127,7 @@ export default function Header() {
             <div className="flex items-center pl-4 sm:pl-8 lg:pl-16">
               <Link href="/" className="flex items-center">
                 <Image
-                  src="/logo.png"
+                  src="/logo.svg"
                   alt="MLBench Logo"
                   width={120}
                   height={120}
@@ -141,36 +141,35 @@ export default function Header() {
             <div className="flex-1 max-w-xl mx-2 sm:mx-4">
               <div ref={boxRef} className="relative">
                 <div className="relative rounded-full border-2 border-green-500 shadow-lg shadow-green-50">
-                <input
-                  type="text"
-                  placeholder="Search..."
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onFocus={() => {
-                    if ((query.trim().length >= MIN_CHARS) && suggestions) setSuggestionsOpen(true);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") submitSearch();
-                    if (e.key === "Escape") setSuggestionsOpen(false);
-                  }}
-                  className={`w-full px-3 sm:px-4 py-1.5 sm:py-2 pl-8 sm:pl-10 pr-4 text-sm border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors ${
-                    query.trim().length > 0 ? "bg-white" : "bg-gray-100"
-                  }`}
-                />
-                <svg
-                  className="absolute left-2 sm:left-3 top-1.5 sm:top-2.5 h-4 w-4 sm:h-5 sm:w-5 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  onClick={submitSearch}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  <input
+                    type="text"
+                    placeholder="Search..."
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onFocus={() => {
+                      if ((query.trim().length >= MIN_CHARS) && suggestions) setSuggestionsOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") submitSearch();
+                      if (e.key === "Escape") setSuggestionsOpen(false);
+                    }}
+                    className={`w-full px-3 sm:px-4 py-1.5 sm:py-2 pl-8 sm:pl-10 pr-4 text-sm border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors ${query.trim().length > 0 ? "bg-white" : "bg-gray-100"
+                      }`}
                   />
-                </svg>
+                  <svg
+                    className="absolute left-2 sm:left-3 top-1.5 sm:top-2.5 h-4 w-4 sm:h-5 sm:w-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    onClick={submitSearch}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
                 </div>
 
                 {/* Typeahead dropdown */}
