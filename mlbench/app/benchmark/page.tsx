@@ -865,95 +865,103 @@ export default function BenchmarkPage() {
         <div className="text-gray-500">No benchmarks match your filters.</div>
       )}
 
-      <div className="space-y-5">
+      {/* Responsive grid: 1 col mobile, 2 tablet, 3 desktop */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filteredBenchmarks.map((benchmark) => (
           <div
             key={benchmark.id}
-            className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-gray-200 transition-all duration-200"
+            className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-green-200 transition-all duration-200 flex flex-col"
           >
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 w-20 h-20 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+            {/* Header: Icon + Title */}
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-14 h-14 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
                 <Image
                   src={getDomainIcon(benchmark.domain)}
                   alt={`${benchmark.domain || 'dataset'} icon`}
                   fill
-                  sizes="80px"
+                  sizes="56px"
                   className="object-contain p-2"
                 />
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <Link href={`/datasets/${benchmark.id}`}>
-                  <h2 className="text-lg font-semibold text-gray-900 hover:text-green-600 transition">
+                  <h2 className="text-base font-semibold text-gray-900 hover:text-green-600 transition leading-tight line-clamp-2">
                     {benchmark.name}
                   </h2>
                 </Link>
                 {benchmark.full_name && benchmark.full_name !== benchmark.name && (
-                  <p className="text-sm text-gray-600 mt-1">{benchmark.full_name}</p>
-                )}
-                {benchmark.description && (
-                  <p className="text-sm text-gray-700 mt-2 line-clamp-3">{benchmark.description}</p>
-                )}
-                {renderBubbles(benchmark)}
-                {benchmark.paper_count !== undefined && (
-                  <div className="flex gap-4 mt-3 text-sm text-gray-600">
-                    <div className="w-full">
-                      <button
-                        type="button"
-                        onClick={() => togglePapersPreview(benchmark.id)}
-                        className="inline-flex items-center gap-2 text-gray-700 hover:text-green-700"
-                        aria-expanded={openPapersFor === benchmark.id}
-                      >
-                        <span>
-                          {benchmark.paper_count} {benchmark.paper_count === 1 ? "paper" : "papers"}
-                        </span>
-                        <span className="text-gray-400" aria-hidden>
-                          {openPapersFor === benchmark.id ? "▴" : "▾"}
-                        </span>
-                      </button>
-
-                      {openPapersFor === benchmark.id && (
-                        <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                          {papersLoadingByDatasetId[benchmark.id] ? (
-                            <div className="text-sm text-gray-500">Loading papers…</div>
-                          ) : (papersByDatasetId[benchmark.id] || []).length === 0 ? (
-                            <div className="text-sm text-gray-500">No paper references found.</div>
-                          ) : (
-                            <div className="space-y-1">
-                              {(papersByDatasetId[benchmark.id] || []).slice(0, 6).map((p) => (
-                                <a
-                                  key={p.id}
-                                  href={`/papers/${p.id}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="block text-sm text-green-700 hover:underline"
-                                >
-                                  {p.title || p.id}
-                                </a>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  <p className="text-xs text-gray-500 mt-1 truncate">{benchmark.full_name}</p>
                 )}
               </div>
             </div>
-            <div className="mt-4 flex flex-col items-center gap-2">
+
+            {/* Description */}
+            {benchmark.description && (
+              <p className="text-sm text-gray-700 mt-3 line-clamp-3">{benchmark.description}</p>
+            )}
+
+            {/* Bubbles for modalities and tasks */}
+            {renderBubbles(benchmark)}
+
+            {/* Paper count & preview */}
+            {benchmark.paper_count !== undefined && (
+              <div className="mt-3 text-sm text-gray-600">
+                <button
+                  type="button"
+                  onClick={() => togglePapersPreview(benchmark.id)}
+                  className="inline-flex items-center gap-2 text-gray-700 hover:text-green-700"
+                  aria-expanded={openPapersFor === benchmark.id}
+                >
+                  <span className="text-xs">
+                    {benchmark.paper_count} {benchmark.paper_count === 1 ? "paper" : "papers"}
+                  </span>
+                  <span className="text-gray-400 text-xs" aria-hidden>
+                    {openPapersFor === benchmark.id ? "▴" : "▾"}
+                  </span>
+                </button>
+
+                {openPapersFor === benchmark.id && (
+                  <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    {papersLoadingByDatasetId[benchmark.id] ? (
+                      <div className="text-sm text-gray-500">Loading papers…</div>
+                    ) : (papersByDatasetId[benchmark.id] || []).length === 0 ? (
+                      <div className="text-sm text-gray-500">No paper references found.</div>
+                    ) : (
+                      <div className="space-y-1">
+                        {(papersByDatasetId[benchmark.id] || []).slice(0, 6).map((p) => (
+                          <a
+                            key={p.id}
+                            href={`/papers/${p.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block text-sm text-green-700 hover:underline"
+                          >
+                            {p.title || p.id}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Footer: Created date & Bookmark button */}
+            <div className="mt-auto pt-3 space-y-2">
               {benchmark.created_at && (
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-400 text-center">
                   Created {new Date(benchmark.created_at).toLocaleDateString()}
                 </p>
               )}
               <button
                 onClick={() => toggleBookmark(benchmark.id)}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border transition ${bookmarkedIds[benchmark.id]
+                className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full border transition text-sm ${bookmarkedIds[benchmark.id]
                   ? "border-green-300 bg-green-50 text-green-800"
                   : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
                   }`}
               >
                 <span aria-hidden="true">{bookmarkedIds[benchmark.id] ? "🔖" : "📑"}</span>
-                <span className="text-sm">{bookmarkedIds[benchmark.id] ? "Bookmarked" : "Bookmark"}</span>
+                <span>{bookmarkedIds[benchmark.id] ? "Bookmarked" : "Bookmark"}</span>
               </button>
             </div>
           </div>
