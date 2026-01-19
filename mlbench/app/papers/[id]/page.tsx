@@ -9,6 +9,7 @@ import { GithubRepoStats } from "../../components/GithubRepoStats";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse } from "@/lib/github";
+import { useBookmarks } from "@/hooks/useBookmarks";
 
 function stripOuterQuotes(s: string): string {
   const t = (s || "").trim();
@@ -61,6 +62,7 @@ export default function PaperDetailPage() {
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [githubMeta, setGithubMeta] = useState<Record<string, GithubRepoMetadataItem>>({});
   const [showUnofficial, setShowUnofficial] = useState(false);
+  const { bookmarkedIds, toggleBookmark } = useBookmarks("paper");
 
   const displayTitle = paper ? stripOuterQuotes(paper.title || "") : "";
 
@@ -218,7 +220,7 @@ export default function PaperDetailPage() {
       {!loading && !error && paper && (
         <div className="space-y-4">
           <div className="flex items-start gap-4">
-            <div className="flex-shrink-0 w-24 h-24 relative rounded border border-gray-200 overflow-hidden bg-gray-50">
+            <div className="flex-shrink-0 w-24 h-24 relative rounded border border-gray-200 overflow-hidden bg-gray-50 group">
               <PaperCoverArt
                 seed={paper.arxiv_id || paper.id}
                 title={displayTitle}
@@ -227,6 +229,20 @@ export default function PaperDetailPage() {
                 className="absolute inset-0"
                 ariaLabel={displayTitle ? `Paper cover: ${displayTitle}` : "Paper cover"}
               />
+              {/* Bookmark button overlay */}
+              <button
+                onClick={() => paperId && toggleBookmark(paperId as string)}
+                className={`absolute top-1 right-1 p-1.5 rounded-full border transition-all shadow-sm ${paperId && bookmarkedIds[paperId as string]
+                  ? "border-green-300 bg-green-50 text-green-800 opacity-100"
+                  : "border-white bg-white/90 text-gray-600 opacity-0 group-hover:opacity-100"
+                  }`}
+                title={paperId && bookmarkedIds[paperId as string] ? "Remove bookmark" : "Add bookmark"}
+                aria-label={paperId && bookmarkedIds[paperId as string] ? "Remove bookmark" : "Add bookmark"}
+              >
+                <span aria-hidden="true" className="text-base leading-none">
+                  {paperId && bookmarkedIds[paperId as string] ? "🔖" : "📑"}
+                </span>
+              </button>
             </div>
             <div className="flex-1 space-y-2">
               <h1 className="text-2xl font-bold text-gray-900">{displayTitle}</h1>
@@ -243,11 +259,6 @@ export default function PaperDetailPage() {
               <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
                 {created && <span>Created {created}</span>}
                 {updated && <span>Updated {updated}</span>}
-                {paper.score !== undefined && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-700">
-                    ★ {paper.score}
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -293,154 +304,129 @@ export default function PaperDetailPage() {
             ) : null}
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-2 text-sm text-gray-800">
-            {paper.arxiv_id && (
-              <div className="flex justify-between items-center gap-3">
-                <span className="inline-flex items-center gap-2 text-gray-600">
-                  <span role="img" aria-label="arxiv">📄</span>
-                  arXiv
-                </span>
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900">Resources</h3>
+            <div className="flex flex-wrap gap-3">
+              {paper.arxiv_id && (
                 <a
-                  className="text-green-600 hover:underline"
                   href={`https://arxiv.org/abs/${paper.arxiv_id}`}
                   target="_blank"
                   rel="noreferrer"
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors text-sm font-medium"
                 >
-                  {paper.arxiv_id}
+                  <span role="img" aria-label="arxiv">📄</span>
+                  <span>arXiv: {paper.arxiv_id}</span>
                 </a>
-              </div>
-            )}
-            {paper.doi && (
-              <div className="flex justify-between items-center gap-3">
-                <span className="inline-flex items-center gap-2 text-gray-600">
-                  <span role="img" aria-label="doi">🔗</span>
-                  DOI
-                </span>
+              )}
+              {paper.doi && (
                 <a
-                  className="text-green-600 hover:underline break-all text-right"
                   href={`https://doi.org/${paper.doi}`}
                   target="_blank"
                   rel="noreferrer"
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-yellow-50 text-yellow-800 border border-yellow-200 hover:bg-yellow-100 transition-colors text-sm font-medium"
                 >
-                  {paper.doi}
+                  <span role="img" aria-label="doi">🔗</span>
+                  <span>DOI</span>
                 </a>
-              </div>
-            )}
-            {paper.project_url && (
-              <div className="flex justify-between items-center gap-3">
-                <span className="inline-flex items-center gap-2 text-gray-600">
-                  <span role="img" aria-label="project">🌐</span>
-                  Project
-                </span>
+              )}
+              {paper.project_url && (
                 <a
-                  className="text-green-600 hover:underline break-all text-right"
                   href={paper.project_url}
                   target="_blank"
                   rel="noreferrer"
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors text-sm font-medium"
                 >
-                  {paper.project_url}
+                  <span role="img" aria-label="project">🌐</span>
+                  <span>Project Page</span>
                 </a>
-              </div>
-            )}
-            {paper.pdf_url && (
-              <div className="flex justify-between items-center gap-3">
-                <span className="inline-flex items-center gap-2 text-gray-600">
-                  <span role="img" aria-label="pdf">📑</span>
-                  PDF
-                </span>
+              )}
+              {paper.pdf_url && (
                 <a
-                  className="text-green-600 hover:underline break-all text-right"
                   href={paper.pdf_url}
                   target="_blank"
                   rel="noreferrer"
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-50 text-red-800 border border-red-200 hover:bg-red-100 transition-colors text-sm font-medium"
                 >
-                  {paper.pdf_url}
+                  <span role="img" aria-label="pdf">📑</span>
+                  <span>PDF</span>
                 </a>
-              </div>
-            )}
-            <div className="pt-2 border-t border-gray-200 mt-2 space-y-1">
-              <div className="text-gray-600 font-semibold">Code</div>
-              {paper.official_code && paper.official_code.length > 0 ? (
-                <div className="space-y-1">
-                  {paper.official_code.map((url) => (
-                    <div key={url} className="flex justify-between items-center gap-3">
-                      <span className="inline-flex items-center gap-2 text-gray-600">
-                        <span role="img" aria-label="code">💻</span>
-                        Official
-                      </span>
-                      <div className="text-right min-w-0">
-                        {(() => {
-                          const key = normalizeGithubRepo(url);
-                          const meta = key ? githubMeta[key] : undefined;
-                          if (!key) return null;
-                          return (
-                            <div className="mb-1 flex justify-end">
-                              <GithubRepoStats
-                                status={meta?.status as any}
-                                stars={meta?.data?.stars}
-                                forks={meta?.data?.forks}
-                              />
-                            </div>
-                          );
-                        })()}
+              )}
+            </div>
+
+            <div className="border-t border-gray-100 pt-4">
+              <h4 className="text-sm font-semibold text-gray-900 mb-3">Code</h4>
+              <div className="flex flex-col gap-2">
+                {paper.official_code && paper.official_code.length > 0 ? (
+                  paper.official_code.map((url) => {
+                    const key = normalizeGithubRepo(url);
+                    const meta = key ? githubMeta[key] : undefined;
+                    return (
+                      <div key={url} className="flex flex-wrap items-center gap-2">
                         <a
-                          className="text-green-600 hover:underline break-all max-w-full inline-block"
                           href={url}
                           target="_blank"
                           rel="noreferrer"
+                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200 transition-colors text-sm font-medium"
                         >
-                          {url}
+                          <span role="img" aria-label="code">💻</span>
+                          <span>Official Code</span>
                         </a>
+                        {key && (
+                          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-full px-2 py-1 text-xs text-gray-600 shadow-sm">
+                            <GithubRepoStats
+                              status={meta?.status as any}
+                              stars={meta?.data?.stars}
+                              forks={meta?.data?.forks}
+                            />
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-gray-500 text-sm">No official code available.</div>
-              )}
-              {paper.unofficial_code && paper.unofficial_code.length > 0 && (
-                <div className="space-y-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !showUnofficial;
-                      setShowUnofficial(next);
-                      if (next) {
-                        const keys = Array.from(
-                          new Set(
-                            (paper.unofficial_code || [])
-                              .map((u) => normalizeGithubRepo(u))
-                              .filter((x): x is string => Boolean(x))
-                          )
-                        ).sort();
-                        const missing = keys.filter((k) => !githubMeta[k] || githubMeta[k]?.status === "pending");
-                        if (missing.length > 0) fetchGithubGetMany(missing);
-                      }
-                    }}
-                    className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-800"
-                  >
-                    <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-gray-200 bg-gray-50 text-gray-500">
-                      {showUnofficial ? "−" : "+"}
-                    </span>
-                    <span className="underline underline-offset-2">
-                      Unofficial code ({paper.unofficial_code.length})
-                    </span>
-                  </button>
+                    );
+                  })
+                ) : (
+                  <span className="text-gray-500 text-sm italic">No official code available.</span>
+                )}
 
-                  {showUnofficial && (
-                    <div className="space-y-1 pl-7">
-                      {paper.unofficial_code.map((url) => {
-                        const key = normalizeGithubRepo(url);
-                        const meta = key ? githubMeta[key] : undefined;
-                        return (
-                          <div key={url} className="flex justify-between items-center gap-3">
-                            <span className="inline-flex items-center gap-2 text-gray-600">
-                              <span role="img" aria-label="code">💻</span>
-                              Unofficial
-                            </span>
-                            <div className="text-right min-w-0">
+                {paper.unofficial_code && paper.unofficial_code.length > 0 && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => {
+                        const next = !showUnofficial;
+                        setShowUnofficial(next);
+                        if (next) {
+                          const keys = Array.from(
+                            new Set(
+                              (paper.unofficial_code || [])
+                                .map((u) => normalizeGithubRepo(u))
+                                .filter((x): x is string => Boolean(x))
+                            )
+                          ).sort();
+                          const missing = keys.filter((k) => !githubMeta[k] || githubMeta[k]?.status === "pending");
+                          if (missing.length > 0) fetchGithubGetMany(missing);
+                        }
+                      }}
+                      className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-2 font-medium"
+                    >
+                      <span>{showUnofficial ? "Hide" : "Show"} Unofficial Code ({paper.unofficial_code.length})</span>
+                    </button>
+                    {showUnofficial && (
+                      <div className="flex flex-col gap-2 pl-2 border-l-2 border-gray-100">
+                        {paper.unofficial_code.map((url) => {
+                          const key = normalizeGithubRepo(url);
+                          const meta = key ? githubMeta[key] : undefined;
+                          return (
+                            <div key={url} className="flex flex-wrap items-center gap-2">
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100 transition-colors text-sm"
+                              >
+                                <span role="img" aria-label="code">💻</span>
+                                <span>Unofficial</span>
+                              </a>
                               {key && (
-                                <div className="mb-1 flex justify-end">
+                                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-full px-2 py-1 text-xs text-gray-600 shadow-sm">
                                   <GithubRepoStats
                                     status={meta?.status as any}
                                     stars={meta?.data?.stars}
@@ -448,31 +434,23 @@ export default function PaperDetailPage() {
                                   />
                                 </div>
                               )}
-                              <a
-                                className="text-green-600 hover:underline break-all text-right max-w-full inline-block"
-                                href={url}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                {url}
-                              </a>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-            <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between">
-                <div className="inline-flex items-center gap-2">
-                  <span role="img" aria-label="results">📊</span>
-                  <h2 className="text-lg font-semibold text-gray-900">Results</h2>
-                </div>
+              <div className="inline-flex items-center gap-2">
+                <span role="img" aria-label="results">📊</span>
+                <h2 className="text-lg font-semibold text-gray-900">Results</h2>
+              </div>
               {resultsLoading && <span className="text-xs text-gray-500">Loading...</span>}
             </div>
             {resultsError && (

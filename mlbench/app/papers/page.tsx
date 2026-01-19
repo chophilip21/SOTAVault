@@ -10,6 +10,7 @@ import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse } from "@/lib/github";
 import { useAuth } from "@/lib/authContext";
+import { useBookmarks } from "@/hooks/useBookmarks";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -135,16 +136,12 @@ export default function PapersPage() {
   // GitHub metadata (batched per visible page). Backend is authoritative cache.
   const [githubMeta, setGithubMeta] = useState<Record<string, GithubRepoMetadataItem>>({});
   // Local-only bookmarks (UI toggle only for now).
-  const [bookmarkedIds, setBookmarkedIds] = useState<Record<string, boolean>>({});
-  // Unofficial code is shown on-demand only (collapsed by default).
   // Unofficial code is shown on-demand only (collapsed by default).
   const [showUnofficial, setShowUnofficial] = useState<Record<string, boolean>>({});
   const lastGithubBatchKeyRef = useRef<string>("");
   const { user } = useAuth();
 
-  // Debounce refs for bookmark toggles
-  const bookmarkTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
-  const bookmarkCheckpointsRef = useRef<Record<string, boolean>>({}); // Last confirmed server state
+  const { bookmarkedIds, toggleBookmark } = useBookmarks("paper");
 
   const fetchPage = async (cursor: string | null, taskIds?: string[]) => {
     setLoading(true);
@@ -618,94 +615,7 @@ export default function PapersPage() {
 
 
 
-  const fetchUserBookmarks = async () => {
-    if (!user) return;
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch(`${getBackendBaseUrl()}/users/me/bookmarks`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const map: Record<string, boolean> = {};
-        (data.items || []).forEach((b: any) => {
-          // Handle both legacy paper_id (if returned) and resource_id
-          const rId = b.resource_id || b.paper_id;
-          if (rId) map[rId] = true;
-        });
-        setBookmarkedIds(map);
-        // Initialize checkpoints with fetched state
-        bookmarkCheckpointsRef.current = { ...map };
-      }
-    } catch {
-      // ignore silently
-    }
-  };
 
-  useEffect(() => {
-    if (user) {
-      fetchUserBookmarks();
-    } else {
-      setBookmarkedIds({});
-      bookmarkCheckpointsRef.current = {};
-    }
-  }, [user]);
-
-  const toggleBookmark = async (paperId: string) => {
-    // 1. Clear any pending timer for this paper
-    if (bookmarkTimersRef.current[paperId]) {
-      clearTimeout(bookmarkTimersRef.current[paperId]);
-      delete bookmarkTimersRef.current[paperId];
-    }
-
-    // 2. Optimistic UI update
-    const nextState = !bookmarkedIds[paperId];
-    setBookmarkedIds((prev) => ({ ...prev, [paperId]: nextState }));
-
-    if (!user) return; // Local toggle only if not logged in (ephemeral)
-
-    // 3. Set debounce timer (coalescing)
-    bookmarkTimersRef.current[paperId] = setTimeout(async () => {
-      // Remove timer ref
-      delete bookmarkTimersRef.current[paperId];
-
-      // Coalescing check: if current intention matches last confirmed checkpoint, do nothing.
-      const lastConfirmed = !!bookmarkCheckpointsRef.current[paperId];
-      if (nextState === lastConfirmed) {
-        return; // User toggled back to original state, no API call needed.
-      }
-
-      try {
-        const token = await user.getIdToken();
-        const url = nextState
-          ? `${getBackendBaseUrl()}/users/me/bookmarks`
-          : `${getBackendBaseUrl()}/users/me/bookmarks/${paperId}`;
-
-        const method = nextState ? "POST" : "DELETE";
-        const body = nextState ? JSON.stringify({ resource_id: paperId, resource_type: "paper" }) : undefined;
-
-        const res = await fetch(url, {
-          method,
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body
-        });
-
-        if (res.ok) {
-          // Success: update checkpoint
-          bookmarkCheckpointsRef.current[paperId] = nextState;
-        } else {
-          // Failure: revert UI to match checkpoint (truth)
-          setBookmarkedIds((prev) => ({ ...prev, [paperId]: lastConfirmed }));
-        }
-      } catch (e) {
-        // Error: revert UI
-        setBookmarkedIds((prev) => ({ ...prev, [paperId]: lastConfirmed }));
-      }
-    }, 1000); // 1s debounce window
-  };
 
   const toggleUnofficial = (paperId: string, urls: string[]) => {
     setShowUnofficial((prev) => {
