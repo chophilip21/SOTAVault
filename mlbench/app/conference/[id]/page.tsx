@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { useBookmarks } from "@/hooks/useBookmarks";
 
 // --- Types & Helpers (Ported from conference/page.tsx) ---
 
@@ -95,6 +96,7 @@ export default function VenueDetailPage() {
     const [series, setSeries] = useState<ConferenceSeries | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const { bookmarkedIds, toggleBookmark } = useBookmarks("venue");
 
     useEffect(() => {
         const fetchVenueData = async () => {
@@ -159,8 +161,23 @@ export default function VenueDetailPage() {
 
             <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm">
                 <div className="flex items-start gap-6">
-                    <div className="flex-shrink-0 w-32 h-32 relative rounded-xl border border-gray-100 overflow-hidden">
+                    <div className="flex-shrink-0 w-32 h-32 relative rounded-xl border border-gray-100 overflow-hidden group">
                         <VenueThumbnail venue={venue} series={series || undefined} />
+
+                        {/* Bookmark button overlay */}
+                        <button
+                            onClick={() => venue.id && toggleBookmark(venue.id)}
+                            className={`absolute top-2 right-2 p-2 rounded-full border transition-all shadow-sm ${venue.id && bookmarkedIds[venue.id]
+                                ? "border-green-300 bg-green-50 text-green-800 opacity-100"
+                                : "border-white bg-white/90 text-gray-600 opacity-0 group-hover:opacity-100"
+                                }`}
+                            title={venue.id && bookmarkedIds[venue.id] ? "Remove bookmark" : "Add bookmark"}
+                            aria-label={venue.id && bookmarkedIds[venue.id] ? "Remove bookmark" : "Add bookmark"}
+                        >
+                            <span aria-hidden="true" className="text-lg leading-none">
+                                {venue.id && bookmarkedIds[venue.id] ? "🔖" : "📑"}
+                            </span>
+                        </button>
                     </div>
 
                     <div className="flex-1">
@@ -261,7 +278,7 @@ export default function VenueDetailPage() {
 
                 {/* Website Button */}
                 {venue.website && (
-                    <div className="mt-8 pt-6 border-t border-gray-100 flex justify-end">
+                    <div className="mt-8 pt-6 border-t border-gray-100 flex justify-center">
                         <a
                             href={venue.website}
                             target="_blank"

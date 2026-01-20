@@ -950,7 +950,7 @@ export default function BenchmarkPage() {
             )}
 
             {/* Footer: Created date & Bookmark button */}
-            <div className="mt-auto pt-3 space-y-2">
+            <div className="mt-auto pt-3 space-y-2 flex flex-col items-center">
               {benchmark.created_at && (
                 <p className="text-xs text-gray-400 text-center">
                   Created {new Date(benchmark.created_at).toLocaleDateString()}
@@ -958,10 +958,11 @@ export default function BenchmarkPage() {
               )}
               <button
                 onClick={() => toggleBookmark(benchmark.id)}
-                className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full border transition text-sm ${bookmarkedIds[benchmark.id]
+                className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full border transition-all text-xs ${bookmarkedIds[benchmark.id]
                   ? "border-green-300 bg-green-50 text-green-800"
-                  : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+                  : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
                   }`}
+                title={bookmarkedIds[benchmark.id] ? "Remove bookmark" : "Bookmark this benchmark"}
               >
                 <span aria-hidden="true">{bookmarkedIds[benchmark.id] ? "🔖" : "📑"}</span>
                 <span>{bookmarkedIds[benchmark.id] ? "Bookmarked" : "Bookmark"}</span>

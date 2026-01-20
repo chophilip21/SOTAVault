@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { useBookmarks } from "@/hooks/useBookmarks";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -168,6 +169,7 @@ export default function ConferencePage() {
   const [seriesMap, setSeriesMap] = useState<Record<string, ConferenceSeries>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { bookmarkedIds, toggleBookmark } = useBookmarks("venue");
 
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -500,13 +502,13 @@ export default function ConferencePage() {
                   {tags.slice(0, 2).map((tag) => (
                     <span
                       key={tag}
-                      className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded-full"
+                      className="px-2 py-0.5 text-xs bg-green-50 text-green-700 border border-green-100 rounded-full"
                     >
                       {tag}
                     </span>
                   ))}
                   {tags.length > 2 && (
-                    <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded-full">
+                    <span className="px-2 py-0.5 text-xs bg-green-50 text-green-700 border border-green-100 rounded-full">
                       +{tags.length - 2}
                     </span>
                   )}
@@ -514,21 +516,21 @@ export default function ConferencePage() {
               )}
 
               {/* Website link - smaller and less intrusive */}
-              <div className="mt-auto pt-3">
-                {venue.website && (
-                  <a
-                    href={venue.website}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="inline-flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:underline"
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                    Website
-                  </a>
-                )}
+              <div className="mt-auto pt-3 flex items-center justify-center relative z-10">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleBookmark(venue.id);
+                  }}
+                  className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full border transition-all text-xs ${bookmarkedIds[venue.id]
+                    ? "border-green-300 bg-green-50 text-green-800"
+                    : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
+                    }`}
+                  title={bookmarkedIds[venue.id] ? "Remove bookmark" : "Bookmark this conference"}
+                >
+                  <span aria-hidden="true">{bookmarkedIds[venue.id] ? "🔖" : "📑"}</span>
+                  <span>{bookmarkedIds[venue.id] ? "Bookmarked" : "Bookmark"}</span>
+                </button>
               </div>
             </div>
           );
