@@ -17,7 +17,7 @@ let tasksCacheTime: number | null = null;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // Persist Benchmark tab state so navigating to a dataset and back doesn't reset filters/page.
-const BENCHMARK_STATE_KEY = "mlbench:benchmark_state:v1";
+const BENCHMARK_STATE_KEY = "mlbench:benchmark_state:v2";
 const BENCHMARK_STATE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 function hasMeaningfulBenchmarkState(s: any): boolean {
@@ -121,7 +121,7 @@ export default function BenchmarkPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [prevCursors, setPrevCursors] = useState<Array<string | null>>([null]);
   const [currentCursor, setCurrentCursor] = useState<string | null>(null);
-  const [limit] = useState(10);
+  const [limit] = useState(12);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -613,18 +613,21 @@ export default function BenchmarkPage() {
   })();
 
   const renderBubbles = (benchmark: Benchmark) => {
-    const modalityBubbles = (benchmark.modalities || []).map((m) => (
-      <span
-        key={`m:${m}`}
-        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100"
-      >
-        {m}
-      </span>
-    ));
+    const modalityBubbles = (benchmark.modalities || [])
+      .filter((m) => /^[\x00-\x7F]*$/.test(m)) // Filter out non-English modalities
+      .map((m) => (
+        <span
+          key={`m:${m}`}
+          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100"
+        >
+          {m}
+        </span>
+      ));
 
     const taskNames = (benchmark.task_ids || [])
       .map((id) => taskById[id]?.name)
       .filter(Boolean)
+      .filter((name) => /^[\x00-\x7F]*$/.test(name as string)) // Filter out non-English (non-ASCII) tags
       .map((name) => formatTaskName(name as string));
     const uniq = Array.from(new Set(taskNames)).sort((a, b) => a.localeCompare(b));
     const taskBubbles = uniq.slice(0, 7).map((t) => (

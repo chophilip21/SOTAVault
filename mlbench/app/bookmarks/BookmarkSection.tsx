@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { useAuth } from "@/lib/authContext";
 import { PaperCoverArt } from "@/app/components/PaperCoverArt";
@@ -27,7 +28,24 @@ interface ResourceDetail {
     authors?: string[];
     description?: string;
     pdf_url?: string;
+    domain?: string;
 }
+
+const DOMAIN_ICONS: Record<string, string> = {
+    cv: "/icons/cv.png",
+    nlp: "/icons/nlp.png",
+    audio: "/icons/audio.png",
+    robots: "/icons/robotics.png",
+    time_series: "/icons/timeseries.png",
+    multimodal: "/icons/multi.png",
+    theory: "/icons/theory.png",
+    other: "/icons/cv.png",
+};
+
+const getDomainIcon = (domain?: string): string => {
+    if (!domain) return "/icons/cv.png";
+    return DOMAIN_ICONS[domain] || "/icons/cv.png";
+};
 
 interface BookmarkSectionProps {
     title: string;
@@ -309,6 +327,18 @@ export default function BookmarkSection({
                                                     authors={detail?.authors}
                                                     className="w-full h-full text-[8px]"
                                                 />
+                                            ) : resourceType === "dataset" ? (
+                                                <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-2">
+                                                    <div className="relative w-full h-full">
+                                                        <Image
+                                                            src={getDomainIcon(detail?.domain)}
+                                                            alt={detail?.domain || "dataset"}
+                                                            fill
+                                                            sizes="48px"
+                                                            className="object-contain"
+                                                        />
+                                                    </div>
+                                                </div>
                                             ) : (
                                                 <div className={`w-full h-full flex items-center justify-center ${themeClasses.icon}`}>
                                                     <span className="text-xs font-bold uppercase">{resourceType.slice(0, 2)}</span>

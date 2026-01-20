@@ -107,6 +107,8 @@ const DOMAIN_ICONS: Record<string, string> = {
   other: "/icons/cv.png",
 };
 
+import { useBookmarks } from "@/hooks/useBookmarks";
+
 const getDomainIcon = (domain?: string): string => {
   if (!domain) return "/icons/cv.png";
   return DOMAIN_ICONS[domain] || "/icons/cv.png";
@@ -115,7 +117,7 @@ const getDomainIcon = (domain?: string): string => {
 export default function DatasetDetailPage() {
   const params = useParams();
   const datasetId = params.id as string;
-  
+
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +134,7 @@ export default function DatasetDetailPage() {
   const [paperTitleById, setPaperTitleById] = useState<Record<string, string>>({});
   const [paperLogicalIdById, setPaperLogicalIdById] = useState<Record<string, string>>({});
   const [selectedLeaderboardId, setSelectedLeaderboardId] = useState<string>("");
+  const { bookmarkedIds, toggleBookmark } = useBookmarks("dataset");
 
   useEffect(() => {
     const fetchDataset = async () => {
@@ -378,7 +381,7 @@ export default function DatasetDetailPage() {
 
       <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm">
         <div className="flex items-start gap-6">
-          <div className="flex-shrink-0 w-32 h-32 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+          <div className="flex-shrink-0 w-32 h-32 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 group">
             <Image
               src={getDomainIcon(dataset.domain)}
               alt={`${dataset.domain || 'dataset'} icon`}
@@ -386,14 +389,28 @@ export default function DatasetDetailPage() {
               sizes="128px"
               className="object-contain p-3"
             />
+            {/* Bookmark button overlay */}
+            <button
+              onClick={() => datasetId && toggleBookmark(datasetId)}
+              className={`absolute top-2 right-2 p-2 rounded-full border transition-all shadow-sm ${datasetId && bookmarkedIds[datasetId]
+                ? "border-green-300 bg-green-50 text-green-800 opacity-100"
+                : "border-white bg-white/90 text-gray-600 opacity-0 group-hover:opacity-100"
+                }`}
+              title={datasetId && bookmarkedIds[datasetId] ? "Remove bookmark" : "Add bookmark"}
+              aria-label={datasetId && bookmarkedIds[datasetId] ? "Remove bookmark" : "Add bookmark"}
+            >
+              <span aria-hidden="true" className="text-lg leading-none">
+                {datasetId && bookmarkedIds[datasetId] ? "🔖" : "📑"}
+              </span>
+            </button>
           </div>
-          
+
           <div className="flex-1">
             <h1 className="text-4xl font-bold text-gray-900">{dataset.name}</h1>
             {dataset.full_name && dataset.full_name !== dataset.name && (
               <p className="text-xl text-gray-600 mt-2">{dataset.full_name}</p>
             )}
-            
+
             <div className="flex flex-wrap gap-2 mt-4">
               {dataset.domain && (
                 <span className="px-3 py-1 text-sm bg-gray-100 text-gray-800 rounded-full">
@@ -460,9 +477,9 @@ export default function DatasetDetailPage() {
           {dataset.homepage && (
             <div>
               <h3 className="text-sm font-semibold text-gray-900 mb-2">Homepage</h3>
-              <a 
-                href={dataset.homepage} 
-                target="_blank" 
+              <a
+                href={dataset.homepage}
+                target="_blank"
                 rel="noopener noreferrer"
                 className="text-green-600 hover:underline break-all"
               >
