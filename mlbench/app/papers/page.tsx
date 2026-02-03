@@ -11,6 +11,7 @@ import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse } from "@/lib/github";
 import { useAuth } from "@/lib/authContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import { MathText } from "@/lib/mathText";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -874,7 +875,7 @@ export default function PapersPage() {
                 <div className="flex-1">
                   <Link href={`/papers/${paper.id}`}>
                     <h2 className="text-lg font-semibold text-gray-900 hover:text-green-600 transition">
-                      {displayTitle}
+                      <MathText>{displayTitle}</MathText>
                     </h2>
                   </Link>
                   {/* Code badges + GitHub stats */}

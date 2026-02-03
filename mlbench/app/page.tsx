@@ -11,6 +11,7 @@ import ProtectedLink from "./components/ProtectedLink";
 import { PaperCoverArt } from "./components/PaperCoverArt";
 import AuthModal from "./components/AuthModal";
 import { useAuth } from "@/lib/authContext";
+import { MathText } from "@/lib/mathText";
 
 const ConferenceMap = dynamic(() => import("./components/ConferenceMap"), { ssr: false });
 
@@ -656,11 +657,11 @@ export default function Home() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-base font-semibold text-gray-900 group-hover:text-green-600 transition line-clamp-2">
-                    {dataset.name}
+                    <MathText>{dataset.name}</MathText>
                   </h3>
                   {dataset.full_name && dataset.full_name !== dataset.name && (
                     <p className="text-xs text-gray-600 mt-1 line-clamp-1">
-                      {dataset.full_name}
+                      <MathText>{dataset.full_name}</MathText>
                     </p>
                   )}
                 </div>
@@ -668,7 +669,7 @@ export default function Home() {
 
               {dataset.description && (
                 <p className="text-sm text-gray-700 mb-3 line-clamp-3">
-                  {dataset.description}
+                  <MathText>{dataset.description}</MathText>
                 </p>
               )}
 

@@ -8,6 +8,7 @@ import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { useAuth } from "@/lib/authContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import { MathText } from "@/lib/mathText";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -893,11 +894,13 @@ export default function BenchmarkPage() {
               <div className="flex-1 min-w-0">
                 <Link href={`/datasets/${benchmark.id}`}>
                   <h2 className="text-base font-semibold text-gray-900 hover:text-green-600 transition leading-tight line-clamp-2">
-                    {benchmark.name}
+                    <MathText>{benchmark.name}</MathText>
                   </h2>
                 </Link>
                 {benchmark.full_name && benchmark.full_name !== benchmark.name && (
-                  <p className="text-xs text-gray-500 mt-1 truncate">{benchmark.full_name}</p>
+                  <p className="text-xs text-gray-500 mt-1 truncate">
+                    <MathText>{benchmark.full_name}</MathText>
+                  </p>
                 )}
               </div>
             </div>

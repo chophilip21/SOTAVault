@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { MathText } from "@/lib/mathText";
 
 interface Dataset {
   id: string;
@@ -408,9 +409,13 @@ export default function DatasetDetailPage() {
           </div>
 
           <div className="flex-1">
-            <h1 className="text-4xl font-bold text-gray-900">{dataset.name}</h1>
+            <h1 className="text-4xl font-bold text-gray-900">
+              <MathText>{dataset.name}</MathText>
+            </h1>
             {dataset.full_name && dataset.full_name !== dataset.name && (
-              <p className="text-xl text-gray-600 mt-2">{dataset.full_name}</p>
+              <p className="text-xl text-gray-600 mt-2">
+                <MathText>{dataset.full_name}</MathText>
+              </p>
             )}
 
             <div className="flex flex-wrap gap-2 mt-4">
@@ -470,7 +475,7 @@ export default function DatasetDetailPage() {
           <div className="mt-6 pt-6 border-t border-gray-100">
             <h2 className="text-lg font-semibold text-gray-900 mb-2">Description</h2>
             <p className="text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
-              {stripTrailingSourceLink(dataset.description)}
+              <MathText>{stripTrailingSourceLink(dataset.description)}</MathText>
             </p>
           </div>
         )}

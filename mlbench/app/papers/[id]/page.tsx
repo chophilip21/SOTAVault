@@ -10,6 +10,7 @@ import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse } from "@/lib/github";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import { MathText } from "@/lib/mathText";
 
 function stripOuterQuotes(s: string): string {
   const t = (s || "").trim();
@@ -245,7 +246,9 @@ export default function PaperDetailPage() {
               </button>
             </div>
             <div className="flex-1 space-y-2">
-              <h1 className="text-2xl font-bold text-gray-900">{displayTitle}</h1>
+              <h1 className="text-2xl font-bold text-gray-900">
+                <MathText>{displayTitle}</MathText>
+              </h1>
               {paper.authors && paper.authors.length > 0 && (
                 <p className="text-sm text-gray-700">
                   {paper.authors.join(", ")}
@@ -269,7 +272,7 @@ export default function PaperDetailPage() {
                 Abstract
               </h2>
               <p className="text-sm text-gray-800 whitespace-pre-line">
-                {paper.abstract}
+                <MathText>{paper.abstract}</MathText>
               </p>
             </div>
           )}
@@ -292,7 +295,9 @@ export default function PaperDetailPage() {
                     href={`/papers/${p.id}`}
                     className="block rounded-md border border-gray-200 px-3 py-2 hover:bg-gray-50"
                   >
-                    <div className="text-sm font-medium text-gray-900">{stripOuterQuotes(p.title || "")}</div>
+                    <div className="text-sm font-medium text-gray-900">
+                      <MathText>{stripOuterQuotes(p.title || "")}</MathText>
+                    </div>
                     {(p.venue || p.year) && (
                       <div className="text-xs text-gray-600 mt-0.5">
                         {[p.venue, p.year].filter(Boolean).join(" · ")}

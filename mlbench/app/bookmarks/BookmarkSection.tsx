@@ -6,6 +6,7 @@ import Image from "next/image";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { useAuth } from "@/lib/authContext";
 import { PaperCoverArt } from "@/app/components/PaperCoverArt";
+import { MathText } from "@/lib/mathText";
 
 interface Bookmark {
     bookmark_id: string;
@@ -356,7 +357,7 @@ export default function BookmarkSection({
                                                 className="block group-hover:text-green-700 transition-colors"
                                             >
                                                 <h4 className="text-sm font-medium text-gray-900 truncate" title={displayName}>
-                                                    {displayName}
+                                                    <MathText>{displayName}</MathText>
                                                 </h4>
                                                 {/* Authors (if any) */}
                                                 {detail?.authors && detail.authors.length > 0 && (
