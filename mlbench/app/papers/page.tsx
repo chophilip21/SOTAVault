@@ -50,9 +50,11 @@ const DOMAIN_OPTIONS = [
   { value: "nlp", label: "Natural Language Processing" },
   { value: "audio", label: "Audio" },
   { value: "robots", label: "Robotics" },
-  { value: "time_series", label: "Time Series" },
+  { value: "time_series_tabular", label: "Time Series & Tabular" },
+  { value: "graph", label: "Graph" },
   { value: "multimodal", label: "Multimodal" },
   { value: "theory", label: "Theory" },
+  { value: "efficient", label: "Efficient ML" },
   { value: "other", label: "Other" },
 ];
 

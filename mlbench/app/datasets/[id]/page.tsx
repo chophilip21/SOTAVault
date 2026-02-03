@@ -101,10 +101,12 @@ const DOMAIN_ICONS: Record<string, string> = {
   nlp: "/icons/nlp.png",
   audio: "/icons/audio.png",
   robots: "/icons/robotics.png",
-  time_series: "/icons/timeseries.png",
+  time_series_tabular: "/icons/timeseries.png",
+  graph: "/icons/graph.png",
   multimodal: "/icons/multi.png",
   theory: "/icons/theory.png",
-  other: "/icons/cv.png",
+  efficient: "/icons/efficiency.png",
+  other: "/icons/others.png",
 };
 
 import { useBookmarks } from "@/hooks/useBookmarks";

@@ -45,10 +45,12 @@ const DOMAIN_ICONS: Record<string, string> = {
   nlp: "/icons/nlp.png",
   audio: "/icons/audio.png",
   robots: "/icons/robotics.png",
-  time_series: "/icons/timeseries.png",
+  time_series_tabular: "/icons/timeseries.png",
+  graph: "/icons/graph.png",
   multimodal: "/icons/multi.png",
   theory: "/icons/theory.png",
-  other: "/icons/cv.png", // Default fallback
+  efficient: "/icons/efficiency.png",
+  other: "/icons/others.png",
 };
 
 const getDomainIcon = (domain?: string): string => {
@@ -110,9 +112,11 @@ const DOMAIN_OPTIONS = [
   { value: "nlp", label: "Natural Language Processing" },
   { value: "audio", label: "Audio" },
   { value: "robots", label: "Robotics" },
-  { value: "time_series", label: "Time Series" },
+  { value: "time_series_tabular", label: "Time Series & Tabular" },
+  { value: "graph", label: "Graph" },
   { value: "multimodal", label: "Multimodal" },
   { value: "theory", label: "Theory" },
+  { value: "efficient", label: "Efficient ML" },
   { value: "other", label: "Other" },
 ];
 
