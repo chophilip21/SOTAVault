@@ -165,7 +165,7 @@ export default function BenchmarkPage() {
 
   const { bookmarkedIds, toggleBookmark } = useBookmarks("dataset");
 
-  const fetchPage = async (cursor: string | null, domain?: string) => {
+  const fetchPage = async (cursor: string | null, task?: string, domain?: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -174,6 +174,12 @@ export default function BenchmarkPage() {
       if (cursor) {
         url.searchParams.set("cursor", cursor);
       }
+
+      const taskToUse = task !== undefined ? task : appliedTask;
+      if (taskToUse) {
+        url.searchParams.set("task_id", taskToUse);
+      }
+
       const domainToUse = domain !== undefined ? domain : appliedDomain;
       if (domainToUse) {
         url.searchParams.set("domain", domainToUse);
@@ -461,7 +467,7 @@ export default function BenchmarkPage() {
     setAppliedDomain(selectedDomain);
     setAppliedTask(selectedTask);
     if (searchQuery.trim().length < MIN_CHARS) {
-      fetchPage(null, selectedDomain);
+      fetchPage(null, selectedTask, selectedDomain);
       setPrevCursors([null]);
       setCurrentCursor(null);
     }
@@ -483,7 +489,7 @@ export default function BenchmarkPage() {
     } catch {
       // ignore
     }
-    fetchPage(null, "");
+    fetchPage(null, "", "");
     setPrevCursors([null]);
     setCurrentCursor(null);
   };
@@ -862,15 +868,48 @@ export default function BenchmarkPage() {
       )}
 
       {!loading && !searchLoading && !error && isSearchMode && (searchResults?.length === 0) && (
-        <div className="text-gray-500">No results found.</div>
+        <div className="rounded-2xl p-4 shadow-sm flex flex-col items-center justify-center w-fit mx-auto bg-gradient-to-br from-orange-500 to-yellow-400">
+          <Image
+            src="/404.png"
+            alt="No results found"
+            width={300}
+            height={300}
+            className="opacity-100"
+          />
+          <div className="bg-black w-full py-3 px-6 mt-0 rounded">
+            <p className="text-white text-base text-center font-bold">No benchmark datasets match your filters.</p>
+          </div>
+        </div>
       )}
 
       {!loading && !searchLoading && !error && !isSearchMode && benchmarks.length === 0 && (
-        <div className="text-gray-500">No benchmarks found.</div>
+        <div className="rounded-2xl p-4 shadow-sm flex flex-col items-center justify-center w-fit mx-auto bg-gradient-to-br from-orange-500 to-yellow-400">
+          <Image
+            src="/404.png"
+            alt="No benchmarks were found that meets your filters."
+            width={300}
+            height={300}
+            className="opacity-100"
+          />
+          <div className="bg-black w-full py-3 px-6 mt-0 rounded">
+            <p className="text-white text-base text-center font-bold">No benchmark datasets match your filters.</p>
+          </div>
+        </div>
       )}
 
       {!loading && !searchLoading && !error && listToRender.length > 0 && filteredBenchmarks.length === 0 && (
-        <div className="text-gray-500">No benchmarks match your filters.</div>
+        <div className="rounded-2xl p-4 shadow-sm flex flex-col items-center justify-center w-fit mx-auto bg-gradient-to-br from-orange-500 to-yellow-400">
+          <Image
+            src="/404.png"
+            alt="No results found"
+            width={300}
+            height={300}
+            className="opacity-100"
+          />
+          <div className="bg-black w-full py-3 px-6 mt-0 rounded">
+            <p className="text-white text-base text-center font-bold">No benchmark datasets match your filters.</p>
+          </div>
+        </div>
       )}
 
       {/* Responsive grid: 1 col mobile, 2 tablet, 3 desktop */}

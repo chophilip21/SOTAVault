@@ -966,7 +966,7 @@ export default function PapersPage() {
       )}
 
       {!loading && !searchLoading && !error && isSearchMode && (searchResults?.length === 0) && (
-        <div className="rounded-2xl p-6 border border-yellow-200 shadow-sm flex flex-col items-center justify-center w-fit mx-auto" style={{ backgroundColor: '#FFFF00' }}>
+        <div className="rounded-2xl p-4 shadow-sm flex flex-col items-center justify-center w-fit mx-auto bg-gradient-to-br from-orange-500 to-yellow-400">
           <Image
             src="/404.png"
             alt="No results found"
@@ -974,29 +974,29 @@ export default function PapersPage() {
             height={300}
             className="opacity-100"
           />
-          <div className="bg-black w-full py-3 px-6 mt-6 rounded">
+          <div className="bg-black w-full py-3 px-6 mt-0 rounded">
             <p className="text-white text-base text-center font-bold">No results found.</p>
           </div>
         </div>
       )}
 
       {!loading && !searchLoading && !error && !isSearchMode && papers.length === 0 && (
-        <div className="rounded-2xl p-6 border border-yellow-200 shadow-sm flex flex-col items-center justify-center w-fit mx-auto" style={{ backgroundColor: '#FFFF00' }}>
+        <div className="rounded-2xl p-4 shadow-sm flex flex-col items-center justify-center w-fit mx-auto bg-gradient-to-br from-orange-500 to-yellow-400">
           <Image
             src="/404.png"
-            alt="No papers found"
+            alt="No papers were found that meets your filters."
             width={300}
             height={300}
             className="opacity-100"
           />
-          <div className="bg-black w-full py-3 px-6 mt-6 rounded">
-            <p className="text-white text-base text-center font-bold">No papers found.</p>
+          <div className="bg-black w-full py-3 px-6 mt-0 rounded">
+            <p className="text-white text-base text-center font-bold">No papers meet your filter requirement 😔</p>
           </div>
         </div>
       )}
 
       {!loading && !searchLoading && !error && listToRender.length > 0 && filteredPapers.length === 0 && (
-        <div className="rounded-2xl p-6 border border-yellow-200 shadow-sm flex flex-col items-center justify-center w-fit mx-auto" style={{ backgroundColor: '#FFFF00' }}>
+        <div className="rounded-2xl p-4 shadow-sm flex flex-col items-center justify-center w-fit mx-auto bg-gradient-to-br from-orange-500 to-yellow-400">
           <Image
             src="/404.png"
             alt="No results found"
@@ -1004,7 +1004,7 @@ export default function PapersPage() {
             height={300}
             className="opacity-100"
           />
-          <div className="bg-black w-full py-3 px-6 mt-6 rounded space-y-1">
+          <div className="bg-black w-full py-3 px-6 mt-0 rounded space-y-1">
             <div className="text-white text-base text-center font-bold space-y-1">
               <p>No papers match requirements for:</p>
               {appliedDomain && <p>Domain: {appliedDomain}</p>}
