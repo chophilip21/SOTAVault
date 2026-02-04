@@ -295,7 +295,7 @@ export default function PaperDetailPage() {
               />
               {/* Bookmark button overlay */}
               <button
-                onClick={() => paperId && toggleBookmark(paperId as string)}
+                onClick={() => paperId && toggleBookmark(paperId as string, displayTitle)}
                 className={`absolute top-1 right-1 p-1.5 rounded-full border transition-all shadow-sm ${paperId && bookmarkedIds[paperId as string]
                   ? "border-green-300 bg-green-50 text-green-800 opacity-100"
                   : "border-white bg-white/90 text-gray-600 opacity-0 group-hover:opacity-100"

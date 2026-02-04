@@ -46,7 +46,7 @@ export function useBookmarks(resourceType: "paper" | "dataset" | "venue" = "pape
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user, resourceType]);
 
-    const toggleBookmark = async (resourceId: string) => {
+    const toggleBookmark = async (resourceId: string, title?: string) => {
         // 1. Clear any pending timer for this item
         if (bookmarkTimersRef.current[resourceId]) {
             clearTimeout(bookmarkTimersRef.current[resourceId]);
@@ -77,7 +77,11 @@ export function useBookmarks(resourceType: "paper" | "dataset" | "venue" = "pape
                     : `${getBackendBaseUrl()}/users/me/bookmarks/${resourceId}`;
 
                 const method = nextState ? "POST" : "DELETE";
-                const body = nextState ? JSON.stringify({ resource_id: resourceId, resource_type: resourceType }) : undefined;
+                const body = nextState ? JSON.stringify({
+                    resource_id: resourceId,
+                    resource_type: resourceType,
+                    title: title
+                }) : undefined;
 
                 const res = await fetch(url, {
                     method,

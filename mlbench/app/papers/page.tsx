@@ -1128,7 +1128,7 @@ export default function PapersPage() {
                   </p>
                 )}
                 <button
-                  onClick={() => toggleBookmark(paper.id)}
+                  onClick={() => toggleBookmark(paper.id, displayTitle)}
                   className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border transition ${bookmarkedIds[paper.id]
                     ? "border-green-300 bg-green-50 text-green-800"
                     : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"

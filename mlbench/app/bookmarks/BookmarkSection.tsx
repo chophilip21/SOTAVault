@@ -13,6 +13,7 @@ interface Bookmark {
     resource_id: string;
     resource_type: string;
     added_at: string;
+    title?: string; // May contain cached title from when bookmark was created
 }
 
 interface BookmarkListResponse {
@@ -106,6 +107,7 @@ export default function BookmarkSection({
     // Pagination state
     const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
     const [details, setDetails] = useState<Record<string, ResourceDetail>>({});
+    const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set()); // IDs that no longer exist
 
     // Cursor history for navigation
     const [prevCursors, setPrevCursors] = useState<(string | null)[]>([null]);
@@ -170,6 +172,18 @@ export default function BookmarkSection({
             if (res.ok) {
                 const data = await res.json();
                 const items = data.items || [];
+                const returnedIds = new Set(items.map((item: ResourceDetail) => item.id));
+
+                // Track IDs that were requested but not returned (deleted resources)
+                const nowDeleted = ids.filter(id => !returnedIds.has(id));
+                if (nowDeleted.length > 0) {
+                    setDeletedIds(prev => {
+                        const next = new Set(prev);
+                        nowDeleted.forEach(id => next.add(id));
+                        return next;
+                    });
+                }
+
                 setDetails(prev => {
                     const next = { ...prev };
                     items.forEach((item: ResourceDetail) => {
@@ -309,9 +323,53 @@ export default function BookmarkSection({
                     ) : (
                         <div className="flex flex-col gap-3">
                             {bookmarks.map((bookmark) => {
+                                const isDeleted = deletedIds.has(bookmark.resource_id);
                                 const detail = details[bookmark.resource_id];
-                                const displayName = stripWrappingQuotes(detail?.title || detail?.name || bookmark.resource_id);
+                                const displayName = stripWrappingQuotes(detail?.title || detail?.name || bookmark.title || bookmark.resource_id);
 
+                                // Render deleted resource card
+                                if (isDeleted) {
+                                    const resourceLabel = resourceType === "paper" ? "paper" : resourceType === "dataset" ? "dataset" : "venue";
+                                    return (
+                                        <div
+                                            key={bookmark.bookmark_id}
+                                            className="group relative flex items-center gap-4 p-3 rounded-lg border-2 border-red-200 bg-red-50/50 transition-all"
+                                        >
+                                            {/* Deleted icon */}
+                                            <div className="flex-shrink-0 w-12 h-16 relative rounded overflow-hidden shadow-sm bg-red-100 flex items-center justify-center">
+                                                <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                                </svg>
+                                            </div>
+
+                                            {/* Content */}
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="text-sm font-medium text-red-700 truncate" title={displayName}>
+                                                    <MathText>{displayName}</MathText>
+                                                </h4>
+                                                <p className="text-xs text-red-600 mt-1">
+                                                    This {resourceLabel} has been deleted
+                                                </p>
+                                                <p className="text-[10px] text-gray-400 mt-1 truncate">
+                                                    Originally added on {formatDate(bookmark.added_at)}
+                                                </p>
+                                            </div>
+
+                                            {/* Only remove action for deleted items */}
+                                            <div className="flex items-center gap-3">
+                                                <button
+                                                    onClick={(e) => handleDelete(bookmark.resource_id, e)}
+                                                    className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-100 hover:bg-red-200 rounded transition-colors"
+                                                    title="Remove from bookmarks"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                // Render normal resource card
                                 return (
                                     <div
                                         key={bookmark.bookmark_id}

@@ -394,7 +394,7 @@ export default function DatasetDetailPage() {
             />
             {/* Bookmark button overlay */}
             <button
-              onClick={() => datasetId && toggleBookmark(datasetId)}
+              onClick={() => datasetId && toggleBookmark(datasetId, dataset.name)}
               className={`absolute top-2 right-2 p-2 rounded-full border transition-all shadow-sm ${datasetId && bookmarkedIds[datasetId]
                 ? "border-green-300 bg-green-50 text-green-800 opacity-100"
                 : "border-white bg-white/90 text-gray-600 opacity-0 group-hover:opacity-100"
