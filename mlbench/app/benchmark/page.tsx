@@ -690,7 +690,7 @@ export default function BenchmarkPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <div className="bg-gray-50 rounded-2xl p-6 shadow-sm border border-gray-100">
+      <div className="bg-gradient-to-br from-green-50 to-blue-50 border border-green-200 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
             <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3">

@@ -181,7 +181,7 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
 
       {/* Sidebar */}
       <aside
-        className="fixed left-0 top-20 h-[calc(100vh-5rem)] w-screen md:w-64 bg-white border-r border-gray-200 z-[40] transform transition-transform duration-300 ease-in-out overflow-y-auto"
+        className="fixed left-0 top-20 h-[calc(100vh-5rem)] w-screen md:w-64 bg-gray-50 border-r border-gray-200 z-[40] transform transition-transform duration-300 ease-in-out overflow-y-auto"
         style={{ transform: isOpen ? 'translateX(0)' : 'translateX(-100%)' }}
       >
         <div className="flex flex-col h-full">
