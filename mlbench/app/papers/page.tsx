@@ -150,7 +150,7 @@ export default function PapersPage() {
 
   const { bookmarkedIds, toggleBookmark } = useBookmarks("paper");
 
-  const fetchPage = async (cursor: string | null, taskIds?: string[]) => {
+  const fetchPage = async (cursor: string | null, taskIds?: string[], domain?: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -163,6 +163,11 @@ export default function PapersPage() {
       const taskToUse = taskIds !== undefined ? taskIds : appliedTasks;
       if (taskToUse && taskToUse.length > 0) {
         taskToUse.forEach((t) => url.searchParams.append("task_id", t));
+      }
+
+      const domainToUse = domain !== undefined ? domain : appliedDomain;
+      if (domainToUse) {
+        url.searchParams.set("domain", domainToUse);
       }
 
       const res = await fetch(url.toString());
@@ -320,7 +325,7 @@ export default function PapersPage() {
       skipNextSortEffectRef.current = false;
       return;
     }
-    fetchPage(null);
+    fetchPage(null, appliedTasks, appliedDomain);
     setPrevCursors([null]);
     setCurrentCursor(null);
   }, [sortDir]);
@@ -403,7 +408,7 @@ export default function PapersPage() {
     setAppliedTasks(selectedTasks);
     // Only refetch the paginated list when not in Meilisearch search mode.
     if (searchQuery.trim().length < MIN_CHARS) {
-      fetchPage(null, selectedTasks);
+      fetchPage(null, selectedTasks, selectedDomain);
       setPrevCursors([null]);
       setCurrentCursor(null);
     }
@@ -422,7 +427,7 @@ export default function PapersPage() {
     } catch {
       // ignore
     }
-    fetchPage(null, []);
+    fetchPage(null, [], "");
     setPrevCursors([null]);
     setCurrentCursor(null);
   };
@@ -604,6 +609,13 @@ export default function PapersPage() {
       const paperTasks = tasks.filter(t => paper.task_ids?.includes(t.id));
       const hasMatchingDomain = paperTasks.some(t => t.domain === appliedDomain);
       if (!hasMatchingDomain) return false;
+    }
+
+    // Task filter (client-side AND logic) - paper must have ALL selected tasks
+    if (appliedTasks && appliedTasks.length > 0) {
+      const paperTaskIds = paper.task_ids || [];
+      const hasAllTasks = appliedTasks.every(taskId => paperTaskIds.includes(taskId));
+      if (!hasAllTasks) return false;
     }
 
     return true;
@@ -954,15 +966,54 @@ export default function PapersPage() {
       )}
 
       {!loading && !searchLoading && !error && isSearchMode && (searchResults?.length === 0) && (
-        <div className="text-gray-500">No results found.</div>
+        <div className="rounded-2xl p-6 border border-yellow-200 shadow-sm flex flex-col items-center justify-center w-fit mx-auto" style={{ backgroundColor: '#FFFF00' }}>
+          <Image
+            src="/404.png"
+            alt="No results found"
+            width={300}
+            height={300}
+            className="opacity-100"
+          />
+          <div className="bg-black w-full py-3 px-6 mt-6 rounded">
+            <p className="text-white text-base text-center font-bold">No results found.</p>
+          </div>
+        </div>
       )}
 
       {!loading && !searchLoading && !error && !isSearchMode && papers.length === 0 && (
-        <div className="text-gray-500">No papers found.</div>
+        <div className="rounded-2xl p-6 border border-yellow-200 shadow-sm flex flex-col items-center justify-center w-fit mx-auto" style={{ backgroundColor: '#FFFF00' }}>
+          <Image
+            src="/404.png"
+            alt="No papers found"
+            width={300}
+            height={300}
+            className="opacity-100"
+          />
+          <div className="bg-black w-full py-3 px-6 mt-6 rounded">
+            <p className="text-white text-base text-center font-bold">No papers found.</p>
+          </div>
+        </div>
       )}
 
       {!loading && !searchLoading && !error && listToRender.length > 0 && filteredPapers.length === 0 && (
-        <div className="text-gray-500">No papers match your filters.</div>
+        <div className="rounded-2xl p-6 border border-yellow-200 shadow-sm flex flex-col items-center justify-center w-fit mx-auto" style={{ backgroundColor: '#FFFF00' }}>
+          <Image
+            src="/404.png"
+            alt="No results found"
+            width={300}
+            height={300}
+            className="opacity-100"
+          />
+          <div className="bg-black w-full py-3 px-6 mt-6 rounded space-y-1">
+            <div className="text-white text-base text-center font-bold space-y-1">
+              <p>No papers match requirements for:</p>
+              {appliedDomain && <p>Domain: {appliedDomain}</p>}
+              {appliedTasks.length > 0 && (
+                <p>Tasks: {appliedTasks.map(id => taskById[id]?.name || id).map(name => formatTaskName(name)).join(", ")}</p>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="space-y-5">
