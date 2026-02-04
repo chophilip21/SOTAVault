@@ -21,6 +21,8 @@ interface PaperDetail {
   id: string;
   logical_id?: string | null;
   title: string;
+  domain?: string;
+  task_ids?: string[];
   abstract?: string;
   authors?: string[];
   venue?: string | null;
@@ -48,6 +50,21 @@ interface PaperResult {
   higher_is_better?: boolean;
 }
 
+interface Task {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  domain?: string;
+}
+
+interface TasksResponse {
+  items: Task[];
+  limit: number;
+  next_cursor?: string | null;
+  has_more: boolean;
+}
+
 export default function PaperDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -63,6 +80,8 @@ export default function PaperDetailPage() {
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [githubMeta, setGithubMeta] = useState<Record<string, GithubRepoMetadataItem>>({});
   const [showUnofficial, setShowUnofficial] = useState(false);
+  const [tasksById, setTasksById] = useState<Record<string, Task>>({});
+  const [tasksLoading, setTasksLoading] = useState(false);
   const { bookmarkedIds, toggleBookmark } = useBookmarks("paper");
 
   const displayTitle = paper ? stripOuterQuotes(paper.title || "") : "";
@@ -143,6 +162,50 @@ export default function PaperDetailPage() {
   };
 
   useEffect(() => {
+    if (!paper || !paper.task_ids || paper.task_ids.length === 0) return;
+
+    const fetchTasks = async () => {
+      setTasksLoading(true);
+      try {
+        const uniqueIds = Array.from(new Set(paper.task_ids));
+        // Only fetch tasks we don't already have
+        const missingIds = uniqueIds.filter(id => !tasksById[id]);
+
+        if (missingIds.length === 0) {
+          setTasksLoading(false);
+          return;
+        }
+
+        // Fetch in chunks (though unlikely to have >200 tasks for one paper)
+        const chunks: string[][] = [];
+        for (let i = 0; i < missingIds.length; i += 200) chunks.push(missingIds.slice(i, i + 200));
+
+        for (const chunk of chunks) {
+          const url = new URL(`${getBackendBaseUrl()}/tasks/bulk`);
+          chunk.forEach((id) => url.searchParams.append("ids", id));
+          const res = await fetch(url.toString());
+          if (!res.ok) continue;
+          const data: TasksResponse = await res.json();
+          const items = data.items || [];
+          if (items.length === 0) continue;
+
+          setTasksById((prev) => {
+            const next = { ...prev };
+            for (const t of items) next[t.id] = t;
+            return next;
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch tasks", err);
+      } finally {
+        setTasksLoading(false);
+      }
+    };
+
+    fetchTasks();
+  }, [paper]);
+
+  useEffect(() => {
     const loadResults = async () => {
       if (!paper || !paper.dataset_ids || paper.dataset_ids.length === 0) {
         setResults([]);
@@ -206,7 +269,7 @@ export default function PaperDetailPage() {
     : null;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       <div className="flex items-center gap-2 text-sm text-gray-600">
         <Link href="/papers" className="text-green-600 hover:underline">
           ← Back to Papers
@@ -262,6 +325,37 @@ export default function PaperDetailPage() {
               <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
                 {created && <span>Created {created}</span>}
                 {updated && <span>Updated {updated}</span>}
+              </div>
+
+              <div className="flex flex-wrap gap-1 mt-2">
+                {paper.domain && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100">
+                    {paper.domain}
+                  </span>
+                )}
+                {paper.task_ids && paper.task_ids.length > 0 && (
+                  <>
+                    {paper.task_ids
+                      .map(id => tasksById[id]?.name)
+                      .filter(Boolean)
+                      .map(name => name.replace(/-/g, " "))
+                      .sort((a, b) => a.localeCompare(b))
+                      .map(name => (
+                        <span
+                          key={name}
+                          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100"
+                        >
+                          {name}
+                        </span>
+                      ))
+                    }
+                    {tasksLoading && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-400 border border-blue-100">
+                        Loading tasks...
+                      </span>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           </div>

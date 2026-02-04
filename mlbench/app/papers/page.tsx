@@ -62,6 +62,7 @@ const DOMAIN_OPTIONS = [
 interface Paper {
   id: string;
   title: string;
+  domain?: string;
   abstract?: string;
   authors?: string[];
   venue?: string | null;
@@ -128,7 +129,10 @@ export default function PapersPage() {
   const [appliedTasks, setAppliedTasks] = useState<string[]>([]);
 
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [bulkTasksById, setBulkTasksById] = useState<Record<string, Task>>({});
   const [tasksLoading, setTasksLoading] = useState(false);
+  const requestedTaskIdsRef = useRef<Set<string>>(new Set());
+  const missingTaskIdsRef = useRef<Set<string>>(new Set());
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
   const taskDropdownRef = useRef<HTMLDivElement>(null);
@@ -206,6 +210,55 @@ export default function PapersPage() {
       console.error("Failed to load tasks:", err);
     } finally {
       setTasksLoading(false);
+    }
+  };
+
+  const fetchTasksBulk = async (taskIds: string[]) => {
+    const unique = Array.from(new Set(taskIds.filter(Boolean)));
+    if (unique.length === 0) return;
+
+    const localKnown = new Set<string>();
+    for (const t of tasks) localKnown.add(t.id);
+    if (tasksCache) for (const t of tasksCache) localKnown.add(t.id);
+    for (const id of Object.keys(bulkTasksById)) localKnown.add(id);
+
+    const missing = unique.filter((id) => !localKnown.has(id) && !requestedTaskIdsRef.current.has(id));
+    if (missing.length === 0) return;
+
+    // Mark as requested up-front to prevent request storms.
+    for (const id of missing) requestedTaskIdsRef.current.add(id);
+
+    const chunks: string[][] = [];
+    for (let i = 0; i < missing.length; i += 200) chunks.push(missing.slice(i, i + 200));
+
+    for (const chunk of chunks) {
+      try {
+        const url = new URL(`${getBackendBaseUrl()}/tasks/bulk`);
+        chunk.forEach((id) => url.searchParams.append("ids", id));
+        const res = await fetch(url.toString());
+        if (!res.ok) {
+          // Allow retry later.
+          for (const id of chunk) requestedTaskIdsRef.current.delete(id);
+          continue;
+        }
+        const data: TasksResponse = await res.json();
+        const items = data.items || [];
+        const returned = new Set(items.map((t) => t.id));
+        // If the backend returns 200 but doesn't include some ids, treat them as missing
+        // so we don't show "Loading tasks…" forever.
+        for (const id of chunk) {
+          if (!returned.has(id)) missingTaskIdsRef.current.add(id);
+        }
+        if (items.length === 0) continue;
+        setBulkTasksById((prev) => {
+          const next = { ...prev };
+          for (const t of items) next[t.id] = t;
+          return next;
+        });
+      } catch {
+        // Allow retry later.
+        for (const id of chunk) requestedTaskIdsRef.current.delete(id);
+      }
     }
   };
 
@@ -556,6 +609,30 @@ export default function PapersPage() {
     return true;
   });
 
+  const taskIdsForPapers = useMemo(() => {
+    const ids: string[] = [];
+    for (const p of filteredPapers) {
+      for (const tid of p.task_ids || []) ids.push(tid);
+    }
+    return ids;
+  }, [filteredPapers]);
+
+  // Best-effort: fetch task names for tasks referenced by the currently displayed papers.
+  useEffect(() => {
+    fetchTasksBulk(taskIdsForPapers);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskIdsForPapers]);
+
+  const taskById: Record<string, Task> = (() => {
+    const out: Record<string, Task> = { ...bulkTasksById };
+    for (const t of tasks) out[t.id] = t;
+    // also merge cached tasks (if present) so we don't depend on state timing
+    if (tasksCache) {
+      for (const t of tasksCache) out[t.id] = t;
+    }
+    return out;
+  })();
+
   const officialRepoKeys = useMemo(() => {
     const repos = new Set<string>();
     for (const p of filteredPapers || []) {
@@ -616,9 +693,44 @@ export default function PapersPage() {
     }
   };
 
+  const renderBubbles = (paper: Paper) => {
+    const taskNames = (paper.task_ids || [])
+      .map((id) => taskById[id]?.name)
+      .filter(Boolean)
+      .filter((name) => /^[\x00-\x7F]*$/.test(name as string)) // Filter out non-English (non-ASCII) tags
+      .map((name) => formatTaskName(name as string));
+    const uniq = Array.from(new Set(taskNames)).sort((a, b) => a.localeCompare(b));
+    const taskBubbles = uniq.slice(0, 7).map((t) => (
+      <span
+        key={`t:${t}`}
+        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100"
+      >
+        {t}
+      </span>
+    ));
 
+    const hasUnresolvedTasks = (paper.task_ids || []).some(
+      (id) => !taskById[id] && !missingTaskIdsRef.current.has(id),
+    );
 
+    if (!paper.domain && taskBubbles.length === 0 && !hasUnresolvedTasks) return null;
 
+    return (
+      <div className="mt-3 flex flex-wrap gap-1">
+        {paper.domain && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100">
+            {paper.domain}
+          </span>
+        )}
+        {taskBubbles}
+        {taskBubbles.length === 0 && hasUnresolvedTasks && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-400 border border-blue-100">
+            Loading tasks…
+          </span>
+        )}
+      </div>
+    );
+  };
 
   const toggleUnofficial = (paperId: string, urls: string[]) => {
     setShowUnofficial((prev) => {
@@ -957,6 +1069,7 @@ export default function PapersPage() {
               {paper.abstract && (
                 <p className="text-sm text-gray-700 mt-3 line-clamp-3">{paper.abstract}</p>
               )}
+              {renderBubbles(paper)}
               <div className="mt-4 flex flex-col items-center gap-2">
                 {paper.created_at && (
                   <p className="text-xs text-gray-400">

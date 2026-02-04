@@ -359,7 +359,7 @@ export default function DatasetDetailPage() {
 
   if (loading) {
     return (
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-gray-500">Loading dataset...</div>
       </div>
     );
@@ -367,7 +367,7 @@ export default function DatasetDetailPage() {
 
   if (error || !dataset) {
     return (
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-red-600">{error || "Dataset not found"}</div>
         <Link href="/benchmark" className="text-green-600 hover:underline mt-4 inline-block">
           ← Back to Benchmarks
@@ -377,7 +377,7 @@ export default function DatasetDetailPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       <Link href="/benchmark" className="text-green-600 hover:underline inline-flex items-center gap-1">
         <span>←</span> Back to Benchmarks
       </Link>
