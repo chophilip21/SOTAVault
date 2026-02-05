@@ -6,6 +6,7 @@ import Image from "next/image";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { useAuth } from "@/lib/authContext";
 import { PaperCoverArt } from "@/app/components/PaperCoverArt";
+import { LoadingSpinner } from "@/app/components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
 
 interface Bookmark {
@@ -113,6 +114,7 @@ export default function BookmarkSection({
     const [prevCursors, setPrevCursors] = useState<(string | null)[]>([null]);
     const [nextCursor, setNextCursor] = useState<string | null>(null);
     const [hasMore, setHasMore] = useState(false);
+    const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
     const [loading, setLoading] = useState(false);
     const [initialLoadDone, setInitialLoadDone] = useState(false);
@@ -197,24 +199,37 @@ export default function BookmarkSection({
         }
     };
 
-    const handleDelete = async (resourceId: string, e: React.MouseEvent) => {
+    const initiateDelete = (resourceId: string, e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setConfirmingDeleteId(resourceId);
+    };
+
+    const cancelDelete = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setConfirmingDeleteId(null);
+    };
+
+    const executeDelete = async (resourceId: string, e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
 
-        if (!confirm("Are you sure you want to delete this bookmark?")) return;
+        if (!user) return;
 
         const originalBookmarks = [...bookmarks];
         setBookmarks(prev => prev.filter(b => b.resource_id !== resourceId));
+        setConfirmingDeleteId(null);
 
         try {
-            const token = await user?.getIdToken();
+            const token = await user.getIdToken();
             const res = await fetch(`${getBackendBaseUrl()}/users/me/bookmarks/${resourceId}`, {
                 method: "DELETE",
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (!res.ok) {
                 setBookmarks(originalBookmarks);
-                alert("Failed to delete bookmark.");
+                // Fail silently or handle error UI if we had a toast system
             }
         } catch (err) {
             console.error(err);
@@ -305,16 +320,9 @@ export default function BookmarkSection({
             {isOpen && (
                 <div className="p-4 sm:p-6">
                     {loading && bookmarks.length === 0 ? (
-                        <div className="space-y-4">
-                            {[...Array(3)].map((_, i) => (
-                                <div key={i} className="animate-pulse flex items-center gap-4 p-3 border rounded-lg">
-                                    <div className="w-12 h-16 bg-gray-200 rounded"></div>
-                                    <div className="flex-1 space-y-2">
-                                        <div className="h-4 bg-gray-200 rounded w-1/3"></div>
-                                        <div className="h-3 bg-gray-200 rounded w-1/4"></div>
-                                    </div>
-                                </div>
-                            ))}
+                        <div className="flex flex-col items-center justify-center py-12">
+                            <LoadingSpinner size="md" />
+                            <p className="mt-4 text-gray-400 text-sm">Loading bookmarks...</p>
                         </div>
                     ) : bookmarks.length === 0 ? (
                         <div className="text-center py-8 text-gray-500 text-sm">
@@ -357,13 +365,30 @@ export default function BookmarkSection({
 
                                             {/* Only remove action for deleted items */}
                                             <div className="flex items-center gap-3">
-                                                <button
-                                                    onClick={(e) => handleDelete(bookmark.resource_id, e)}
-                                                    className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-100 hover:bg-red-200 rounded transition-colors"
-                                                    title="Remove from bookmarks"
-                                                >
-                                                    Remove
-                                                </button>
+                                                {confirmingDeleteId === bookmark.resource_id ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={(e) => executeDelete(bookmark.resource_id, e)}
+                                                            className="px-3 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded transition-colors shadow-sm whitespace-nowrap"
+                                                        >
+                                                            Yes, really delete
+                                                        </button>
+                                                        <button
+                                                            onClick={cancelDelete}
+                                                            className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded transition-colors whitespace-nowrap"
+                                                        >
+                                                            No, keep it
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={(e) => initiateDelete(bookmark.resource_id, e)}
+                                                        className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-100 hover:bg-red-200 rounded transition-colors"
+                                                        title="Remove from bookmarks"
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     );
@@ -382,27 +407,41 @@ export default function BookmarkSection({
                                             className="flex-shrink-0 w-12 h-16 relative rounded overflow-hidden shadow-sm hover:opacity-90 transition-opacity bg-gray-50"
                                         >
                                             {resourceType === "paper" ? (
-                                                <PaperCoverArt
-                                                    seed={displayUtils(bookmark.resource_id, detail)}
-                                                    title={displayName}
-                                                    authors={detail?.authors}
-                                                    className="w-full h-full text-[8px]"
-                                                />
+                                                detail ? (
+                                                    <PaperCoverArt
+                                                        seed={displayUtils(bookmark.resource_id, detail)}
+                                                        title={displayName}
+                                                        authors={detail?.authors}
+                                                        className="w-full h-full text-[8px]"
+                                                    />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                                                        <LoadingSpinner size="sm" />
+                                                    </div>
+                                                )
                                             ) : resourceType === "dataset" ? (
                                                 <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-2">
-                                                    <div className="relative w-full h-full">
-                                                        <Image
-                                                            src={getDomainIcon(detail?.domain)}
-                                                            alt={detail?.domain || "dataset"}
-                                                            fill
-                                                            sizes="48px"
-                                                            className="object-contain"
-                                                        />
-                                                    </div>
+                                                    {detail ? (
+                                                        <div className="relative w-full h-full">
+                                                            <Image
+                                                                src={getDomainIcon(detail?.domain)}
+                                                                alt={detail?.domain || "dataset"}
+                                                                fill
+                                                                sizes="48px"
+                                                                className="object-contain"
+                                                            />
+                                                        </div>
+                                                    ) : (
+                                                        <LoadingSpinner size="sm" />
+                                                    )}
                                                 </div>
                                             ) : (
                                                 <div className={`w-full h-full flex items-center justify-center ${themeClasses.icon}`}>
-                                                    <span className="text-xs font-bold uppercase">{resourceType.slice(0, 2)}</span>
+                                                    {detail ? (
+                                                        <span className="text-xs font-bold uppercase">{resourceType.slice(0, 2)}</span>
+                                                    ) : (
+                                                        <LoadingSpinner size="sm" />
+                                                    )}
                                                 </div>
                                             )}
                                         </Link>
@@ -417,41 +456,68 @@ export default function BookmarkSection({
                                                 <h4 className="text-sm font-medium text-gray-900 truncate" title={displayName}>
                                                     <MathText>{displayName}</MathText>
                                                 </h4>
-                                                {/* Authors (if any) */}
-                                                {detail?.authors && detail.authors.length > 0 && (
-                                                    <p className="text-xs text-gray-600 mt-1 truncate">
-                                                        {detail.authors[0]} et al.
+                                                {/* Authors (if any) or Loading state */}
+                                                {detail ? (
+                                                    <>
+                                                        {detail?.authors && detail.authors.length > 0 && (
+                                                            <p className="text-xs text-gray-600 mt-1 truncate">
+                                                                {detail.authors[0]} et al.
+                                                            </p>
+                                                        )}
+                                                        {/* Added Date (Correctly separated) */}
+                                                        <p className="text-[10px] text-gray-400 mt-1 truncate">
+                                                            Added on {formatDate(bookmark.added_at)}
+                                                        </p>
+                                                    </>
+                                                ) : (
+                                                    <p className="text-xs text-gray-400 mt-1 animate-pulse">
+                                                        Loading details...
                                                     </p>
                                                 )}
-                                                {/* Added Date (Correctly separated) */}
-                                                <p className="text-[10px] text-gray-400 mt-1 truncate">
-                                                    Added on {formatDate(bookmark.added_at)}
-                                                </p>
                                             </Link>
                                         </div>
 
                                         {/* Actions */}
                                         <div className="flex items-center gap-3">
-                                            <Link
-                                                href={getLink(bookmark.resource_id)}
-                                                target="_blank"
-                                                className="p-1.5 text-gray-400 hover:text-green-600 transition-colors"
-                                                title="Open URL"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                                </svg>
-                                            </Link>
+                                            {confirmingDeleteId === bookmark.resource_id ? (
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={(e) => executeDelete(bookmark.resource_id, e)}
+                                                        className="px-3 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded transition-colors shadow-sm whitespace-nowrap"
+                                                    >
+                                                        Yes, really delete
+                                                    </button>
+                                                    <button
+                                                        onClick={cancelDelete}
+                                                        className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded transition-colors whitespace-nowrap"
+                                                    >
+                                                        No, keep it
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <Link
+                                                        href={getLink(bookmark.resource_id)}
+                                                        target="_blank"
+                                                        className="p-1.5 text-gray-400 hover:text-green-600 transition-colors"
+                                                        title="Open URL"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                        </svg>
+                                                    </Link>
 
-                                            <button
-                                                onClick={(e) => handleDelete(bookmark.resource_id, e)}
-                                                className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"
-                                                title="Delete"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                </svg>
-                                            </button>
+                                                    <button
+                                                        onClick={(e) => initiateDelete(bookmark.resource_id, e)}
+                                                        className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"
+                                                        title="Delete"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                        </svg>
+                                                    </button>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 );

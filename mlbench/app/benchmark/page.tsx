@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Playfair_Display } from "next/font/google";
+import { LoadingSpinner } from "../components/LoadingSpinner";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { useAuth } from "@/lib/authContext";
@@ -860,7 +861,10 @@ export default function BenchmarkPage() {
       </div>
 
       {(loading || searchLoading) && (
-        <div className="text-gray-500">Loading benchmarks...</div>
+        <div className="flex flex-col items-center justify-center py-12">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-500 font-medium">Loading benchmarks...</p>
+        </div>
       )}
 
       {error && (
@@ -972,7 +976,10 @@ export default function BenchmarkPage() {
                 {openPapersFor === benchmark.id && (
                   <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
                     {papersLoadingByDatasetId[benchmark.id] ? (
-                      <div className="text-sm text-gray-500">Loading papers…</div>
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <LoadingSpinner size="sm" />
+                        <span>Loading papers…</span>
+                      </div>
                     ) : (papersByDatasetId[benchmark.id] || []).length === 0 ? (
                       <div className="text-sm text-gray-500">No paper references found.</div>
                     ) : (

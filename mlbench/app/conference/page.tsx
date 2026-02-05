@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { LoadingSpinner } from "../components/LoadingSpinner";
 import { useBookmarks } from "@/hooks/useBookmarks";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
@@ -432,7 +433,12 @@ export default function ConferencePage() {
         </div>
       </div>
 
-      {loading && <div className="text-gray-500">Loading venues...</div>}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-500 font-medium">Loading venues...</p>
+        </div>
+      )}
 
       {error && <div className="text-red-600 text-sm">{error}</div>}
 

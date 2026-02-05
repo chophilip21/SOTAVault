@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { PaperCoverArt } from "../components/PaperCoverArt";
+import { LoadingSpinner } from "../components/LoadingSpinner";
 import { GithubRepoStats } from "../components/GithubRepoStats";
 import { Playfair_Display } from "next/font/google";
 import { config } from "@/lib/config";
@@ -958,7 +959,10 @@ export default function PapersPage() {
       </div>
 
       {(loading || searchLoading) && (
-        <div className="text-gray-500">Loading papers...</div>
+        <div className="flex flex-col items-center justify-center py-12">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-500 font-medium">Loading papers...</p>
+        </div>
       )}
 
       {error && (

@@ -10,6 +10,7 @@ import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse } from "@/lib/github";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
 
 function stripOuterQuotes(s: string): string {
@@ -276,7 +277,12 @@ export default function PaperDetailPage() {
         </Link>
       </div>
 
-      {loading && <div className="text-gray-500">Loading paper...</div>}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-24">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-500 font-medium">Loading paper details...</p>
+        </div>
+      )}
       {error && !loading && (
         <div className="text-red-600 text-sm">{error}</div>
       )}

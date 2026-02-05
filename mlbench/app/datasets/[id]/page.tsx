@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
 
 interface Dataset {
@@ -359,8 +360,11 @@ export default function DatasetDetailPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8">
-        <div className="text-gray-500">Loading dataset...</div>
+      <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-24">
+        <div className="flex flex-col items-center justify-center">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-500 font-medium">Loading dataset details...</p>
+        </div>
       </div>
     );
   }

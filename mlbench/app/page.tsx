@@ -11,6 +11,7 @@ import ProtectedLink from "./components/ProtectedLink";
 import { PaperCoverArt } from "./components/PaperCoverArt";
 import AuthModal from "./components/AuthModal";
 import { useAuth } from "@/lib/authContext";
+import { LoadingSpinner } from "./components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
 
 const ConferenceMap = dynamic(() => import("./components/ConferenceMap"), { ssr: false });
@@ -412,8 +413,11 @@ export default function Home() {
 
   if (loading) {
     return (
-      <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8">
-        <div className="text-gray-500">Loading highlights...</div>
+      <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-24">
+        <div className="flex flex-col items-center justify-center">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-500 font-medium">Loading highlights...</p>
+        </div>
       </div>
     );
   }
