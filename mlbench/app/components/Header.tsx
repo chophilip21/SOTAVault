@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Sidebar from "./Sidebar";
 import AuthModal from "./AuthModal";
+import UserAvatar from "./UserAvatar";
 import { useAuth } from "@/lib/authContext";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 
@@ -254,24 +255,12 @@ export default function Header() {
                 <>
                   {/* User Info */}
                   <Link href="/profile" className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer">
-                    <div className="relative w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
-                      {userProfile.photo_url ? (
-                        <Image
-                          src={userProfile.photo_url}
-                          alt="User"
-                          width={32}
-                          height={32}
-                          className="object-cover"
-                        />
-                      ) : (
-                        <Image
-                          src="/user.svg"
-                          alt="User"
-                          width={20}
-                          height={20}
-                          className="object-contain"
-                        />
-                      )}
+                    <div className="relative w-8 h-8 flex items-center justify-center">
+                      <UserAvatar
+                        uid={userProfile.uid}
+                        photoUrl={userProfile.photo_url}
+                        size={32}
+                      />
                     </div>
                     <span className="text-sm font-medium text-gray-700 hidden sm:inline">
                       {userProfile.display_name || userProfile.email?.split("@")[0] || "User"}

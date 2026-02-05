@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import EditProfileTab from "./EditProfileTab";
 import AccountManagementTab from "./AccountManagementTab";
+import UserAvatar from "../components/UserAvatar";
 
 interface UserProfileData {
   uid: string;
@@ -98,13 +99,13 @@ export default function ProfilePage() {
           <div className="px-6 py-8">
             <div className="flex flex-col items-center">
               {/* Circle Cropped Photo */}
+              {/* Circle Cropped Photo */}
               <div className="relative w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-lg mb-4">
-                <Image
-                  src={photoUrl}
-                  alt="Profile"
-                  width={128}
-                  height={128}
-                  className="object-cover w-full h-full"
+                <UserAvatar
+                  uid={profileData.uid}
+                  photoUrl={profileData.photo_url}
+                  size={128}
+                  className="w-full h-full"
                 />
               </div>
 
@@ -143,8 +144,8 @@ export default function ProfilePage() {
               <button
                 onClick={() => setActiveTab("edit")}
                 className={`px-4 sm:px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${activeTab === "edit"
-                    ? "border-green-600 text-green-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  ? "border-green-600 text-green-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                   }`}
               >
                 Edit Profile
@@ -152,8 +153,8 @@ export default function ProfilePage() {
               <button
                 onClick={() => setActiveTab("account")}
                 className={`px-4 sm:px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${activeTab === "account"
-                    ? "border-green-600 text-green-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  ? "border-green-600 text-green-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                   }`}
               >
                 Account Management

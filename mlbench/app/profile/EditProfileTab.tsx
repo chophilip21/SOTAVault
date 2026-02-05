@@ -29,7 +29,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  
+
   // Form fields
   const [displayName, setDisplayName] = useState(profileData.display_name || "");
   const [firstName, setFirstName] = useState(profileData.first_name || "");
@@ -38,7 +38,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
   const [bio, setBio] = useState(profileData.bio || "");
   const [jobTitle, setJobTitle] = useState(profileData.job_title || "");
   const [photoUrl, setPhotoUrl] = useState(profileData.photo_url || "");
-  
+
   // Password fields
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -99,7 +99,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
           ...profileData,
           ...updateData,
         };
-        
+
         // Update auth context state and cache optimistically (immediate UI update)
         const optimisticUserProfile = {
           uid: optimisticProfile.uid,
@@ -112,7 +112,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
           bio: optimisticProfile.bio,
           job_title: optimisticProfile.job_title,
         };
-        
+
         updateUserProfileOptimistic(optimisticUserProfile);
       }
 
@@ -189,7 +189,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
 
         // Server confirmed - update with server response and refresh cache
         const updatedProfile = await response.json();
-        
+
         // Update auth context cache with server response
         const serverUserProfile = {
           uid: updatedProfile.uid,
@@ -202,7 +202,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
           bio: updatedProfile.bio,
           job_title: updatedProfile.job_title,
         };
-        
+
         // Update auth context state
         await refreshUserProfile();
         onProfileUpdate();
@@ -212,7 +212,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
       }
     } catch (err: any) {
       console.error("Error updating profile:", err);
-      
+
       // REVERT: Restore previous state on error
       setDisplayName(previousDisplayName);
       setFirstName(previousFirstName);
@@ -221,7 +221,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
       setBio(previousBio);
       setJobTitle(previousJobTitle);
       setPhotoUrl(previousPhotoUrl);
-      
+
       // Revert auth context state and cache
       const previousUserProfile = {
         uid: previousProfileData.uid,
@@ -235,7 +235,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
         job_title: previousProfileData.job_title,
       };
       updateUserProfileOptimistic(previousUserProfile);
-      
+
       setError(err.message || "Update failed. Changes have been reverted.");
     } finally {
       setSaving(false);
@@ -245,13 +245,13 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
   return (
     <div>
       <h2 className="text-2xl font-semibold text-gray-900 mb-6">Profile Information</h2>
-      
+
       {error && (
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
           {error}
         </div>
       )}
-      
+
       {success && (
         <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
           {success}
@@ -357,8 +357,8 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
           />
         </div>
 
-        {/* Photo URL */}
-        <div>
+        {/* Photo URL - Disabled */}
+        {/* <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Photo URL
           </label>
@@ -369,7 +369,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
             placeholder="Enter photo URL"
           />
-        </div>
+        </div> */}
 
         {/* Password Section */}
         <div className="border-t border-gray-200 pt-6">
