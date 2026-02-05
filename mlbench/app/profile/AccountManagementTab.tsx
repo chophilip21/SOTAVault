@@ -27,9 +27,15 @@ export default function AccountManagementTab() {
       <h2 className="text-2xl font-semibold text-gray-900 mb-6">Account Management</h2>
 
       {/* Email Preferences Section */}
-      <div className="mb-8">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Email Preferences</h3>
-        <div className="bg-gray-50 rounded-lg p-6 space-y-4">
+      {/* Email Preferences Section */}
+      <div className="mb-8 opacity-75">
+        <div className="flex items-center gap-3 mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Email Preferences</h3>
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-200 text-black border border-yellow-300">
+            Coming Soon
+          </span>
+        </div>
+        <div className="bg-gray-50 rounded-lg p-6 space-y-4 pointer-events-none grayscale-[50%]">
           <div className="flex items-center justify-between">
             <div>
               <label className="text-sm font-medium text-gray-700">
@@ -39,14 +45,15 @@ export default function AccountManagementTab() {
                 Receive email notifications about your account activity
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-not-allowed">
               <input
                 type="checkbox"
                 checked={emailNotifications}
                 onChange={(e) => setEmailNotifications(e.target.checked)}
                 className="sr-only peer"
+                disabled
               />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600 opacity-60"></div>
             </label>
           </div>
 
@@ -59,14 +66,15 @@ export default function AccountManagementTab() {
                 Receive a weekly summary of new papers and updates
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-not-allowed">
               <input
                 type="checkbox"
                 checked={weeklyDigest}
                 onChange={(e) => setWeeklyDigest(e.target.checked)}
                 className="sr-only peer"
+                disabled
               />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600 opacity-60"></div>
             </label>
           </div>
 
@@ -79,24 +87,29 @@ export default function AccountManagementTab() {
                 Get notified when papers you've bookmarked are updated
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-not-allowed">
               <input
                 type="checkbox"
                 checked={paperUpdates}
                 onChange={(e) => setPaperUpdates(e.target.checked)}
                 className="sr-only peer"
+                disabled
               />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600 opacity-60"></div>
             </label>
           </div>
 
           <div className="pt-4 border-t border-gray-200">
             <button
+              disabled
               onClick={handleEmailPreferences}
-              className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+              className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg opacity-50 cursor-not-allowed"
             >
               Save Email Preferences
             </button>
+            <p className="text-xs text-gray-500 mt-2">
+              Email preferences will be available in the future.
+            </p>
           </div>
         </div>
       </div>

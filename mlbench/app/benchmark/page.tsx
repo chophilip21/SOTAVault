@@ -694,10 +694,10 @@ export default function BenchmarkPage() {
       <div className="bg-gradient-to-br from-green-50 to-blue-50 border border-green-200 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
-            <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3">
+            <div className="flex-none w-full md:w-auto md:max-w-4xl flex flex-col gap-3">
               <div>
                 <h1 className={`text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>Benchmarks</h1>
-                <p className="text-gray-600 text-base mt-3 break-words">
+                <p className="text-gray-600 text-base mt-2 break-words">
                   Discover the latest benchmarks and datasets in machine learning and AI.
                 </p>
               </div>
@@ -841,6 +841,18 @@ export default function BenchmarkPage() {
                       Clear
                     </button>
                   </div>
+                </div>
+                {/* Upload Dataset Button (Below filters) */}
+                <div>
+                  <button
+                    disabled
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-400 cursor-not-allowed select-none transition-opacity hover:opacity-100 opacity-70"
+                  >
+                    <span>Upload Dataset</span>
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-yellow-200 text-black border border-yellow-300 uppercase tracking-wide leading-none">
+                      Coming Soon
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>

@@ -933,13 +933,13 @@ export default function PapersPage() {
                     </button>
                   </div>
                   <button
-                    onClick={handleSortToggle}
-                    className={`inline-flex items-center px-4 py-2 text-sm rounded-full border transition ${sortDir === "desc"
-                      ? "bg-blue-100 border-blue-300 text-blue-800"
-                      : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
-                      }`}
+                    disabled
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-400 cursor-not-allowed select-none transition-opacity hover:opacity-100 opacity-70"
                   >
-                    Sort by newest
+                    <span>Upload Papers</span>
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-yellow-200 text-black border border-yellow-300 uppercase tracking-wide leading-none">
+                      Coming Soon
+                    </span>
                   </button>
                 </div>
               </div>
