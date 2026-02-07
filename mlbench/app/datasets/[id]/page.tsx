@@ -513,10 +513,18 @@ export default function DatasetDetailPage() {
             </div>
           )}
 
-          {dataset.variants && dataset.variants.length > 0 && (
+          {dataset.variants && (
             <div>
               <h3 className="text-sm font-semibold text-gray-900 mb-2">Variants</h3>
-              <p className="text-gray-700">{dataset.variants.join(", ")}</p>
+              {(() => {
+                const filteredVariants = dataset.variants.filter(
+                  (v) => v.toLowerCase() !== dataset.name.toLowerCase()
+                );
+                if (filteredVariants.length === 0) {
+                  return <p className="text-gray-500 italic">No variants</p>;
+                }
+                return <p className="text-gray-700">{filteredVariants.join(", ")}</p>;
+              })()}
             </div>
           )}
 

@@ -624,25 +624,50 @@ export default function BenchmarkPage() {
   })();
 
   const renderBubbles = (benchmark: Benchmark) => {
-    const modalityBubbles = (benchmark.modalities || [])
-      .filter((m) => /^[\x00-\x7F]*$/.test(m)) // Filter out non-English modalities
-      .map((m) => (
-        <span
-          key={`m:${m}`}
-          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100"
-        >
-          {m}
-        </span>
-      ));
+    const MAX_VISIBLE_TAGS = 8;
 
-    const taskNames = (benchmark.task_ids || [])
+    const validModalities = (benchmark.modalities || [])
+      .filter((m) => /^[\x00-\x7F]*$/.test(m)); // Filter out non-English modalities
+
+    const validTaskNames = (benchmark.task_ids || [])
       .map((id) => taskById[id]?.name)
       .filter(Boolean)
       .filter((name) => /^[\x00-\x7F]*$/.test(name as string)) // Filter out non-English (non-ASCII) tags
       .map((name) => formatTaskName(name as string))
       .filter((name) => name.toLowerCase() !== "task"); // Filter out generic "task" label
-    const uniq = Array.from(new Set(taskNames)).sort((a, b) => a.localeCompare(b));
-    const taskBubbles = uniq.slice(0, 7).map((t) => (
+
+    // Deduplicate task names
+    const uniqTasks = Array.from(new Set(validTaskNames)).sort((a, b) => a.localeCompare(b));
+
+    const totalCount = validModalities.length + uniqTasks.length;
+    let visibleModalities = validModalities;
+    let visibleTasks = uniqTasks;
+    let overflowCount = 0;
+
+    if (totalCount > MAX_VISIBLE_TAGS) {
+      // Prioritize modalities, then fill remaining slots with task tags.
+      // If modalities alone exceed MAX, they get truncated too.
+      if (validModalities.length >= MAX_VISIBLE_TAGS) {
+        visibleModalities = validModalities.slice(0, MAX_VISIBLE_TAGS);
+        visibleTasks = [];
+        overflowCount = totalCount - MAX_VISIBLE_TAGS;
+      } else {
+        const remainingSlots = MAX_VISIBLE_TAGS - validModalities.length;
+        visibleTasks = uniqTasks.slice(0, remainingSlots);
+        overflowCount = totalCount - (validModalities.length + visibleTasks.length);
+      }
+    }
+
+    const modalityBubbles = visibleModalities.map((m) => (
+      <span
+        key={`m:${m}`}
+        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100"
+      >
+        {m}
+      </span>
+    ));
+
+    const taskBubbles = visibleTasks.map((t) => (
       <span
         key={`t:${t}`}
         className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100"
@@ -661,7 +686,12 @@ export default function BenchmarkPage() {
       <div className="mt-3 flex flex-wrap gap-1">
         {modalityBubbles}
         {taskBubbles}
-        {taskBubbles.length === 0 && hasUnresolvedTasks && (
+        {overflowCount > 0 && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-500 border border-gray-200" title={`${overflowCount} more tags`}>
+            more tags...
+          </span>
+        )}
+        {taskBubbles.length === 0 && hasUnresolvedTasks && overflowCount === 0 && (
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-400 border border-blue-100">
             Loading tasks…
           </span>
@@ -1016,11 +1046,7 @@ export default function BenchmarkPage() {
 
             {/* Footer: Created date & Bookmark button */}
             <div className="mt-auto pt-3 space-y-2 flex flex-col items-center">
-              {benchmark.created_at && (
-                <p className="text-xs text-gray-400 text-center">
-                  Created {new Date(benchmark.created_at).toLocaleDateString()}
-                </p>
-              )}
+
               <button
                 onClick={() => toggleBookmark(benchmark.id)}
                 className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full border transition-all text-xs ${bookmarkedIds[benchmark.id]
