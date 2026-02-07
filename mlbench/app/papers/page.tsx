@@ -207,7 +207,9 @@ export default function PapersPage() {
       const data: TasksResponse = await res.json();
 
       const taskList = data.items || [];
-      setTasks(taskList);
+      // Deduplicate tasks by ID
+      const uniqueTasks = Array.from(new Map(taskList.map(t => [t.id, t])).values());
+      setTasks(uniqueTasks);
 
       // Update cache
       tasksCache = taskList;
@@ -301,10 +303,7 @@ export default function PapersPage() {
             skipNextSearchEffectRef.current = true;
           }
 
-          const scrollY = Number(parsed?.scrollY || 0);
-          if (Number.isFinite(scrollY) && scrollY > 0) {
-            setTimeout(() => window.scrollTo(0, scrollY), 0);
-          }
+
 
           // Still load the task list for dropdown (cached client-side).
           fetchTasks();
@@ -932,7 +931,7 @@ export default function PapersPage() {
                       Clear
                     </button>
                   </div>
-                  <button
+                  {/* <button
                     disabled
                     className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-400 cursor-not-allowed select-none transition-opacity hover:opacity-100 opacity-70"
                   >
@@ -940,7 +939,7 @@ export default function PapersPage() {
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-yellow-200 text-black border border-yellow-300 uppercase tracking-wide leading-none">
                       Coming Soon
                     </span>
-                  </button>
+                  </button> */}
                 </div>
               </div>
             </div>
@@ -1126,11 +1125,7 @@ export default function PapersPage() {
               )}
               {renderBubbles(paper)}
               <div className="mt-4 flex flex-col items-center gap-2">
-                {paper.created_at && (
-                  <p className="text-xs text-gray-400">
-                    Created {new Date(paper.created_at).toLocaleDateString()}
-                  </p>
-                )}
+
                 <button
                   onClick={() => toggleBookmark(paper.id, displayTitle)}
                   className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border transition ${bookmarkedIds[paper.id]

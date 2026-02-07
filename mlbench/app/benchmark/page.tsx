@@ -311,10 +311,7 @@ export default function BenchmarkPage() {
             skipNextSearchEffectRef.current = true;
           }
 
-          const scrollY = Number(parsed?.scrollY || 0);
-          if (Number.isFinite(scrollY) && scrollY > 0) {
-            setTimeout(() => window.scrollTo(0, scrollY), 0);
-          }
+
 
           // Still load the task list for the dropdown (cached client-side).
           fetchTasks();
@@ -844,7 +841,7 @@ export default function BenchmarkPage() {
                 </div>
                 {/* Upload Dataset Button (Below filters) */}
                 <div>
-                  <button
+                  {/* <button
                     disabled
                     className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-400 cursor-not-allowed select-none transition-opacity hover:opacity-100 opacity-70"
                   >
@@ -852,7 +849,7 @@ export default function BenchmarkPage() {
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-yellow-200 text-black border border-yellow-300 uppercase tracking-wide leading-none">
                       Coming Soon
                     </span>
-                  </button>
+                  </button> */}
                 </div>
               </div>
             </div>

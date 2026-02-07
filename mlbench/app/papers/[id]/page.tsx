@@ -328,10 +328,7 @@ export default function PaperDetailPage() {
                   {[paper.venue, paper.year].filter(Boolean).join(" · ")}
                 </p>
               )}
-              <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                {created && <span>Created {created}</span>}
-                {updated && <span>Updated {updated}</span>}
-              </div>
+
 
               <div className="flex flex-wrap gap-1 mt-2">
                 {paper.domain && (
@@ -345,6 +342,7 @@ export default function PaperDetailPage() {
                       .map(id => tasksById[id]?.name)
                       .filter(Boolean)
                       .map(name => name.replace(/-/g, " "))
+                      .filter((name, i, arr) => arr.indexOf(name) === i) // Deduplicate names
                       .sort((a, b) => a.localeCompare(b))
                       .map(name => (
                         <span
