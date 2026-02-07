@@ -342,6 +342,7 @@ export default function PaperDetailPage() {
                       .map(id => tasksById[id]?.name)
                       .filter(Boolean)
                       .map(name => name.replace(/-/g, " "))
+                      .filter((name) => name.toLowerCase() !== "task") // Filter out generic "task" label
                       .filter((name, i, arr) => arr.indexOf(name) === i) // Deduplicate names
                       .sort((a, b) => a.localeCompare(b))
                       .map(name => (

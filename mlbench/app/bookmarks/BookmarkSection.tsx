@@ -241,6 +241,7 @@ export default function BookmarkSection({
         if (!hasMore || !nextCursor) return;
         setPrevCursors(prev => [...prev, nextCursor]);
         fetchBookmarks(nextCursor);
+        window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
     const handlePrev = () => {
@@ -249,6 +250,7 @@ export default function BookmarkSection({
         const targetCursor = newCursors[newCursors.length - 1];
         setPrevCursors(newCursors);
         fetchBookmarks(targetCursor);
+        window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
     useEffect(() => {

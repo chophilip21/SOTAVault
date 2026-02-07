@@ -532,6 +532,7 @@ export default function BenchmarkPage() {
     // Store the *next page cursor* so "page N" corresponds to a stable cursor.
     setPrevCursors((prev) => [...prev, nextCursor]);
     fetchPage(nextCursor);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handlePrev = () => {
@@ -542,6 +543,7 @@ export default function BenchmarkPage() {
       fetchPage(target);
       return updated;
     });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const currentPage = prevCursors.length; // 1-indexed
@@ -637,7 +639,8 @@ export default function BenchmarkPage() {
       .map((id) => taskById[id]?.name)
       .filter(Boolean)
       .filter((name) => /^[\x00-\x7F]*$/.test(name as string)) // Filter out non-English (non-ASCII) tags
-      .map((name) => formatTaskName(name as string));
+      .map((name) => formatTaskName(name as string))
+      .filter((name) => name.toLowerCase() !== "task"); // Filter out generic "task" label
     const uniq = Array.from(new Set(taskNames)).sort((a, b) => a.localeCompare(b));
     const taskBubbles = uniq.slice(0, 7).map((t) => (
       <span

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 
@@ -131,8 +132,21 @@ export default function SearchPage() {
 
       {loading && <div className="mt-6 text-gray-500">Searching…</div>}
       {error && (
-        <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
-          {error}
+        <div className="mt-12 flex flex-col items-center justify-center text-center">
+          <div className="relative w-64 h-64 mb-6">
+            <Image
+              src="/404.png"
+              alt="Search Unavailable"
+              fill
+              className="object-contain"
+            />
+          </div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            Dynamic search is currently down
+          </h2>
+          <p className="text-gray-600">
+            Please try again later.
+          </p>
         </div>
       )}
 
