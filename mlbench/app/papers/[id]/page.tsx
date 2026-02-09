@@ -94,6 +94,7 @@ export default function PaperDetailPage() {
   const [tasksLoading, setTasksLoading] = useState(false);
   const [datasetsById, setDatasetsById] = useState<Record<string, Dataset>>({});
   const [datasetsLoading, setDatasetsLoading] = useState(false);
+  const [resultsOpen, setResultsOpen] = useState(true);
   const { bookmarkedIds, toggleBookmark } = useBookmarks("paper");
 
   const displayTitle = paper ? stripOuterQuotes(paper.title || "") : "";
@@ -588,49 +589,92 @@ export default function PaperDetailPage() {
           </div>
 
           <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
-            <div className="flex items-center justify-between">
+            <div
+              className="flex items-center justify-between cursor-pointer select-none"
+              onClick={() => setResultsOpen(!resultsOpen)}
+            >
               <div className="inline-flex items-center gap-2">
                 <span role="img" aria-label="results">📊</span>
                 <h2 className="text-lg font-semibold text-gray-900">Results</h2>
               </div>
-              {resultsLoading && <span className="text-xs text-gray-500">Loading...</span>}
-            </div>
-            {resultsError && (
-              <div className="text-sm text-red-600">{resultsError}</div>
-            )}
-            {!resultsLoading && !resultsError && results.length === 0 && (
-              <div className="text-sm text-gray-500">No results available.</div>
-            )}
-            {!resultsLoading && results.length > 0 && (
-              <div className="space-y-2">
-                {results.map((r) => (
-                  <div
-                    key={r.id}
-                    className="border border-gray-200 rounded-lg p-3 text-sm text-gray-800"
-                  >
-                    <div className="flex flex-wrap gap-2 text-gray-600 text-xs mb-1">
-                      {r.dataset_id && (
-                        <Link
-                          href={`/datasets/${r.dataset_id}`}
-                          className="hover:underline hover:text-green-600 transition-colors"
-                        >
-                          {datasetsById[r.dataset_id]?.name || r.dataset_id}
-                        </Link>
-                      )}
-                      {r.task_id && (
-                        <span>
-                          {tasksById[r.task_id]?.name || ""}
-                        </span>
-                      )}
-                      {r.split && <span>Split: {r.split}</span>}
-                    </div>
-                    <div className="font-semibold">
-                      {r.metric_name}: {r.metric_value}
-                      {r.higher_is_better === false ? " (lower is better)" : ""}
-                    </div>
-                  </div>
-                ))}
+              <div className="flex items-center gap-3">
+                {resultsLoading && <span className="text-xs text-gray-500">Loading...</span>}
+                <button
+                  type="button"
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <i className={`fa-solid fa-chevron-${resultsOpen ? "up" : "down"}`}></i>
+                </button>
               </div>
+            </div>
+            {resultsOpen && (
+              <>
+                {resultsError && (
+                  <div className="text-sm text-red-600">{resultsError}</div>
+                )}
+                {!resultsLoading && !resultsError && results.length === 0 && (
+                  <div className="text-sm text-gray-500">No results available.</div>
+                )}
+                {!resultsLoading && results.length > 0 && (
+                  <div className="space-y-4">
+                    {(() => {
+                      // Group results by dataset_id
+                      const grouped: Record<string, PaperResult[]> = {};
+                      results.forEach((r) => {
+                        const did = r.dataset_id;
+                        if (!grouped[did]) grouped[did] = [];
+                        grouped[did].push(r);
+                      });
+
+                      // Sort groups alphabetically by dataset name
+                      const sortedDatasetIds = Object.keys(grouped).sort((a, b) => {
+                        const nameA = (datasetsById[a]?.name || a).toLowerCase();
+                        const nameB = (datasetsById[b]?.name || b).toLowerCase();
+                        return nameA.localeCompare(nameB);
+                      });
+
+                      return sortedDatasetIds.map((did) => {
+                        const datasetName = datasetsById[did]?.name || did;
+                        const groupResults = grouped[did];
+
+                        return (
+                          <div key={did} className="border border-gray-200 rounded-lg overflow-hidden">
+                            <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 font-medium text-gray-900 flex items-center justify-between">
+                              <Link href={`/datasets/${did}`} className="hover:underline hover:text-green-700">
+                                {datasetName}
+                              </Link>
+                              <span className="text-xs text-gray-500 font-normal">{groupResults.length} results</span>
+                            </div>
+                            <div className="divide-y divide-gray-100">
+                              {groupResults.map((r) => (
+                                <div key={r.id} className="p-3 text-sm text-gray-800 flex items-start gap-3 hover:bg-gray-50 transition-colors">
+                                  <div className="mt-0.5 text-gray-400">
+                                    <i className="fa-solid fa-chart-simple"></i>
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="font-medium text-gray-900">
+                                      {r.metric_name}: {r.metric_value}
+                                      {r.higher_is_better === false ? " (lower is better)" : ""}
+                                    </div>
+                                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 mt-0.5">
+                                      {r.task_id && (
+                                        <span>
+                                          {tasksById[r.task_id]?.name || r.task_id}
+                                        </span>
+                                      )}
+                                      {r.split && <span>Split: {r.split}</span>}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
