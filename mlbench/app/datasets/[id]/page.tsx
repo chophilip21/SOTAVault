@@ -42,7 +42,13 @@ interface TasksResponse {
   has_more: boolean;
 }
 
-type PaperRef = { id: string; title?: string | null; logical_id?: string | null };
+type PaperRef = {
+  id: string;
+  title?: string | null;
+  logical_id?: string | null;
+  official_code?: string[];
+  unofficial_code?: string[];
+};
 type PaperListResponse = {
   items: PaperRef[];
   limit: number;
@@ -54,6 +60,7 @@ type DatasetLeaderboardEntry = {
   paper_id: string;
   paper_result_id: string;
   metric_value: number;
+  has_code?: boolean; // New field
   created_at?: string;
 };
 
@@ -62,6 +69,7 @@ type DatasetLeaderboard = {
   dataset_id: string;
   task_id: string;
   metric_name: string;
+  metric_description?: string; // New field
   higher_is_better: boolean;
   entries: DatasetLeaderboardEntry[];
   top_k: number;
@@ -117,6 +125,13 @@ const getDomainIcon = (domain?: string): string => {
   if (!domain) return "/icons/cv.png";
   return DOMAIN_ICONS[domain] || "/icons/cv.png";
 };
+
+// Simple Code icon component using Font Awesome
+const CodeIcon = () => (
+  <span title="Code available" className="ml-1.5 opacity-70 hover:opacity-100 transition-opacity cursor-pointer">
+    <i className="fa-solid fa-file-code text-gray-900"></i>
+  </span>
+);
 
 export default function DatasetDetailPage() {
   const params = useParams();
@@ -290,7 +305,7 @@ export default function DatasetDetailPage() {
   // Resolve task_ids -> task names for this dataset.
   // Performance: only fetch the first 7 initially; fetch all when expanded.
   useEffect(() => {
-    if (!dataset || visibleTaskIds.length === 0) return;
+    if (dataset || visibleTaskIds.length === 0) return;
 
     const controller = new AbortController();
     setTasksLoading(true);
@@ -553,17 +568,22 @@ export default function DatasetDetailPage() {
                     <div className="text-sm text-gray-500">No paper references found.</div>
                   ) : (
                     <div className="space-y-1">
-                      {papers.slice(0, 10).map((p) => (
-                        <a
-                          key={p.id}
-                          href={`/papers/${p.id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block text-sm text-green-700 hover:underline"
-                        >
-                          {p.title || p.id}
-                        </a>
-                      ))}
+                      {papers.slice(0, 10).map((p) => {
+                        const hasCode = (p.official_code && p.official_code.length > 0) || (p.unofficial_code && p.unofficial_code.length > 0);
+                        return (
+                          <div key={p.id} className="flex items-center">
+                            <a
+                              href={`/papers/${p.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-green-700 hover:underline"
+                            >
+                              {p.title || p.id}
+                            </a>
+                            {hasCode && <CodeIcon />}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -634,14 +654,24 @@ export default function DatasetDetailPage() {
                   });
                   const values = entries.map((e) => e.metric_value).filter((v) => Number.isFinite(v)) as number[];
                   const best = lb.higher_is_better ? Math.max(...values, 0) : Math.min(...values, 0);
+
+                  const metricDesc = (lb.metric_description || "").trim();
+                  // Avoid double period: remove trailing period from description if present
+                  const cleanDesc = metricDesc.endsWith(".") ? metricDesc.slice(0, -1) : metricDesc;
+                  const direction = lb.higher_is_better ? "Higher is better" : "Lower is better";
+
+                  const description = cleanDesc
+                    ? `${cleanDesc}. ${direction}`
+                    : direction;
+
                   return (
                     <div className="mt-4 rounded-xl border border-gray-200 bg-white overflow-hidden">
                       <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="font-semibold text-gray-900 truncate">{leaderboardLabel(lb)}</div>
-                            <div className="text-xs text-gray-500 mt-0.5">
-                              {lb.higher_is_better ? "Higher is better" : "Lower is better"}
+                            <div className="text-xs text-gray-500 mt-0.5" title={lb.metric_description}>
+                              {description}
                             </div>
                           </div>
                           <div className="text-xs text-gray-500 whitespace-nowrap">Top {entries.length}</div>
@@ -663,20 +693,25 @@ export default function DatasetDetailPage() {
                               >
                                 <div className="w-8 text-sm text-gray-500 tabular-nums">{idx + 1}</div>
                                 <div className="flex-1 min-w-0">
-                                  <a
-                                    href={`/papers/${e.paper_id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-sm font-medium text-gray-900 hover:text-green-700 hover:underline truncate block"
-                                    title={paperLabel}
-                                  >
-                                    {paperLabel}
-                                  </a>
-                                  <div className="mt-2 h-2 w-full rounded bg-gray-200 overflow-hidden">
-                                    <div
-                                      className="h-2 rounded bg-green-500"
-                                      style={{ width: `${pct}%` }}
-                                    />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center">
+                                      <a
+                                        href={`/papers/${e.paper_id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-sm font-medium text-gray-900 hover:text-green-700 hover:underline truncate"
+                                        title={paperLabel}
+                                      >
+                                        {paperLabel}
+                                      </a>
+                                      {e.has_code && <CodeIcon />}
+                                    </div>
+                                    <div className="mt-2 h-2 w-full rounded bg-gray-200 overflow-hidden">
+                                      <div
+                                        className="h-2 rounded bg-green-500"
+                                        style={{ width: `${pct}%` }}
+                                      />
+                                    </div>
                                   </div>
                                 </div>
                                 <div className="w-24 text-right text-sm font-semibold text-gray-900 tabular-nums">
@@ -699,5 +734,3 @@ export default function DatasetDetailPage() {
     </div>
   );
 }
-
-
