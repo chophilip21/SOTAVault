@@ -595,7 +595,7 @@ export default function PaperDetailPage() {
             >
               <div className="inline-flex items-center gap-2">
                 <span role="img" aria-label="results">📊</span>
-                <h2 className="text-lg font-semibold text-gray-900">Results</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Benchmark Dataset Results</h2>
               </div>
               <div className="flex items-center gap-3">
                 {resultsLoading && <span className="text-xs text-gray-500">Loading...</span>}
@@ -640,8 +640,10 @@ export default function PaperDetailPage() {
                         return (
                           <div key={did} className="border border-gray-200 rounded-lg overflow-hidden">
                             <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 font-medium text-gray-900 flex items-center justify-between">
-                              <Link href={`/datasets/${did}`} className="hover:underline hover:text-green-700">
-                                {datasetName}
+                              <Link href={`/datasets/${did}`}>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-50 text-yellow-800 border border-yellow-200 hover:bg-yellow-100 transition-colors">
+                                  {datasetName}
+                                </span>
                               </Link>
                               <span className="text-xs text-gray-500 font-normal">{groupResults.length} results</span>
                             </div>
