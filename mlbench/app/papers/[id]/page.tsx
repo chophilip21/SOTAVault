@@ -66,6 +66,15 @@ interface TasksResponse {
   has_more: boolean;
 }
 
+interface Dataset {
+  id: string;
+  name: string;
+}
+
+interface DatasetsResponse {
+  items: Dataset[];
+}
+
 export default function PaperDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -83,6 +92,8 @@ export default function PaperDetailPage() {
   const [showUnofficial, setShowUnofficial] = useState(false);
   const [tasksById, setTasksById] = useState<Record<string, Task>>({});
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [datasetsById, setDatasetsById] = useState<Record<string, Dataset>>({});
+  const [datasetsLoading, setDatasetsLoading] = useState(false);
   const { bookmarkedIds, toggleBookmark } = useBookmarks("paper");
 
   const displayTitle = paper ? stripOuterQuotes(paper.title || "") : "";
@@ -163,50 +174,6 @@ export default function PaperDetailPage() {
   };
 
   useEffect(() => {
-    if (!paper || !paper.task_ids || paper.task_ids.length === 0) return;
-
-    const fetchTasks = async () => {
-      setTasksLoading(true);
-      try {
-        const uniqueIds = Array.from(new Set(paper.task_ids));
-        // Only fetch tasks we don't already have
-        const missingIds = uniqueIds.filter(id => !tasksById[id]);
-
-        if (missingIds.length === 0) {
-          setTasksLoading(false);
-          return;
-        }
-
-        // Fetch in chunks (though unlikely to have >200 tasks for one paper)
-        const chunks: string[][] = [];
-        for (let i = 0; i < missingIds.length; i += 200) chunks.push(missingIds.slice(i, i + 200));
-
-        for (const chunk of chunks) {
-          const url = new URL(`${getBackendBaseUrl()}/tasks/bulk`);
-          chunk.forEach((id) => url.searchParams.append("ids", id));
-          const res = await fetch(url.toString());
-          if (!res.ok) continue;
-          const data: TasksResponse = await res.json();
-          const items = data.items || [];
-          if (items.length === 0) continue;
-
-          setTasksById((prev) => {
-            const next = { ...prev };
-            for (const t of items) next[t.id] = t;
-            return next;
-          });
-        }
-      } catch (err) {
-        console.error("Failed to fetch tasks", err);
-      } finally {
-        setTasksLoading(false);
-      }
-    };
-
-    fetchTasks();
-  }, [paper]);
-
-  useEffect(() => {
     const loadResults = async () => {
       if (!paper || !paper.dataset_ids || paper.dataset_ids.length === 0) {
         setResults([]);
@@ -234,6 +201,77 @@ export default function PaperDetailPage() {
     };
     loadResults();
   }, [paper]);
+
+  useEffect(() => {
+    // Collect all task IDs + dataset IDs from both Paper AND Results
+    const allTaskIds = new Set<string>();
+    if (paper?.task_ids) paper.task_ids.forEach((id) => allTaskIds.add(id));
+    results.forEach((r) => { if (r.task_id) allTaskIds.add(r.task_id); });
+    const missingTaskIds = Array.from(allTaskIds).filter((id) => !tasksById[id]);
+
+    const allDatasetIds = new Set<string>();
+    if (paper?.dataset_ids) paper.dataset_ids.forEach((id) => allDatasetIds.add(id));
+    results.forEach((r) => { if (r.dataset_id) allDatasetIds.add(r.dataset_id); });
+    const missingDatasetIds = Array.from(allDatasetIds).filter((id) => !datasetsById[id]);
+
+    const fetchTasks = async (ids: string[]) => {
+      setTasksLoading(true);
+      try {
+        const chunks: string[][] = [];
+        for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+        for (const chunk of chunks) {
+          const url = new URL(`${getBackendBaseUrl()}/tasks/bulk`);
+          chunk.forEach((id) => url.searchParams.append("ids", id));
+          const res = await fetch(url.toString());
+          if (!res.ok) continue;
+          const data: TasksResponse = await res.json();
+          const items = data.items || [];
+          setTasksById((prev) => {
+            const next = { ...prev };
+            for (const t of items) next[t.id] = t;
+            return next;
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch tasks", err);
+      } finally {
+        setTasksLoading(false);
+      }
+    };
+
+    const fetchDatasets = async (ids: string[]) => {
+      setDatasetsLoading(true);
+      try {
+        const chunks: string[][] = [];
+        for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+        for (const chunk of chunks) {
+          const url = new URL(`${getBackendBaseUrl()}/datasets/bulk`);
+          chunk.forEach((id) => url.searchParams.append("ids", id));
+          const res = await fetch(url.toString());
+          if (!res.ok) continue;
+          const data: DatasetsResponse = await res.json();
+          const items = data.items || [];
+          setDatasetsById((prev) => {
+            const next = { ...prev };
+            for (const d of items) next[d.id] = d;
+            return next;
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch datasets", err);
+      } finally {
+        setDatasetsLoading(false);
+      }
+    };
+
+    if (missingTaskIds.length > 0) fetchTasks(missingTaskIds);
+    if (missingDatasetIds.length > 0) fetchDatasets(missingDatasetIds);
+
+    // Dependencies: trigger when paper or results change. 
+    // We do NOT depend on tasksById/datasetsById to avoid loops, 
+    // instead rely on the missing check inside the effect body.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paper, results]);
 
   useEffect(() => {
     const loadRelated = async () => {
@@ -571,8 +609,19 @@ export default function PaperDetailPage() {
                     className="border border-gray-200 rounded-lg p-3 text-sm text-gray-800"
                   >
                     <div className="flex flex-wrap gap-2 text-gray-600 text-xs mb-1">
-                      {r.dataset_id && <span>Dataset: {r.dataset_id}</span>}
-                      {r.task_id && <span>Task: {r.task_id}</span>}
+                      {r.dataset_id && (
+                        <Link
+                          href={`/datasets/${r.dataset_id}`}
+                          className="hover:underline hover:text-green-600 transition-colors"
+                        >
+                          {datasetsById[r.dataset_id]?.name || r.dataset_id}
+                        </Link>
+                      )}
+                      {r.task_id && (
+                        <span>
+                          {tasksById[r.task_id]?.name || ""}
+                        </span>
+                      )}
                       {r.split && <span>Split: {r.split}</span>}
                     </div>
                     <div className="font-semibold">

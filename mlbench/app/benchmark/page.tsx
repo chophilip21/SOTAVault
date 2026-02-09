@@ -999,7 +999,7 @@ export default function BenchmarkPage() {
             {renderBubbles(benchmark)}
 
             {/* Paper count & preview */}
-            {benchmark.paper_count !== undefined && (
+            {benchmark.paper_count !== undefined && benchmark.paper_count > 0 && (
               <div className="mt-3 text-sm text-gray-600">
                 <button
                   type="button"

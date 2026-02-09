@@ -528,7 +528,7 @@ export default function DatasetDetailPage() {
             </div>
           )}
 
-          {dataset.paper_count !== undefined && (
+          {dataset.paper_count !== undefined && dataset.paper_count > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-gray-900 mb-2">Papers</h3>
               <button
