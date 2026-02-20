@@ -74,7 +74,7 @@ export function isSecondaryTask(x: unknown): x is SecondaryTask {
 
 export function buildRoutePlanSchemaJson(): string {
   // Keep this JSON schema small and robust.
-  // IMPORTANT: Avoid union types like `type: ["object","null"]` — some runtimes (incl. WebLLM JSON mode)
+  // IMPORTANT: Avoid union types like `type: ["object","null"]` — some local model runtimes
   // may not support them reliably and can throw hard-to-debug errors.
   return JSON.stringify({
     type: "object",

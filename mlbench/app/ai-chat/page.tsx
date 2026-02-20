@@ -1,7 +1,7 @@
 "use client";
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getWebLLMEngine, routePrompt } from "@/lib/webllmAgent";
+import { routePrompt, warmupLocalChatModel } from "@/lib/ai/agent";
 import { routerDebugGroup, routerDebugLog } from "@/lib/routerDebug";
 import Image from "next/image";
 import { useChatMemory } from "./useChatMemory";
@@ -9,6 +9,7 @@ import type { ChatMessage } from "./types";
 import { RagHitsBubble } from "./components/RagHitsBubble";
 import { useRagSearch } from "./useRagSearch";
 import { answerWebsiteQuestion, looksLikeWebsiteQuestion } from "./websiteNavigator";
+import { answerFollowUpFromMemory, answerMlQuestion, clarifyAmbiguity } from "@/lib/ai/chains";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -135,22 +136,51 @@ export default function AIChatPage() {
     // Preload the model on page entry so first response feels snappy.
     let cancelled = false;
     setEngineState({ state: "loading", progress: 0, text: "Initializing..." });
-    getWebLLMEngine((report) => {
-      if (cancelled) return;
-      setEngineState({ state: "loading", progress: report.progress, text: report.text });
-    })
-      .then(() => {
+
+    // Some model loaders do heavy synchronous work; yield one tick so the loading UI can paint.
+    let heartbeat: number | null = null;
+    const start = () => {
+      // Fallback progress ticker: keeps UI alive even if the runtime reports no granular progress.
+      let lastProgress = 0;
+      let lastText = "Initializing...";
+      heartbeat = window.setInterval(() => {
+        setEngineState((s) => {
+          if (s.state !== "loading") return s;
+          // Smoothly creep upward until real progress updates arrive.
+          const next = Math.min(0.92, Math.max(lastProgress, s.progress) + 0.01);
+          const text = s.text || lastText || "Loading model…";
+          lastProgress = Math.max(lastProgress, next);
+          lastText = text;
+          return { state: "loading", progress: next, text };
+        });
+      }, 400);
+
+      warmupLocalChatModel((report) => {
         if (cancelled) return;
-        setEngineState({ state: "ready" });
+        // Real progress overrides heartbeat.
+        setEngineState((s) => (s.state === "loading" ? { state: "loading", progress: report.progress, text: report.text } : s));
       })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        const msg = err instanceof Error ? err.message : "Failed to initialize WebLLM.";
-        setEngineState({ state: "error", message: msg });
-      });
+        .then(() => {
+          if (cancelled) return;
+          setEngineState({ state: "ready" });
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          const msg = err instanceof Error ? err.message : "Failed to initialize local model.";
+          setEngineState({ state: "error", message: msg });
+        })
+        .finally(() => {
+          if (heartbeat) window.clearInterval(heartbeat);
+          heartbeat = null;
+        });
+    };
+
+    const t = window.setTimeout(start, 0);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(t);
+      if (heartbeat) window.clearInterval(heartbeat);
     };
   }, []);
 
@@ -227,62 +257,24 @@ export default function AIChatPage() {
                 })
                 .join("\n");
 
-        const hasMemory = Boolean(memory.summary) || recentTurns.length > 1 || memory.ragHistory.length > 0;
-        const engine = await getWebLLMEngine();
-        const system =
-          "You are MLTree LLM Agent inside MLBench. Answer the follow-up using ONLY the provided memory context. " +
-          "If the memory is insufficient, say so briefly and ask the user to restate. Do not invent paper titles or citations.";
-
-        const user = [
-          "Conversation summary:",
-          memory.summary || "None.",
-          "",
-          "Recent turns:",
-          recentTurns.map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`).join("\n") || "None.",
-          "",
-          "Recent RAG results:",
+        reply = await answerFollowUpFromMemory({
+          prompt,
+          summary: memory.summary,
+          recentTurns,
           ragContext,
-          "",
-          `Follow-up question: ${prompt}`,
-        ].join("\n");
-
-        if (!hasMemory) {
-          reply = "I don't have previous context yet. Could you restate what you'd like to follow up on?";
-        } else {
-          const res = await engine.chat.completions.create({
-            messages: [
-              { role: "system" as const, content: system },
-              { role: "user" as const, content: user },
-            ],
-            temperature: 0.55,
-            top_p: 0.9,
-            max_tokens: 620,
-          });
-          reply = res.choices?.[0]?.message?.content?.trim() || "I couldn’t generate a response. Please try again.";
-        }
+        });
         }
         upsertMessage(pendingId, { content: reply });
         addTurnToMemory({ role: "assistant", content: reply });
         return;
       } else if (plan.primary === "ML_NO_RAG") {
         try {
-          const engine = await getWebLLMEngine();
-          const system =
-            "You are MLTree LLM Agent inside MLBench. Answer machine learning questions clearly and concisely. " +
-            "Use short sections and examples when helpful. Do not fabricate citations.";
-
           // Keep minimal context: last few user+assistant messages (excluding the current prompt which we'll add).
           const history = [...messages, userMsg]
             .slice(-10)
             .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-          const res = await engine.chat.completions.create({
-            messages: [{ role: "system" as const, content: system }, ...history],
-            temperature: 0.7,
-            top_p: 0.95,
-            max_tokens: 700,
-          });
-          reply = res.choices?.[0]?.message?.content?.trim() || "I couldn’t generate a response. Please try again.";
+          reply = await answerMlQuestion({ history });
           upsertMessage(pendingId, { content: reply });
           addTurnToMemory({ role: "assistant", content: reply });
           return; // IMPORTANT: avoid also appending a second assistant message below
@@ -299,37 +291,7 @@ export default function AIChatPage() {
         return;
       } else if (plan.primary === "AMBIGUOUS") {
         try {
-          const engine = await getWebLLMEngine();
-          const system = [
-            "You are a routing assistant for MLBench. The prior router marked the intent as AMBIGUOUS.",
-            "Briefly consider why it is ambiguous between categories:",
-            "- RAG_SEARCH: find/recommend/search papers or citations.",
-            "- ML_NO_RAG: explain ML concepts without needing paper retrieval.",
-            "- FOLLOW_UP: depends on earlier answers/results.",
-            "- WEBSITE: how to use the site/app.",
-            "- UNRELATED: clearly outside ML/app scope.",
-            "Ask ONE concise clarification question that helps choose among these. Do not answer the original request.",
-          ].join("\n");
-
-          const user = [
-            "Original user message:",
-            prompt,
-            "",
-            "Ask for the specific detail that resolves the ambiguity (e.g., whether they want paper suggestions vs an explanation, or if they refer to earlier results).",
-          ].join("\n");
-
-          const res = await engine.chat.completions.create({
-            messages: [
-              { role: "system" as const, content: system },
-              { role: "user" as const, content: user },
-            ],
-            temperature: 0.3,
-            top_p: 0.9,
-            max_tokens: 160,
-          });
-          reply =
-            res.choices?.[0]?.message?.content?.trim() ||
-            "Could you clarify whether you want paper recommendations, an ML explanation, or help using the site?";
+          reply = await clarifyAmbiguity(prompt);
         } catch {
           reply =
             "Could you clarify whether you want paper recommendations, an ML explanation, a follow-up on prior results, or help using this site?";

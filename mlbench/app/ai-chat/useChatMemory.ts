@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { getWebLLMEngine, type RouterMemoryContext } from "@/lib/webllmAgent";
+import { useEffect, useRef, useState } from "react";
+import type { RouterMemoryContext } from "@/lib/ai/types";
+import { summarizeMemory } from "@/lib/ai/chains";
 import type { ChatMessage, MemoryState, RagMemoryEntry } from "./types";
 
 const MEMORY_STORAGE_KEY = "mltree-ai-chat-memory-v1";
@@ -14,8 +15,6 @@ async function summarizeConversation(
   currentSummary: string | null,
   ragHistory: RagMemoryEntry[]
 ): Promise<string> {
-  const engine = await getWebLLMEngine();
-  const recentTurns = currentMessages.slice(-10).map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`);
   const ragText =
     ragHistory
       .slice(0, 2)
@@ -27,36 +26,12 @@ async function summarizeConversation(
         return `Recent RAG ${idx + 1}: query="${r.query}". Papers: ${titles}`;
       })
       .join("\n") || "No recent RAG results.";
-
-  const system = [
-    "You are a memory compressor for a chat assistant.",
-    "Produce a concise summary (<= 180 words) of the conversation so far.",
-    "Preserve key user intents, assistant answers, and any referenced papers.",
-    "Prefer bullet-ish sentences separated by newline. Do not fabricate.",
-  ].join("\n");
-
-  const user = [
-    currentSummary ? `Existing summary:\n${currentSummary}\n` : "No existing summary.",
-    "Recent turns:",
-    recentTurns.join("\n"),
-    "",
-    "Recent RAG context:",
+  const summary = await summarizeMemory({
+    existingSummary: currentSummary,
+    recentTurns: currentMessages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
     ragText,
-    "",
-    "Return only the updated summary text.",
-  ].join("\n");
-
-  const res = await (engine as any).chat.completions.create({
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-    temperature: 0.3,
-    top_p: 0.9,
-    max_tokens: 220,
   });
-
-  return res.choices?.[0]?.message?.content?.trim() || currentSummary || "";
+  return summary || currentSummary || "";
 }
 
 function buildRouterMemorySnapshotBase(
@@ -76,7 +51,7 @@ function buildRouterMemorySnapshotBase(
 
 export function useChatMemory(messages: ChatMessage[]) {
   const [memory, setMemory] = useState<MemoryState>(EMPTY_MEMORY);
-  const [isSummarizingMemory, setIsSummarizingMemory] = useState(false);
+  const isSummarizingRef = useRef(false);
 
   // Load from storage on mount
   useEffect(() => {
@@ -85,14 +60,16 @@ export function useChatMemory(messages: ChatMessage[]) {
       const raw = localStorage.getItem(MEMORY_STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw) as Partial<MemoryState>;
-      setMemory((prev) => ({
-        ...prev,
-        ...parsed,
-        summary: parsed.summary ?? null,
-        recentTurns: Array.isArray(parsed.recentTurns) ? parsed.recentTurns.slice(-MEMORY_RECENT_TURNS_LIMIT) : [],
-        ragHistory: Array.isArray(parsed.ragHistory) ? parsed.ragHistory.slice(0, MEMORY_RAG_LIMIT) : [],
-        lastSummarizedCount: parsed.lastSummarizedCount ?? 0,
-      }));
+      queueMicrotask(() => {
+        setMemory((prev) => ({
+          ...prev,
+          ...parsed,
+          summary: parsed.summary ?? null,
+          recentTurns: Array.isArray(parsed.recentTurns) ? parsed.recentTurns.slice(-MEMORY_RECENT_TURNS_LIMIT) : [],
+          ragHistory: Array.isArray(parsed.ragHistory) ? parsed.ragHistory.slice(0, MEMORY_RAG_LIMIT) : [],
+          lastSummarizedCount: parsed.lastSummarizedCount ?? 0,
+        }));
+      });
     } catch (err) {
       console.warn("Failed to load chat memory from storage", err);
     }
@@ -113,11 +90,11 @@ export function useChatMemory(messages: ChatMessage[]) {
     const shouldSummarize =
       messages.length >= MEMORY_SUMMARIZE_THRESHOLD &&
       messages.length >= memory.lastSummarizedCount + MEMORY_SUMMARIZE_GAP &&
-      !isSummarizingMemory;
+      !isSummarizingRef.current;
     if (!shouldSummarize) return;
 
     let cancelled = false;
-    setIsSummarizingMemory(true);
+    isSummarizingRef.current = true;
     summarizeConversation(messages, memory.summary, memory.ragHistory)
       .then((summary) => {
         if (cancelled) return;
@@ -129,13 +106,13 @@ export function useChatMemory(messages: ChatMessage[]) {
       })
       .catch((err) => console.warn("Failed to summarize conversation", err))
       .finally(() => {
-        if (!cancelled) setIsSummarizingMemory(false);
+        if (!cancelled) isSummarizingRef.current = false;
       });
 
     return () => {
       cancelled = true;
     };
-  }, [messages, memory.lastSummarizedCount, memory.ragHistory, memory.summary, isSummarizingMemory]);
+  }, [messages, memory.lastSummarizedCount, memory.ragHistory, memory.summary]);
 
   const addTurnToMemory = (turn: { role: "user" | "assistant"; content: string }) => {
     setMemory((prev) => {

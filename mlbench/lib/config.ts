@@ -20,13 +20,17 @@ export const config = {
 
 
 
-  // WebLLM Model Configuration
-  // Main model for chat/routing tasks
-  webllmModel: process.env.NEXT_PUBLIC_WEBLLM_MODEL || "Llama-3.2-1B-Instruct-q4f32_1-MLC",
+  // Local in-browser model configuration (Transformers.js v4 / WebGPU)
+  // Chat/routing model. Use an ONNX-exported model ID for best results in the browser.
+  transformersChatModel: process.env.NEXT_PUBLIC_TRANSFORMERS_CHAT_MODEL || "onnx-community/Llama-3.2-1B-Instruct",
   // Embedding model for RAG (must output 384-d vectors compatible with backend)
-  webllmEmbedModel: process.env.NEXT_PUBLIC_WEBLLM_EMBED_MODEL || "snowflake-arctic-embed-s-q0f32-MLC-b4",
+  transformersEmbedModel: process.env.NEXT_PUBLIC_TRANSFORMERS_EMBED_MODEL || "Snowflake/snowflake-arctic-embed-s",
   // Embedding dimension (must match backend vector dimension)
   embeddingDim: 384,
+
+  // Preferred execution device for Transformers.js pipelines.
+  // "webgpu" is fastest when available; "wasm" is the fallback.
+  transformersDevice: process.env.NEXT_PUBLIC_TRANSFORMERS_DEVICE || "webgpu",
 };
 
 // Validate required config in local environment

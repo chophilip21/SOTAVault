@@ -1,6 +1,6 @@
 "use client";
 
-import type { RoutePlan } from "@/lib/webllmAgent";
+import type { RoutePlan } from "@/lib/routerSpec";
 
 type WebsiteTopic =
   | "NAVIGATE"

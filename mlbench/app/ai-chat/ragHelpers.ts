@@ -1,6 +1,7 @@
 "use client";
 
-import type { RerankResponse, VectorSearchHit } from "./types";
+import type { VectorSearchHit } from "./types";
+import { rerankHits, summarizePapers } from "@/lib/ai/chains";
 
 export function sortHitsByDistance(hits: VectorSearchHit[]): VectorSearchHit[] {
   return [...hits].sort((a, b) => {
@@ -18,13 +19,12 @@ export function rankByDistance(hits: VectorSearchHit[]): Map<string, number> {
   return rankById;
 }
 
-export async function rerankHitsWithWebLLM(opts: {
-  engine: any;
+export async function rerankHitsWithLocalModel(opts: {
   prompt: string;
   hits: VectorSearchHit[];
   wantsRecent: boolean;
 }): Promise<VectorSearchHit[]> {
-  const { engine, prompt, hits, wantsRecent } = opts;
+  const { prompt, hits, wantsRecent } = opts;
 
   const candidates = hits.map((h) => ({
     id: h.paper.id,
@@ -33,56 +33,8 @@ export async function rerankHitsWithWebLLM(opts: {
     abstract: (h.paper.abstract ?? "").slice(0, 240),
   }));
 
-  const schema = JSON.stringify({
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      ids: {
-        type: "array",
-        items: { type: "string" },
-      },
-    },
-    required: ["ids"],
-  });
-
-  const sys = [
-    "You are a strict reranker for ML paper search results.",
-    "Given the user query and a list of candidate papers, select up to 5 paper IDs that best match the user's intent.",
-    "Return ONLY JSON matching the schema. No extra text.",
-    "",
-    "Ranking rules:",
-    "- Prefer strong topical match to the query.",
-    "- If the user asks for 'recent/latest/newest', prefer higher year when relevance is similar.",
-    "- If candidates are off-topic, do not select them.",
-  ].join("\n");
-
-  const user = JSON.stringify({
-    query: prompt,
-    wants_recent: wantsRecent,
-    candidates,
-  });
-
-  const r = await engine.chat.completions.create({
-    messages: [
-      { role: "system", content: sys },
-      { role: "user", content: user },
-    ],
-    temperature: 0,
-    top_p: 1,
-    seed: 1,
-    max_tokens: 120,
-    response_format: { type: "json_object", schema },
-  });
-
-  const raw = r?.choices?.[0]?.message?.content ?? "";
-  let parsed: RerankResponse | null = null;
-  try {
-    parsed = JSON.parse(raw) as RerankResponse;
-  } catch {
-    parsed = null;
-  }
-
-  const idSet = new Set((parsed?.ids || []).filter(Boolean));
+  const ids = await rerankHits({ prompt, wantsRecent, candidates });
+  const idSet = new Set((ids || []).filter(Boolean));
   const ordered = hits.filter((h) => idSet.has(h.paper.id));
   return ordered.length > 0 ? ordered : hits;
 }
@@ -129,73 +81,21 @@ export function fallbackOneLiner(abs?: string | null): string {
   return /[.!?]$/.test(snippet) ? snippet : `${snippet}.`;
 }
 
-export async function summarizeHitsWithWebLLM(opts: {
-  engine: any;
+export async function summarizeHitsWithLocalModel(opts: {
   query: string;
   hits: VectorSearchHit[];
 }): Promise<Map<string, string>> {
-  const { engine, query, hits } = opts;
-
-  const schema = JSON.stringify({
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      summaries: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            id: { type: "string" },
-            summary: { type: "string" },
-          },
-          required: ["id", "summary"],
-        },
-      },
-    },
-    required: ["summaries"],
-  });
-
-  const sys = [
-    "You write extremely short, factual, ONE-LINE summaries of papers.",
-    "Use ONLY the provided title/year/abstract snippets; do not invent details.",
-    "Do NOT repeat the title as the summary.",
-    "Return a summary for EVERY provided paper id.",
-    "Each summary should be <= 20 words.",
-    "Return ONLY JSON matching the schema.",
-  ].join("\n");
-
-  const user = JSON.stringify({
-    query,
-    papers: hits.map((h) => ({
-      id: h.paper.id,
-      title: h.paper.title,
-      year: h.paper.year ?? null,
-      abstract: (h.paper.abstract ?? "").slice(0, 600),
-    })),
-  });
-
-  const r = await engine.chat.completions.create({
-    messages: [
-      { role: "system", content: sys },
-      { role: "user", content: user },
-    ],
-    temperature: 0.2,
-    top_p: 0.9,
-    seed: 1,
-    max_tokens: 420,
-    response_format: { type: "json_object", schema },
-  });
-
-  const raw = r?.choices?.[0]?.message?.content ?? "";
-  let parsed: any = null;
-  try {
-    parsed = JSON.parse(raw || "{}");
-  } catch {
-    parsed = null;
-  }
-
-  const list = Array.isArray(parsed?.summaries) ? parsed.summaries : [];
+  const { query, hits } = opts;
+  const list =
+    (await summarizePapers({
+      query,
+      papers: hits.map((h) => ({
+        id: h.paper.id,
+        title: h.paper.title,
+        year: h.paper.year ?? null,
+        abstract: (h.paper.abstract ?? "").slice(0, 600),
+      })),
+    })) || [];
   const byId = new Map<string, string>();
   for (const it of list) {
     if (!it?.id || typeof it?.summary !== "string") continue;

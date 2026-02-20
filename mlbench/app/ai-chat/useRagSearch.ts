@@ -1,9 +1,9 @@
 "use client";
 
 import type React from "react";
-import { embedQuery, getWebLLMEngine, type RoutePlan } from "@/lib/webllmAgent";
+import { embedQuery, type RoutePlan } from "@/lib/ai/agent";
 import { routerDebugGroup, routerDebugLog } from "@/lib/routerDebug";
-import { rerankHitsWithWebLLM, sortHitsByDistance, summarizeHitsWithWebLLM, buildSummaryLines } from "./ragHelpers";
+import { rerankHitsWithLocalModel, sortHitsByDistance, summarizeHitsWithLocalModel, buildSummaryLines } from "./ragHelpers";
 import type { ChatMessage, VectorSearchHit, VectorSearchResponse } from "./types";
 
 export function useRagSearch(opts: {
@@ -78,9 +78,8 @@ export function useRagSearch(opts: {
       // If this fails, fall back to vector distance order.
       let picked: VectorSearchHit[] = distanceSorted;
       try {
-        const engine = await getWebLLMEngine();
         const wantsRecent = plan.constraints?.recency === "recent" || /\brecent\b|\blatest\b|\bnewest\b|\b202\d\b/i.test(prompt);
-        picked = await rerankHitsWithWebLLM({ engine, prompt, hits: distanceSorted, wantsRecent });
+        picked = await rerankHitsWithLocalModel({ prompt, hits: distanceSorted, wantsRecent });
       } catch {
         // ignore rerank failures; keep fallback
       }
@@ -96,12 +95,7 @@ export function useRagSearch(opts: {
       // Optional task: one-line summaries per paper (if requested).
       if (plan.secondary?.includes("SUMMARIZE") && displayHits.length > 0) {
         try {
-          const engine = await getWebLLMEngine();
-          const summariesById = await summarizeHitsWithWebLLM({
-            engine,
-            query: plan.constraints?.domain || prompt,
-            hits: displayHits,
-          });
+          const summariesById = await summarizeHitsWithLocalModel({ query: plan.constraints?.domain || prompt, hits: displayHits });
           const lines = buildSummaryLines(displayHits, summariesById);
           if (lines) {
             const summaryMsg = { id: newId(), role: "assistant" as const, content: lines };
