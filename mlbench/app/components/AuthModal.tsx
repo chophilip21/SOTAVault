@@ -5,6 +5,7 @@ import {
   deleteUser,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
   sendEmailVerification,
   signOut,
   getAdditionalUserInfo
@@ -194,6 +195,14 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       provider.setCustomParameters({
         prompt: 'select_account'
       });
+
+      // When the app is cross-origin isolated (COOP: same-origin + COEP), popup flows can break
+      // because the popup can't reliably communicate with the opener. Use redirect instead.
+      const isolated = typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
+      if (isolated) {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
 
       const userCredential = await signInWithPopup(auth, provider);
       const user = userCredential.user;

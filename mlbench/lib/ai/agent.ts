@@ -2,7 +2,15 @@
 
 import { normalizeRoutePlan, type PrimaryCapability, type RoutePlan, type SecondaryTask } from "@/lib/routerSpec";
 import type { RouterMemoryContext } from "@/lib/ai/types";
-import { embedText, getChatPipeline, type InitProgressCallback } from "@/lib/ai/transformersRuntime";
+import {
+  embedText,
+  getChatPipeline,
+  getEmbedPipeline,
+  loadChatPipelineFromCache,
+  loadEmbedPipelineFromCache,
+  clearTransformersModelCache,
+  type InitProgressCallback,
+} from "@/lib/ai/transformersRuntime";
 import { routeWithLocalModel } from "@/lib/ai/chains";
 
 export type { RoutePlan, PrimaryCapability, RouterMemoryContext, InitProgressCallback };
@@ -50,6 +58,32 @@ function heuristicFallback(prompt: string): PrimaryCapability {
 
 export async function warmupLocalChatModel(initProgressCallback?: InitProgressCallback) {
   return await getChatPipeline(initProgressCallback);
+}
+
+export async function probeLocalModelsFromCache(): Promise<{
+  chatCached: boolean;
+  embedCached: boolean;
+}> {
+  // Checks the browser's Cache API directly — no ONNX init, no network requests.
+  const [chatCached, embedCached] = await Promise.all([
+    loadChatPipelineFromCache(),
+    loadEmbedPipelineFromCache(),
+  ]);
+  return { chatCached, embedCached };
+}
+
+export async function downloadLocalModels(initProgressCallback?: InitProgressCallback) {
+  // Download/load chat first (needed for chatting), then embeddings (needed for RAG).
+  await getChatPipeline((r) => {
+    initProgressCallback?.({ progress: Math.min(0.9, r.progress * 0.85), text: `Chat: ${r.text}` });
+  });
+  await getEmbedPipeline((r) => {
+    initProgressCallback?.({ progress: 0.85 + Math.min(0.15, r.progress * 0.15), text: `Embed: ${r.text}` });
+  });
+}
+
+export async function removeCachedLocalModels() {
+  return await clearTransformersModelCache();
 }
 
 export async function embedQuery(text: string, opts?: { initProgressCallback?: InitProgressCallback }): Promise<number[]> {

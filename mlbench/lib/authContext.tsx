@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { onAuthStateChanged, signOut, User } from "firebase/auth";
+import { getRedirectResult, onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
@@ -167,6 +167,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    // Finalize any pending redirect-based OAuth sign-in (used on crossOriginIsolated pages like /ai-chat).
+    // This is best-effort: onAuthStateChanged will still update state when sign-in succeeds.
+    getRedirectResult(auth).catch(() => {
+      // ignore
+    });
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
 

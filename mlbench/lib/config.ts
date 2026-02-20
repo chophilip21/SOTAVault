@@ -20,16 +20,15 @@ export const config = {
 
 
 
-  // Local in-browser model configuration (Transformers.js v4 / WebGPU)
-  // Chat/routing model. Use an ONNX-exported model ID for best results in the browser.
-  transformersChatModel: process.env.NEXT_PUBLIC_TRANSFORMERS_CHAT_MODEL || "onnx-community/Llama-3.2-1B-Instruct",
-  // Embedding model for RAG (must output 384-d vectors compatible with backend)
+  // ── In-browser model settings (Transformers.js v4 / WebGPU) ──────────────
+  // Primary source: repo-root config.ini  →  exported by local.sh as NEXT_PUBLIC_* vars.
+  // The strings below are last-resort fallbacks only (e.g. CI / Vercel deployments).
+  transformersChatModel: process.env.NEXT_PUBLIC_TRANSFORMERS_CHAT_MODEL || "HuggingFaceTB/SmolLM2-360M-Instruct",
+  transformersChatDtype: process.env.NEXT_PUBLIC_TRANSFORMERS_CHAT_DTYPE || "q4",
   transformersEmbedModel: process.env.NEXT_PUBLIC_TRANSFORMERS_EMBED_MODEL || "Snowflake/snowflake-arctic-embed-s",
-  // Embedding dimension (must match backend vector dimension)
+  transformersEmbedDtype: process.env.NEXT_PUBLIC_TRANSFORMERS_EMBED_DTYPE || "fp32",
+  // Embedding dimension (must match backend vector index dimension)
   embeddingDim: 384,
-
-  // Preferred execution device for Transformers.js pipelines.
-  // "webgpu" is fastest when available; "wasm" is the fallback.
   transformersDevice: process.env.NEXT_PUBLIC_TRANSFORMERS_DEVICE || "webgpu",
 };
 

@@ -1,7 +1,8 @@
 "use client";
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { routePrompt, warmupLocalChatModel } from "@/lib/ai/agent";
+import { downloadLocalModels, probeLocalModelsFromCache, removeCachedLocalModels, routePrompt } from "@/lib/ai/agent";
+import { approxModelSizeMb, approxTotalDownloadMb } from "@/lib/ai/transformersRuntime";
 import { routerDebugGroup, routerDebugLog } from "@/lib/routerDebug";
 import Image from "next/image";
 import { useChatMemory } from "./useChatMemory";
@@ -10,6 +11,7 @@ import { RagHitsBubble } from "./components/RagHitsBubble";
 import { useRagSearch } from "./useRagSearch";
 import { answerWebsiteQuestion, looksLikeWebsiteQuestion } from "./websiteNavigator";
 import { answerFollowUpFromMemory, answerMlQuestion, clarifyAmbiguity } from "@/lib/ai/chains";
+import { config } from "@/lib/config";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -19,22 +21,6 @@ function newId() {
 
 const VECTOR_SEARCHING_TOKEN = "__VECTOR_SEARCHING__";
 const THINKING_TOKEN = "__THINKING__";
-
-function deriveInitStage(progress: number, text: string): string {
-  const t = (text || "").toLowerCase();
-  if (t.includes("secure context") || t.includes("https")) return "Checking HTTPS / secure context";
-  if (t.includes("webgpu") || t.includes("gpu adapter") || t.includes("requesting gpu")) return "Checking WebGPU";
-  if (t.includes("download") || t.includes("fetch") || t.includes("retriev")) return "Downloading model";
-  if (t.includes("cache") || t.includes("indexeddb")) return "Loading from cache";
-  if (t.includes("compil") || t.includes("shader") || t.includes("kernel")) return "Compiling shaders";
-  if (t.includes("warm") || t.includes("prefill") || t.includes("final")) return "Warming up";
-
-  // Fallback by progress when the engine doesn't provide descriptive text.
-  if (progress < 0.08) return "Starting";
-  if (progress < 0.6) return "Downloading model";
-  if (progress < 0.9) return "Compiling & warming up";
-  return "Finalizing";
-}
 
 function renderBoldMarkdown(text: string) {
   // Minimal, safe subset: only supports **bold** (no HTML).
@@ -111,6 +97,12 @@ export default function AIChatPage() {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [showWebGpuDetails, setShowWebGpuDetails] = useState(false);
+  const [requirements, setRequirements] = useState<{
+    checking: boolean;
+    chatCached: boolean;
+    embedCached: boolean;
+    webgpuAvailable: boolean;
+  }>({ checking: true, chatCached: false, embedCached: false, webgpuAvailable: true });
 
   const [engineState, setEngineState] = useState<
     | { state: "idle" }
@@ -121,66 +113,45 @@ export default function AIChatPage() {
   const { memory, addTurnToMemory, recordRagMemory, buildRouterMemorySnapshot } = useChatMemory(messages);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Monotonic progress ceiling. Written synchronously so React batching can never
+  // produce a backwards-moving bar — state is only ever set to a value >= this ref.
+  const progressCeilingRef = useRef(0);
 
-  const canSend = useMemo(
-    () => input.trim().length > 0 && !isSending && engineState.state === "ready",
-    [input, isSending, engineState.state]
-  );
+  const requiresWebGPU = String(config.transformersDevice || "webgpu").toLowerCase() !== "wasm";
+  const canChat =
+    engineState.state === "ready" && requirements.chatCached && (!requiresWebGPU || requirements.webgpuAvailable);
 
-  const webGpuUnavailable = engineState.state === "error";
+  const canSend = useMemo(() => input.trim().length > 0 && !isSending && canChat, [input, isSending, canChat]);
+
+  const webGpuUnavailable = requiresWebGPU && !requirements.webgpuAvailable;
   const isLoadingModel = engineState.state === "loading";
   const isReady = engineState.state === "ready";
   const hasConversation = messages.length > 0;
 
   useEffect(() => {
-    // Preload the model on page entry so first response feels snappy.
+    // Do NOT auto-download models. Only probe browser cache.
     let cancelled = false;
-    setEngineState({ state: "loading", progress: 0, text: "Initializing..." });
+    setRequirements((r) => ({ ...r, checking: true }));
+    setEngineState({ state: "idle" });
 
-    // Some model loaders do heavy synchronous work; yield one tick so the loading UI can paint.
-    let heartbeat: number | null = null;
-    const start = () => {
-      // Fallback progress ticker: keeps UI alive even if the runtime reports no granular progress.
-      let lastProgress = 0;
-      let lastText = "Initializing...";
-      heartbeat = window.setInterval(() => {
-        setEngineState((s) => {
-          if (s.state !== "loading") return s;
-          // Smoothly creep upward until real progress updates arrive.
-          const next = Math.min(0.92, Math.max(lastProgress, s.progress) + 0.01);
-          const text = s.text || lastText || "Loading model…";
-          lastProgress = Math.max(lastProgress, next);
-          lastText = text;
-          return { state: "loading", progress: next, text };
-        });
-      }, 400);
+    const webgpuAvailable = typeof navigator !== "undefined" && !!(navigator as any).gpu;
 
-      warmupLocalChatModel((report) => {
+    // Probe cache asynchronously (no downloads).
+    Promise.resolve()
+      .then(() => probeLocalModelsFromCache())
+      .then(({ chatCached, embedCached }) => {
         if (cancelled) return;
-        // Real progress overrides heartbeat.
-        setEngineState((s) => (s.state === "loading" ? { state: "loading", progress: report.progress, text: report.text } : s));
+        setRequirements({ checking: false, chatCached, embedCached, webgpuAvailable });
+        // If chat model is cached, we are ready to chat (unless WebGPU is required and missing).
+        if (chatCached) setEngineState({ state: "ready" });
       })
-        .then(() => {
-          if (cancelled) return;
-          setEngineState({ state: "ready" });
-        })
-        .catch((err: unknown) => {
-          if (cancelled) return;
-          const msg = err instanceof Error ? err.message : "Failed to initialize local model.";
-          setEngineState({ state: "error", message: msg });
-        })
-        .finally(() => {
-          if (heartbeat) window.clearInterval(heartbeat);
-          heartbeat = null;
-        });
-    };
-
-    const t = window.setTimeout(start, 0);
+      .catch(() => {
+        if (cancelled) return;
+        setRequirements({ checking: false, chatCached: false, embedCached: false, webgpuAvailable });
+      });
 
     return () => {
       cancelled = true;
-      window.clearTimeout(t);
-      if (heartbeat) window.clearInterval(heartbeat);
     };
   }, []);
 
@@ -200,9 +171,64 @@ export default function AIChatPage() {
 
   const { runRagSearch } = useRagSearch({ newId, setMessages, upsertMessage, addTurnToMemory, recordRagMemory });
 
+  function advanceProgress(raw: number, text: string) {
+    // Always read + write the ref synchronously before touching React state.
+    // This guarantees the bar never moves backward regardless of batching.
+    const next = Math.min(1, Math.max(progressCeilingRef.current, raw));
+    progressCeilingRef.current = next;
+    setEngineState({ state: "loading", progress: next, text });
+  }
+
+  async function handleDownloadModels() {
+    if (engineState.state === "loading") return;
+
+    progressCeilingRef.current = 0;
+    setEngineState({ state: "loading", progress: 0, text: "Preparing download…" });
+
+    // Heartbeat: nudges the bar forward when download callbacks are sparse.
+    // Capped at 0.9 so real callbacks can always overtake it.
+    let heartbeat: number | null = null;
+    heartbeat = window.setInterval(() => {
+      advanceProgress(Math.min(0.9, progressCeilingRef.current + 0.01), "Downloading…");
+    }, 450);
+
+    try {
+      await downloadLocalModels((r) => advanceProgress(r.progress, r.text));
+      // Snap to 100 % so user sees a complete bar before the overlay disappears.
+      advanceProgress(1, "Complete");
+      const { chatCached, embedCached } = await probeLocalModelsFromCache();
+      setRequirements((prev) => ({ ...prev, chatCached, embedCached }));
+      setEngineState({ state: "ready" });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to download models.";
+      setEngineState({ state: "error", message: msg });
+    } finally {
+      if (heartbeat) window.clearInterval(heartbeat);
+      heartbeat = null;
+    }
+  }
+
+  async function handleRemoveCachedModels() {
+    if (engineState.state === "loading") return;
+    const ok = typeof window !== "undefined" ? window.confirm("Remove cached local models from this browser? You will need to download them again.") : false;
+    if (!ok) return;
+
+    progressCeilingRef.current = 0;
+    setEngineState({ state: "loading", progress: 0, text: "Clearing model cache…" });
+    try {
+      await removeCachedLocalModels();
+      const { chatCached, embedCached } = await probeLocalModelsFromCache();
+      setRequirements((prev) => ({ ...prev, chatCached, embedCached }));
+      setEngineState({ state: "idle" });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to clear model cache.";
+      setEngineState({ state: "error", message: msg });
+    }
+  }
+
   async function handleSend(nextPrompt?: string) {
     const prompt = (nextPrompt ?? input).trim();
-    if (!prompt || isSending || engineState.state !== "ready") return;
+    if (!prompt || isSending || !canChat) return;
 
     setIsSending(true);
     setInput("");
@@ -331,45 +357,45 @@ export default function AIChatPage() {
               ].join(" ")}
             >
               {/* Compact top bar (always visible) */}
-              <div className={["flex items-center justify-between gap-3", hasConversation ? "" : "justify-center"].join(" ")}>
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/70 border border-white/80 shadow-sm">
-                  <div className="w-8 h-8 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm">
-                    <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path
-                        d="M12 21s-7-4.35-7-11a7 7 0 1 1 14 0c0 6.65-7 11-7 11Z"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M9.5 10.5c.9-1.3 1.9-2 2.5-2 .8 0 1.5.7 1.5 1.5 0 1.2-1.5 1.7-1.5 3"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                      />
-                      <path d="M12 15.75h.01" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-                    </svg>
-                  </div>
+              <div className="grid grid-cols-3 items-center gap-3">
+                <div />
+                <div className="flex justify-center">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/70 border border-white/80 shadow-sm">
+                    <div className="w-8 h-8 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm">
+                      <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path
+                          d="M12 21s-7-4.35-7-11a7 7 0 1 1 14 0c0 6.65-7 11-7 11Z"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M9.5 10.5c.9-1.3 1.9-2 2.5-2 .8 0 1.5.7 1.5 1.5 0 1.2-1.5 1.7-1.5 3"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                        />
+                        <path d="M12 15.75h.01" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                      </svg>
+                    </div>
 
-                  <span className="text-sm font-semibold text-gray-900">MLTree AI Chat</span>
-                </div>
+                    <span className="text-sm font-semibold text-gray-900">MLTree AI Chat</span>
 
-                {hasConversation && (
-                  <div className="flex items-center gap-2 shrink-0">
                     {engineState.state === "ready" && (
-                      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
+                      <span className="ml-1 inline-flex items-center gap-2 px-2 py-1 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
                         <span className="w-2 h-2 rounded-full bg-emerald-500" />
                         Ready
-                      </div>
+                      </span>
                     )}
                     {engineState.state === "loading" && (
-                      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
+                      <span className="ml-1 inline-flex items-center gap-2 px-2 py-1 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
                         <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                         Loading…
-                      </div>
+                      </span>
                     )}
                   </div>
-                )}
+                </div>
+                <div />
               </div>
 
               {/* Intro content (collapses away once a conversation starts) */}
@@ -387,20 +413,16 @@ export default function AIChatPage() {
                     Ask about papers, concepts, or how to use MLBench. Responses run locally in your browser via WebGPU.
                   </p>
 
-                  <div className="mt-4 flex items-center gap-2">
-                    {engineState.state === "ready" && (
-                      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                        Ready
-                      </div>
-                    )}
-                    {engineState.state === "loading" && (
-                      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/70 bg-white/60 text-xs text-gray-700">
-                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                        Loading…
-                      </div>
-                    )}
-                  </div>
+                  {(requirements.chatCached || requirements.embedCached) && engineState.state !== "loading" && (
+                    <div className="mt-3">
+                      <button
+                        onClick={() => void handleRemoveCachedModels()}
+                        className="inline-flex items-center justify-center px-3 py-1.5 rounded-full border border-amber-300 bg-white/60 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                      >
+                        Remove cached models
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Samples */}
@@ -446,18 +468,106 @@ export default function AIChatPage() {
               <div className="relative h-full px-4 sm:px-7 py-4 overflow-y-auto">
                 {messages.length === 0 ? (
                   <div className="h-full flex items-center justify-center">
-                    {webGpuUnavailable ? (
+                    {requirements.checking ? (
                       <div className="text-center max-w-lg">
-                        <div className="flex items-center justify-center">
-                          <Image
-                            src="/warning.png"
-                            alt="WebGPU unavailable"
-                            width={220}
-                            height={220}
-                            className="opacity-90"
-                            priority
-                          />
-                        </div>
+                        <div className="text-sm font-semibold text-gray-900">Checking local model cache…</div>
+                        <div className="text-sm text-gray-600 mt-1">This won’t download anything.</div>
+                      </div>
+                    ) : webGpuUnavailable || !requirements.chatCached || !requirements.embedCached ? (
+                      <div className="w-full max-w-xl space-y-4">
+                        {webGpuUnavailable && (
+                          <div className="rounded-3xl border border-amber-200 bg-amber-50/70 px-5 py-5">
+                            <div className="flex gap-4 items-start">
+                              <Image
+                                src="/warning.png"
+                                alt="WebGPU required"
+                                width={84}
+                                height={84}
+                                className="opacity-90 shrink-0"
+                                priority
+                              />
+                              <div className="flex-1">
+                                <div className="text-sm font-semibold text-gray-900">WebGPU is required</div>
+                                <div className="text-sm text-gray-700 mt-1">
+                                  Your browser/device does not expose WebGPU. Enable it in Chrome/Edge, use HTTPS, and
+                                  check `chrome://gpu`.
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {(!requirements.chatCached || !requirements.embedCached) && (
+                          <div className="rounded-3xl border border-amber-200 bg-amber-50/70 px-5 py-5">
+                            <div className="flex flex-col items-center text-center gap-3">
+                              <Image
+                                src="/warning.png"
+                                alt="Models not cached"
+                                width={84}
+                                height={84}
+                                className="opacity-90"
+                              />
+                              <div>
+                                <div className="text-sm font-semibold text-gray-900">Models must be downloaded first</div>
+                                <div className="text-sm text-gray-700 mt-1">
+                                  The LLM models must be downloaded to browser cache first before chatting.
+                                </div>
+                                <div className="mt-3 text-xs text-gray-700 space-y-0.5">
+                                  <div>
+                                    Chat model:{" "}
+                                    <span className={requirements.chatCached ? "font-semibold text-emerald-700" : "font-semibold text-amber-800"}>
+                                      {requirements.chatCached ? "cached" : "not cached"}
+                                    </span>
+                                    {!requirements.chatCached && (() => {
+                                      const mb = approxModelSizeMb(config.transformersChatModel, config.transformersChatDtype || "q4");
+                                      return mb ? <span className="text-gray-500 ml-1">(~{mb} MB)</span> : null;
+                                    })()}
+                                  </div>
+                                  <div>
+                                    Embedding model:{" "}
+                                    <span className={requirements.embedCached ? "font-semibold text-emerald-700" : "font-semibold text-amber-800"}>
+                                      {requirements.embedCached ? "cached" : "not cached"}
+                                    </span>
+                                    {!requirements.embedCached && (() => {
+                                      const mb = approxModelSizeMb(config.transformersEmbedModel, config.transformersEmbedDtype || "fp32");
+                                      return mb ? <span className="text-gray-500 ml-1">(~{mb} MB)</span> : null;
+                                    })()}
+                                  </div>
+                                </div>
+                                <div className="mt-4">
+                                  <button
+                                    onClick={() => void handleDownloadModels()}
+                                    disabled={engineState.state === "loading"}
+                                    className="inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-gray-900 text-white font-semibold text-sm hover:bg-gray-800 disabled:opacity-60"
+                                  >
+                                    {(() => {
+                                      const total = approxTotalDownloadMb();
+                                      const needChat  = !requirements.chatCached;
+                                      const needEmbed = !requirements.embedCached;
+                                      const mb = needChat && needEmbed ? total
+                                        : needChat  ? approxModelSizeMb(config.transformersChatModel,  config.transformersChatDtype  || "q4")
+                                        : needEmbed ? approxModelSizeMb(config.transformersEmbedModel, config.transformersEmbedDtype || "fp32")
+                                        : null;
+                                      return mb ? `Download (~${mb} MB)` : "Click to download";
+                                    })()}
+                                  </button>
+                                </div>
+
+                                {(requirements.chatCached || requirements.embedCached) && (
+                                  <div className="mt-3">
+                                    <button
+                                      onClick={() => void handleRemoveCachedModels()}
+                                      disabled={engineState.state === "loading"}
+                                      className="inline-flex items-center justify-center px-3 py-1.5 rounded-2xl border border-amber-300 text-amber-900 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60"
+                                    >
+                                      Remove cached models
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="text-center max-w-lg">
@@ -552,28 +662,20 @@ export default function AIChatPage() {
                           </svg>
                         </div>
                         <div className="text-left">
-                          <div className="text-sm font-semibold text-gray-900">Loading LLM Agent to your browser...</div>
-                          <div className="text-xs text-gray-600 mt-0.5">
-                            Stage:{" "}
-                            <span className="font-semibold text-gray-800">
-                              {deriveInitStage(engineState.progress, engineState.text)}
-                            </span>
-                            <span className="inline-flex w-6 justify-start">
-                              <span className="animate-pulse">…</span>
-                            </span>
-                          </div>
+                          <div className="text-sm font-semibold text-gray-900">Downloading models…</div>
                         </div>
                       </div>
 
                       <div className="mt-4">
-                        <div className="flex items-center justify-between text-[11px] text-gray-600">
-                          <span className="truncate">Details: {engineState.text}</span>
-                          <span className="tabular-nums">{Math.round(engineState.progress * 100)}%</span>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-gray-500 tabular-nums">
+                            {Math.floor(engineState.progress * 100)}%
+                          </span>
                         </div>
-                        <div className="mt-2 h-2 bg-white/70 rounded-full overflow-hidden">
+                        <div className="h-2 bg-white/70 rounded-full overflow-hidden">
                           <div
-                            className="h-2 bg-gradient-to-r from-emerald-500 to-teal-500 transition-all"
-                            style={{ width: `${Math.round(engineState.progress * 100)}%` }}
+                            className="h-2 bg-gradient-to-r from-emerald-500 to-teal-500"
+                            style={{ width: `${Math.floor(engineState.progress * 100)}%` }}
                           />
                         </div>
                       </div>
@@ -585,18 +687,6 @@ export default function AIChatPage() {
 
             {/* Composer */}
             <div className="px-4 sm:px-7 py-4 border-t border-white/60 bg-white/50">
-              {engineState.state === "loading" && (
-                <div className="mb-3">
-                  <div className="text-[11px] text-gray-600 mb-1">{engineState.text}</div>
-                  <div className="h-1.5 bg-white/60 rounded-full overflow-hidden">
-                    <div
-                      className="h-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 transition-all"
-                      style={{ width: `${Math.round(engineState.progress * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
               <div className="flex gap-2 items-stretch">
                 <div className="flex-1">
                   <input
@@ -608,8 +698,14 @@ export default function AIChatPage() {
                         void handleSend();
                       }
                     }}
-                    disabled={engineState.state === "loading"}
-                    placeholder={engineState.state === "loading" ? "Loading model…" : "Ask MLBench anything…"}
+                    disabled={engineState.state === "loading" || !canChat}
+                    placeholder={
+                      engineState.state === "loading"
+                        ? "Downloading models…"
+                        : !canChat
+                          ? "Download models to start chatting…"
+                          : "Ask MLBench anything…"
+                    }
                     className="w-full h-12 px-4 rounded-2xl border border-white/70 bg-white/75 text-gray-900 font-normal text-[15px] leading-none focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-white placeholder:text-gray-500 disabled:bg-white/50"
                   />
                 </div>
