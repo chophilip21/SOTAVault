@@ -1,6 +1,25 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+
+// Resolve to wllama's pre-built ESM bundle (package ships TypeScript source as entry; Turbopack fails on it).
+const wllamaEsmRel = path.join("node_modules", "@wllama", "wllama", "esm", "index.js");
+const wllamaEsmAbs = path.resolve(process.cwd(), wllamaEsmRel);
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    // Point to ESM bundle so Turbopack never touches the package's index.ts (Turbopack fails on that .ts).
+    resolveAlias: {
+      "@wllama/wllama": "./node_modules/@wllama/wllama/esm/index.js",
+    },
+  },
+  webpack: (config) => {
+    config.resolve = config.resolve ?? {};
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@wllama/wllama": wllamaEsmAbs,
+    };
+    return config;
+  },
   // COOP / COEP headers are set in middleware.ts (more reliable than next.config headers,
   // which can have ordering/override issues with overlapping source patterns).
   // This block is kept as a production fallback for environments that skip middleware.

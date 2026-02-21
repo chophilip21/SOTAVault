@@ -26,23 +26,31 @@ export function useRagSearch(opts: {
 }) {
   const { newId, setMessages, upsertMessage, addTurnToMemory, recordRagMemory } = opts;
 
-  async function runRagSearch(args: { prompt: string; plan: RoutePlan; vectorSearchingToken: string; pendingId?: string }) {
-    const { prompt, plan, vectorSearchingToken } = args;
+  async function runRagSearch(args: {
+    prompt: string;
+    plan: RoutePlan;
+    preparingSearchToken: string;
+    vectorSearchingToken: string;
+    pendingId?: string;
+  }) {
+    const { prompt, plan, preparingSearchToken, vectorSearchingToken } = args;
 
     // Reuse the caller-provided pending assistant bubble when available (better UX: no gap).
     const pendingId = args.pendingId ?? newId();
     if (args.pendingId) {
-      upsertMessage(pendingId, { content: vectorSearchingToken, ragHits: undefined });
+      upsertMessage(pendingId, { content: preparingSearchToken, ragHits: undefined });
     } else {
-      setMessages((m) => [...m, { id: pendingId, role: "assistant", content: vectorSearchingToken }]);
+      setMessages((m) => [...m, { id: pendingId, role: "assistant", content: preparingSearchToken }]);
     }
 
     let reply = "";
     let embedding: number[] | null = null;
     try {
-      // Client-side: clean + embed, then send vector to backend find_nearest.
+      // Client-side: clean + embed (may load model first — show "Preparing search" until done), then send vector to backend.
       const searchQuery = (plan.constraints?.domain || prompt).toString();
       embedding = await embedQuery(searchQuery);
+      // Now we're actually searching; show "Searching papers".
+      upsertMessage(pendingId, { content: vectorSearchingToken });
       routerDebugGroup("[router] stage2 RAG_SEARCH", () => {
         routerDebugLog("searchQuery:", searchQuery);
         routerDebugLog("secondary:", plan.secondary);

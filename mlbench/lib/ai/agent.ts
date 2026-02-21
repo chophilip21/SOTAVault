@@ -8,9 +8,9 @@ import {
   getEmbedPipeline,
   loadChatPipelineFromCache,
   loadEmbedPipelineFromCache,
-  clearTransformersModelCache,
+  clearWllamaModelCache,
   type InitProgressCallback,
-} from "@/lib/ai/transformersRuntime";
+} from "@/lib/ai/wllamaRuntime";
 import { routeWithLocalModel } from "@/lib/ai/chains";
 
 export type { RoutePlan, PrimaryCapability, RouterMemoryContext, InitProgressCallback };
@@ -83,7 +83,7 @@ export async function downloadLocalModels(initProgressCallback?: InitProgressCal
 }
 
 export async function removeCachedLocalModels() {
-  return await clearTransformersModelCache();
+  return await clearWllamaModelCache();
 }
 
 export async function embedQuery(text: string, opts?: { initProgressCallback?: InitProgressCallback }): Promise<number[]> {
@@ -107,7 +107,55 @@ export async function routePrompt(
     });
   }
 
-  const plan = await routeWithLocalModel(prompt, opts?.memory);
+  // Performance fast-paths: avoid calling the local router model for common cases.
+  // The local LLM is the slowest step; routing + answering would otherwise run two generations per message.
+  const p = prompt.toLowerCase();
+  const memory = opts?.memory;
+  const hasMemory = hasPriorContext(memory);
+
+  const isWebsite =
+    /\b(website|this site|mlbench|mltree|page|login|log in|sign in|profile|bookmark|privacy|terms|ai chat)\b/.test(p);
+  if (isWebsite) {
+    return normalizeRoutePlan({
+      primary: "WEBSITE",
+      secondary: websiteSecondaryFromPrompt(prompt),
+      constraints: { domain: prompt.slice(0, 240) },
+    });
+  }
+
+  const wantsSearch = /\b(find|search|papers?|cite|citation|references?|recommend|top\s*\d+|latest|recent)\b/.test(p);
+  if (wantsSearch) {
+    const secondary: SecondaryTask[] = ["RETRIEVE"];
+    if (/\b(rerank|most relevant|best match|prioriti[sz]e)\b/.test(p)) secondary.push("RERANK");
+    if (/\b(summary|summarize|one[- ]?liners?|tl;dr)\b/.test(p)) secondary.push("SUMMARIZE");
+    const m = p.match(/\btop\s*(\d+)\b/);
+    const count = m ? Math.max(1, Math.min(50, Number(m[1] || 0))) : undefined;
+    const recency = /\b(latest|recent|newest)\b/.test(p) ? ("recent" as const) : undefined;
+    return normalizeRoutePlan({
+      primary: "RAG_SEARCH",
+      secondary: Array.from(new Set(secondary)),
+      constraints: {
+        ...(count ? { count } : {}),
+        ...(recency ? { recency } : {}),
+        domain: prompt.slice(0, 240),
+      },
+    });
+  }
+
+  // If there's no prior context, treat as a normal ML question (no need to route).
+  // Only attempt local routing when it looks like an actual follow-up / ambiguous intent.
+  const followUpHint =
+    hasMemory &&
+    /\b(above|earlier|previous|that|those|it|them|the paper|the results|your answer|as you said)\b/.test(p);
+  if (!followUpHint) {
+    return normalizeRoutePlan({
+      primary: "ML_NO_RAG",
+      secondary: [],
+      constraints: { domain: prompt.slice(0, 240) },
+    });
+  }
+
+  const plan = await routeWithLocalModel(prompt, memory);
 
   // Guardrail: FOLLOW_UP requires actual prior context.
   if (plan.primary === "FOLLOW_UP" && !hasPriorContext(opts?.memory)) {

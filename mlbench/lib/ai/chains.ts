@@ -10,7 +10,7 @@ import {
   type PrimaryCapability,
   type RoutePlan,
 } from "@/lib/routerSpec";
-import { generateTextFromMessages, type LlmMessage } from "@/lib/ai/transformersRuntime";
+import { generateTextFromMessages, type LlmMessage } from "@/lib/ai/wllamaRuntime";
 import type { RouterMemoryContext } from "@/lib/ai/types";
 
 function balancedJsonExtract(text: string): string | null {
@@ -219,7 +219,8 @@ export async function summarizeMemory(opts: {
       { role: "system", content: sys },
       { role: "user", content: user },
     ],
-    { temperature: 0.3, topP: 0.9, maxNewTokens: 220 }
+    // Keep this short: runs frequently and must be fast in-browser.
+    { temperature: 0.2, topP: 0.9, maxNewTokens: 140 }
   );
   return text.trim() || opts.existingSummary || "";
 }
@@ -271,7 +272,8 @@ export async function summarizePapers(opts: {
       { role: "system", content: sys },
       { role: "user", content: user },
     ],
-    { maxNewTokens: 520 }
+    // JSON-only, one-liners: keep token budget small for speed.
+    { maxNewTokens: 240 }
   );
   const parsed = SummariesSchema.safeParse(obj);
   if (!parsed.success) return null;
@@ -307,7 +309,8 @@ export async function answerFollowUpFromMemory(opts: {
       { role: "system", content: system },
       { role: "user", content: user },
     ],
-    { temperature: 0.55, topP: 0.9, maxNewTokens: 620 }
+    // In-browser performance: cap follow-up length.
+    { temperature: 0.55, topP: 0.9, maxNewTokens: 320 }
   );
   return text.trim() || "I couldn’t generate a response. Please try again.";
 }
@@ -323,7 +326,8 @@ export async function answerMlQuestion(opts: {
     { role: "system", content: system },
     ...opts.history.slice(-10).map((m) => ({ role: m.role, content: m.content })),
   ];
-  const text = await generateTextFromMessages(messages, { temperature: 0.7, topP: 0.95, maxNewTokens: 700 });
+  // 700 tokens is far too slow on CPU/WASM. Keep answers short and interactive.
+  const text = await generateTextFromMessages(messages, { temperature: 0.7, topP: 0.95, maxNewTokens: 260 });
   return text.trim() || "I couldn’t generate a response. Please try again.";
 }
 

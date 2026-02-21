@@ -20,16 +20,12 @@ export const config = {
 
 
 
-  // ── In-browser model settings (Transformers.js v4 / WebGPU) ──────────────
-  // Primary source: repo-root config.ini  →  exported by local.sh as NEXT_PUBLIC_* vars.
-  // The strings below are last-resort fallbacks only (e.g. CI / Vercel deployments).
-  transformersChatModel: process.env.NEXT_PUBLIC_TRANSFORMERS_CHAT_MODEL || "HuggingFaceTB/SmolLM2-360M-Instruct",
-  transformersChatDtype: process.env.NEXT_PUBLIC_TRANSFORMERS_CHAT_DTYPE || "q4",
-  transformersEmbedModel: process.env.NEXT_PUBLIC_TRANSFORMERS_EMBED_MODEL || "Snowflake/snowflake-arctic-embed-s",
-  transformersEmbedDtype: process.env.NEXT_PUBLIC_TRANSFORMERS_EMBED_DTYPE || "fp32",
+  // ── In-browser model (wllama / CPU multi-threaded WASM) ─────────────────
+  // Primary source: repo-root config.ini → exported by local.sh as NEXT_PUBLIC_* vars.
+  // GGUF model: Hugging Face URL (e.g. https://huggingface.co/org/repo/resolve/main/model.gguf) or org/modelpath. Leave blank to set later.
+  wllamaGgufUrl: process.env.NEXT_PUBLIC_WLLAMA_GGUF_URL || "",
   // Embedding dimension (must match backend vector index dimension)
   embeddingDim: 384,
-  transformersDevice: process.env.NEXT_PUBLIC_TRANSFORMERS_DEVICE || "webgpu",
 };
 
 // Validate required config in local environment

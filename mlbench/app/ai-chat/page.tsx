@@ -2,7 +2,7 @@
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { downloadLocalModels, probeLocalModelsFromCache, removeCachedLocalModels, routePrompt } from "@/lib/ai/agent";
-import { approxModelSizeMb, approxTotalDownloadMb } from "@/lib/ai/transformersRuntime";
+import { approxModelSizeMb, approxTotalDownloadMb, getLastBackendInfo } from "@/lib/ai/wllamaRuntime";
 import { routerDebugGroup, routerDebugLog } from "@/lib/routerDebug";
 import Image from "next/image";
 import { useChatMemory } from "./useChatMemory";
@@ -19,6 +19,7 @@ function newId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+const PREPARING_SEARCH_TOKEN = "__PREPARING_SEARCH__";
 const VECTOR_SEARCHING_TOKEN = "__VECTOR_SEARCHING__";
 const THINKING_TOKEN = "__THINKING__";
 
@@ -96,13 +97,12 @@ export default function AIChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
-  const [showWebGpuDetails, setShowWebGpuDetails] = useState(false);
   const [requirements, setRequirements] = useState<{
     checking: boolean;
     chatCached: boolean;
     embedCached: boolean;
-    webgpuAvailable: boolean;
-  }>({ checking: true, chatCached: false, embedCached: false, webgpuAvailable: true });
+    webgpuAvailable?: boolean;
+  }>({ checking: true, chatCached: false, embedCached: false });
 
   const [engineState, setEngineState] = useState<
     | { state: "idle" }
@@ -117,16 +117,15 @@ export default function AIChatPage() {
   // produce a backwards-moving bar — state is only ever set to a value >= this ref.
   const progressCeilingRef = useRef(0);
 
-  const requiresWebGPU = String(config.transformersDevice || "webgpu").toLowerCase() !== "wasm";
-  const canChat =
-    engineState.state === "ready" && requirements.chatCached && (!requiresWebGPU || requirements.webgpuAvailable);
+  const canChat = engineState.state === "ready" && requirements.chatCached;
+  const showWebGpuDetails = false; // unused; dead WebGPU block below never rendered
 
   const canSend = useMemo(() => input.trim().length > 0 && !isSending && canChat, [input, isSending, canChat]);
 
-  const webGpuUnavailable = requiresWebGPU && !requirements.webgpuAvailable;
   const isLoadingModel = engineState.state === "loading";
   const isReady = engineState.state === "ready";
   const hasConversation = messages.length > 0;
+  const backendInfo = useMemo(() => getLastBackendInfo(), [engineState.state, requirements.chatCached, requirements.embedCached]);
 
   useEffect(() => {
     // Do NOT auto-download models. Only probe browser cache.
@@ -134,31 +133,23 @@ export default function AIChatPage() {
     setRequirements((r) => ({ ...r, checking: true }));
     setEngineState({ state: "idle" });
 
-    const webgpuAvailable = typeof navigator !== "undefined" && !!(navigator as any).gpu;
-
     // Probe cache asynchronously (no downloads).
     Promise.resolve()
       .then(() => probeLocalModelsFromCache())
       .then(({ chatCached, embedCached }) => {
         if (cancelled) return;
-        setRequirements({ checking: false, chatCached, embedCached, webgpuAvailable });
-        // If chat model is cached, we are ready to chat (unless WebGPU is required and missing).
+        setRequirements({ checking: false, chatCached, embedCached });
         if (chatCached) setEngineState({ state: "ready" });
       })
       .catch(() => {
         if (cancelled) return;
-        setRequirements({ checking: false, chatCached: false, embedCached: false, webgpuAvailable });
+        setRequirements({ checking: false, chatCached: false, embedCached: false });
       });
 
     return () => {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    // Reset details panel whenever the state changes.
-    if (!webGpuUnavailable) setShowWebGpuDetails(false);
-  }, [webGpuUnavailable]);
 
   useEffect(() => {
     // Keep view pinned to bottom when new messages arrive.
@@ -255,7 +246,13 @@ export default function AIChatPage() {
       let reply = "";
 
       if (plan.primary === "RAG_SEARCH") {
-        await runRagSearch({ prompt, plan, vectorSearchingToken: VECTOR_SEARCHING_TOKEN, pendingId });
+        await runRagSearch({
+          prompt,
+          plan,
+          preparingSearchToken: PREPARING_SEARCH_TOKEN,
+          vectorSearchingToken: VECTOR_SEARCHING_TOKEN,
+          pendingId,
+        });
         return; // IMPORTANT: avoid also appending a second assistant message below
       } else if (plan.primary === "FOLLOW_UP") {
         // If the user is asking about site usage/policies, answer via the deterministic website navigator
@@ -410,8 +407,14 @@ export default function AIChatPage() {
                     Hi, I’m MLTree LLM Agent (Beta Mode)
                   </h1>
                   <p className="text-sm text-gray-600 mt-2 max-w-2xl">
-                    Ask about papers, concepts, or how to use MLBench. Responses run locally in your browser via WebGPU.
+                    Ask about papers, concepts, or how to use MLBench. Responses run locally in your browser (CPU, multi-threaded).
                   </p>
+
+                  {backendInfo.chat && (
+                    <div className="mt-2 text-xs text-amber-800 bg-amber-50/70 border border-amber-200 rounded-full px-3 py-1">
+                      Running on CPU (multi-threaded){backendInfo.chat.wasmNumThreads ? ` · ${backendInfo.chat.wasmNumThreads} threads` : ""}.
+                    </div>
+                  )}
 
                   {(requirements.chatCached || requirements.embedCached) && engineState.state !== "loading" && (
                     <div className="mt-3">
@@ -473,30 +476,8 @@ export default function AIChatPage() {
                         <div className="text-sm font-semibold text-gray-900">Checking local model cache…</div>
                         <div className="text-sm text-gray-600 mt-1">This won’t download anything.</div>
                       </div>
-                    ) : webGpuUnavailable || !requirements.chatCached || !requirements.embedCached ? (
+                    ) : !requirements.chatCached || !requirements.embedCached ? (
                       <div className="w-full max-w-xl space-y-4">
-                        {webGpuUnavailable && (
-                          <div className="rounded-3xl border border-amber-200 bg-amber-50/70 px-5 py-5">
-                            <div className="flex gap-4 items-start">
-                              <Image
-                                src="/warning.png"
-                                alt="WebGPU required"
-                                width={84}
-                                height={84}
-                                className="opacity-90 shrink-0"
-                                priority
-                              />
-                              <div className="flex-1">
-                                <div className="text-sm font-semibold text-gray-900">WebGPU is required</div>
-                                <div className="text-sm text-gray-700 mt-1">
-                                  Your browser/device does not expose WebGPU. Enable it in Chrome/Edge, use HTTPS, and
-                                  check `chrome://gpu`.
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
                         {(!requirements.chatCached || !requirements.embedCached) && (
                           <div className="rounded-3xl border border-amber-200 bg-amber-50/70 px-5 py-5">
                             <div className="flex flex-col items-center text-center gap-3">
@@ -519,7 +500,7 @@ export default function AIChatPage() {
                                       {requirements.chatCached ? "cached" : "not cached"}
                                     </span>
                                     {!requirements.chatCached && (() => {
-                                      const mb = approxModelSizeMb(config.transformersChatModel, config.transformersChatDtype || "q4");
+                                      const mb = approxModelSizeMb(config.wllamaGgufUrl || "gguf", undefined);
                                       return mb ? <span className="text-gray-500 ml-1">(~{mb} MB)</span> : null;
                                     })()}
                                   </div>
@@ -529,7 +510,7 @@ export default function AIChatPage() {
                                       {requirements.embedCached ? "cached" : "not cached"}
                                     </span>
                                     {!requirements.embedCached && (() => {
-                                      const mb = approxModelSizeMb(config.transformersEmbedModel, config.transformersEmbedDtype || "fp32");
+                                      const mb = approxModelSizeMb(config.wllamaGgufUrl || "gguf", undefined);
                                       return mb ? <span className="text-gray-500 ml-1">(~{mb} MB)</span> : null;
                                     })()}
                                   </div>
@@ -545,8 +526,8 @@ export default function AIChatPage() {
                                       const needChat  = !requirements.chatCached;
                                       const needEmbed = !requirements.embedCached;
                                       const mb = needChat && needEmbed ? total
-                                        : needChat  ? approxModelSizeMb(config.transformersChatModel,  config.transformersChatDtype  || "q4")
-                                        : needEmbed ? approxModelSizeMb(config.transformersEmbedModel, config.transformersEmbedDtype || "fp32")
+                                        : needChat  ? approxModelSizeMb(config.wllamaGgufUrl || "gguf", undefined)
+                                        : needEmbed ? approxModelSizeMb(config.wllamaGgufUrl || "gguf", undefined)
                                         : null;
                                       return mb ? `Download (~${mb} MB)` : "Click to download";
                                     })()}
@@ -582,6 +563,7 @@ export default function AIChatPage() {
                   <div className="space-y-3">
                     {messages.map((m) => {
                       const isUser = m.role === "user";
+                      const isPreparingSearch = m.role === "assistant" && m.content === PREPARING_SEARCH_TOKEN;
                       const isVectorSearching = m.role === "assistant" && m.content === VECTOR_SEARCHING_TOKEN;
                       const isThinking = m.role === "assistant" && m.content === THINKING_TOKEN;
                       const hasRagHits = m.role === "assistant" && Array.isArray(m.ragHits) && m.ragHits.length > 0;
@@ -596,7 +578,22 @@ export default function AIChatPage() {
                                 : "text-gray-950 bg-gray-100 border border-gray-200",
                             ].join(" ")}
                           >
-                            {isVectorSearching ? (
+                            {isPreparingSearch ? (
+                              <div className="flex items-center gap-2 font-semibold text-gray-900">
+                                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                  <path
+                                    d="M12 2a10 10 0 1 0 10 10"
+                                    stroke="currentColor"
+                                    strokeWidth="2.2"
+                                    strokeLinecap="round"
+                                  />
+                                </svg>
+                                Preparing search…
+                                <span className="inline-flex w-6 justify-start">
+                                  <span className="animate-pulse">…</span>
+                                </span>
+                              </div>
+                            ) : isVectorSearching ? (
                               <div className="flex items-center gap-2 font-semibold text-gray-900">
                                 <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                   <path
@@ -727,8 +724,8 @@ export default function AIChatPage() {
               </div>
             </div>
 
-            {/* Single WebGPU warning: lower-center */}
-            {webGpuUnavailable && (
+            {/* WebGPU block removed: CPU-only (wllama) */}
+            {false && (
               <div className="pointer-events-none absolute left-1/2 bottom-4 -translate-x-1/2 px-3">
                 <div className="pointer-events-auto flex flex-col items-center gap-2">
                   {showWebGpuDetails && (
@@ -736,7 +733,7 @@ export default function AIChatPage() {
                       <div className="text-xs font-semibold text-red-700">WebGPU troubleshooting</div>
                       <div className="mt-2 text-[11px] text-gray-700 space-y-1.5">
                         <div className="rounded-xl bg-red-50/60 border border-red-100 px-3 py-2 text-red-700 whitespace-pre-wrap">
-                          {engineState.state === "error" ? engineState.message : "WebGPU unavailable."}
+                          {engineState.state === "error" ? (engineState as { state: "error"; message: string }).message : "WebGPU unavailable."}
                         </div>
                         <div className="text-gray-700">
                           Try:
@@ -761,7 +758,7 @@ export default function AIChatPage() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => setShowWebGpuDetails((v) => !v)}
+                      onClick={() => {}}
                       className="ml-1 text-xs font-semibold text-red-700 underline underline-offset-2 hover:text-red-800"
                     >
                       {showWebGpuDetails ? "Hide" : "Details"}
