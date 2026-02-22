@@ -2,6 +2,7 @@
 
 import type { VectorSearchHit } from "./types";
 import { rerankHits, summarizePapers } from "@/lib/ai/chains";
+import { stripInternalTags } from "@/lib/ai/wllamaRuntime";
 
 export function sortHitsByDistance(hits: VectorSearchHit[]): VectorSearchHit[] {
   return [...hits].sort((a, b) => {
@@ -112,7 +113,8 @@ export async function summarizeHitsWithLocalModel(opts: {
 export function buildSummaryLines(hits: VectorSearchHit[], summariesById: Map<string, string>): string {
   return hits
     .map((h, idx) => {
-      const s = summariesById.get(h.paper.id) || fallbackOneLiner(h.paper.abstract);
+      const raw = summariesById.get(h.paper.id) || fallbackOneLiner(h.paper.abstract);
+      const s = stripInternalTags(raw);
       const y = h.paper.year ? ` (${h.paper.year})` : "";
       return `${idx + 1}. ${h.paper.title}${y} — ${s}`;
     })

@@ -2,7 +2,6 @@
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { downloadLocalModels, probeLocalModelsFromCache, removeCachedLocalModels, routePrompt } from "@/lib/ai/agent";
-import { approxModelSizeMb, approxTotalDownloadMb, getLastBackendInfo } from "@/lib/ai/wllamaRuntime";
 import { routerDebugGroup, routerDebugLog } from "@/lib/routerDebug";
 import Image from "next/image";
 import { useChatMemory } from "./useChatMemory";
@@ -125,8 +124,6 @@ export default function AIChatPage() {
   const isLoadingModel = engineState.state === "loading";
   const isReady = engineState.state === "ready";
   const hasConversation = messages.length > 0;
-  const backendInfo = useMemo(() => getLastBackendInfo(), [engineState.state, requirements.chatCached, requirements.embedCached]);
-
   useEffect(() => {
     // Do NOT auto-download models. Only probe browser cache.
     let cancelled = false;
@@ -237,7 +234,12 @@ export default function AIChatPage() {
       // At this point the memory state update from addTurnToMemory() may not have committed yet,
       // and including the current prompt can make stage-1 think this is a FOLLOW_UP.
       const routerMemory = buildRouterMemorySnapshot();
+      const tRouteStart = performance.now();
       const plan = await routePrompt(prompt, { memory: routerMemory });
+      const tRouteMs = performance.now() - tRouteStart;
+      if (typeof console !== "undefined" && console.log) {
+        console.log("[RAG timing] A. Thinking / routing:", Math.round(tRouteMs), "ms");
+      }
       routerDebugGroup(`[router] stage2 execute primary=${plan.primary}`, () => {
         routerDebugLog("plan:", plan);
       });
@@ -410,12 +412,6 @@ export default function AIChatPage() {
                     Ask about papers, concepts, or how to use MLBench. Responses run locally in your browser (CPU, multi-threaded).
                   </p>
 
-                  {backendInfo.chat && (
-                    <div className="mt-2 text-xs text-amber-800 bg-amber-50/70 border border-amber-200 rounded-full px-3 py-1">
-                      Running on CPU (multi-threaded){backendInfo.chat.wasmNumThreads ? ` · ${backendInfo.chat.wasmNumThreads} threads` : ""}.
-                    </div>
-                  )}
-
                   {(requirements.chatCached || requirements.embedCached) && engineState.state !== "loading" && (
                     <div className="mt-3">
                       <button
@@ -499,20 +495,12 @@ export default function AIChatPage() {
                                     <span className={requirements.chatCached ? "font-semibold text-emerald-700" : "font-semibold text-amber-800"}>
                                       {requirements.chatCached ? "cached" : "not cached"}
                                     </span>
-                                    {!requirements.chatCached && (() => {
-                                      const mb = approxModelSizeMb(config.wllamaGgufUrl || "gguf", undefined);
-                                      return mb ? <span className="text-gray-500 ml-1">(~{mb} MB)</span> : null;
-                                    })()}
                                   </div>
                                   <div>
                                     Embedding model:{" "}
                                     <span className={requirements.embedCached ? "font-semibold text-emerald-700" : "font-semibold text-amber-800"}>
                                       {requirements.embedCached ? "cached" : "not cached"}
                                     </span>
-                                    {!requirements.embedCached && (() => {
-                                      const mb = approxModelSizeMb(config.wllamaGgufUrl || "gguf", undefined);
-                                      return mb ? <span className="text-gray-500 ml-1">(~{mb} MB)</span> : null;
-                                    })()}
                                   </div>
                                 </div>
                                 <div className="mt-4">
@@ -521,16 +509,7 @@ export default function AIChatPage() {
                                     disabled={engineState.state === "loading"}
                                     className="inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-gray-900 text-white font-semibold text-sm hover:bg-gray-800 disabled:opacity-60"
                                   >
-                                    {(() => {
-                                      const total = approxTotalDownloadMb();
-                                      const needChat  = !requirements.chatCached;
-                                      const needEmbed = !requirements.embedCached;
-                                      const mb = needChat && needEmbed ? total
-                                        : needChat  ? approxModelSizeMb(config.wllamaGgufUrl || "gguf", undefined)
-                                        : needEmbed ? approxModelSizeMb(config.wllamaGgufUrl || "gguf", undefined)
-                                        : null;
-                                      return mb ? `Download (~${mb} MB)` : "Click to download";
-                                    })()}
+                                    Download models
                                   </button>
                                 </div>
 

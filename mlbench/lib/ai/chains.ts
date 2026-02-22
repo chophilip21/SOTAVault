@@ -290,7 +290,7 @@ export async function answerFollowUpFromMemory(opts: {
   if (!hasMemory) return "I don't have previous context yet. Could you restate what you'd like to follow up on?";
 
   const system =
-    "You are MLTree LLM Agent inside MLBench. Answer the follow-up using ONLY the provided memory context. If insufficient, say so briefly and ask the user to restate. Do not invent paper titles or citations.";
+    "You are MLTree LLM Agent inside MLBench. Answer the follow-up using ONLY the provided memory context. If insufficient, say so briefly and ask the user to restate. Do not invent paper titles or citations. Respond directly and concisely. Do not use internal thought tags or headers. Start your response immediately with the answer.";
   const user = [
     "Conversation summary:",
     opts.summary || "None.",
@@ -321,7 +321,7 @@ export async function answerMlQuestion(opts: {
 }): Promise<string> {
   const system =
     opts.systemHint ||
-    "You are MLTree LLM Agent inside MLBench. Answer machine learning questions clearly and concisely. Use short sections and examples when helpful. Do not fabricate citations.";
+    "You are MLTree LLM Agent inside MLBench. Answer machine learning questions clearly and concisely. Use short sections and examples when helpful. Do not fabricate citations. Respond directly and concisely. Do not use internal thought tags or headers. Start your response immediately with the answer.";
   const messages: LlmMessage[] = [
     { role: "system", content: system },
     ...opts.history.slice(-10).map((m) => ({ role: m.role, content: m.content })),
@@ -334,6 +334,7 @@ export async function answerMlQuestion(opts: {
 export async function clarifyAmbiguity(prompt: string): Promise<string> {
   const system = [
     "You are a routing assistant for MLBench. The router marked the intent as AMBIGUOUS.",
+    "Respond directly and concisely. Do not use internal thought tags or headers. Start your response immediately with the answer.",
     "Ask ONE concise clarification question that helps choose among:",
     "- RAG_SEARCH (paper recommendations/search),",
     "- ML_NO_RAG (concept explanation),",

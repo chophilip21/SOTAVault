@@ -20,10 +20,13 @@ export const config = {
 
 
 
-  // ── In-browser model (wllama / CPU multi-threaded WASM) ─────────────────
+  // ── In-browser models (wllama / CPU multi-threaded WASM) ─────────────────
   // Primary source: repo-root config.ini → exported by local.sh as NEXT_PUBLIC_* vars.
-  // GGUF model: Hugging Face URL (e.g. https://huggingface.co/org/repo/resolve/main/model.gguf) or org/modelpath. Leave blank to set later.
-  wllamaGgufUrl: process.env.NEXT_PUBLIC_WLLAMA_GGUF_URL || "",
+  // Downloaded from Hugging Face when the user clicks "Download" on the AI chat page.
+  wllamaChatModelId: process.env.NEXT_PUBLIC_WLLAMA_CHAT_MODEL_ID || "",
+  wllamaChatFile: process.env.NEXT_PUBLIC_WLLAMA_CHAT_FILE || "",
+  wllamaEmbedModelId: process.env.NEXT_PUBLIC_WLLAMA_EMBED_MODEL_ID || "",
+  wllamaEmbedFile: process.env.NEXT_PUBLIC_WLLAMA_EMBED_FILE || "",
   // Embedding dimension (must match backend vector index dimension)
   embeddingDim: 384,
 };

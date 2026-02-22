@@ -42,21 +42,31 @@ export function useRagSearch(opts: {
     } else {
       setMessages((m) => [...m, { id: pendingId, role: "assistant", content: preparingSearchToken }]);
     }
+    // Let the UI paint "Preparing search…" before starting slow embed (two-stage UX).
+    await new Promise((r) => setTimeout(r, 80));
 
     let reply = "";
     let embedding: number[] | null = null;
     try {
-      // Client-side: clean + embed (may load model first — show "Preparing search" until done), then send vector to backend.
       const searchQuery = (plan.constraints?.domain || prompt).toString();
+
+      const tEmbedStart = performance.now();
       embedding = await embedQuery(searchQuery);
+      const tEmbedMs = performance.now() - tEmbedStart;
+      if (typeof console !== "undefined" && console.log) {
+        console.log("[RAG timing] B. Generate embedding:", Math.round(tEmbedMs), "ms");
+      }
+
       // Now we're actually searching; show "Searching papers".
       upsertMessage(pendingId, { content: vectorSearchingToken });
+      await new Promise((r) => setTimeout(r, 50));
       routerDebugGroup("[router] stage2 RAG_SEARCH", () => {
         routerDebugLog("searchQuery:", searchQuery);
         routerDebugLog("secondary:", plan.secondary);
         routerDebugLog("constraints:", plan.constraints ?? null);
       });
 
+      const tVectorStart = performance.now();
       const url = new URL(`${window.location.origin}/api/backend/search/vector`);
       const requestedCount1 = typeof plan.constraints?.count === "number" ? plan.constraints?.count : null;
       const wantCount = requestedCount1 && requestedCount1 > 0 ? Math.min(20, requestedCount1) : 5;
@@ -66,6 +76,10 @@ export function useRagSearch(opts: {
         body: JSON.stringify({ embedding, limit: Math.max(20, wantCount) }),
         cache: "no-store",
       });
+      const tVectorMs = performance.now() - tVectorStart;
+      if (typeof console !== "undefined" && console.log) {
+        console.log("[RAG timing] C. Vector search:", Math.round(tVectorMs), "ms");
+      }
 
       if (!res.ok) {
         // Never surface backend errors in the chat bubble. Backend logs contain details.
@@ -131,8 +145,11 @@ export function useRagSearch(opts: {
 
       addTurnToMemory({ role: "assistant", content: reply });
       return; // IMPORTANT: avoid also appending a second assistant message in the caller
-    } catch {
+    } catch (err) {
       // Never show the error details in the UI.
+      if (typeof console !== "undefined" && console.error) {
+        console.error("[RAG search failed]", err);
+      }
       reply = "I couldn’t run paper search right now. Please try again later.";
     } finally {
       // Free up embedding memory as soon as possible.
