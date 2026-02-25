@@ -58,27 +58,51 @@ function normalizeLayer2(raw: unknown): { action: Layer2Action; rag_keyword: str
   return { action, rag_keyword };
 }
 
-const ROUTER_NO_THINK_SUFFIX = " /no_think ";
-
-/** Layer 1: 4-way classification. User prompt is sent with " /no_think " appended. Logs layer name, time, result; logs errors. */
+/** Layer 1: 4-way classification of user intent. */
 export async function routerLayer1(userPrompt: string): Promise<Layer1Category> {
   const layerName = "Layer 1 (4-way classification)";
   const start = performance.now();
   try {
     const system = [
-      "You are a strict router. Classify the user message into exactly one category.",
-      "Return ONLY a JSON object with a single key: \"category\". No other text.",
-      "Allowed values for \"category\": ml_related, unrelated, website_related, ambiguous",
-      "- ml_related: papers, datasets, ML concepts, benchmarks, algorithms.",
-      "- unrelated: off-topic (e.g. celebrities, general knowledge, not ML).",
-      "- website_related: questions about this website/app (data sources, login, profile, what is MLBench).",
-      "- ambiguous: intent unclear.",
+      "You are a strict intent classifier for MLBench, a machine learning research database.",
+      "Classify the user message into EXACTLY ONE category. Output ONLY valid JSON — no markdown, no explanation.",
+      'Output format: {"category": "<value>"}',
+      "",
+      "CATEGORY DEFINITIONS:",
+      "  ml_related      — About ML/AI/CS: neural networks, models, papers, datasets, benchmarks,",
+      "                    training, NLP, computer vision, transformers, reinforcement learning, etc.",
+      "  unrelated       — About ANYTHING that is NOT machine learning or computer science.",
+      "                    Examples: celebrities, sports, music, movies, cooking, travel,",
+      "                    weather, history, biology, medicine, politics, finance, jokes, geography.",
+      "  website_related — About HOW THIS WEBSITE (MLBench/MLTree) works: login, profile,",
+      "                    bookmarks, data sources, papers tab, benchmark tab, conferences.",
+      "  ambiguous       — Too vague to classify (e.g. single words, completely random text).",
+      "",
+      "RULES:",
+      "  - 'Who is [person]?' about a celebrity/athlete/musician/politician => unrelated",
+      "  - 'What is [ML concept]?' => ml_related",
+      "  - 'Find/search/recommend papers' => ml_related",
+      "  - Questions about weather, recipes, sports results, movies => unrelated",
+      "  - If NO machine learning term is present, lean towards unrelated",
+      "",
+      "EXAMPLES:",
+      '  "Who is Taylor Swift?" => {"category": "unrelated"}',
+      '  "Who won the Super Bowl?" => {"category": "unrelated"}',
+      '  "What is the capital of France?" => {"category": "unrelated"}',
+      '  "Give me a pasta recipe" => {"category": "unrelated"}',
+      '  "Tell me a joke" => {"category": "unrelated"}',
+      '  "What is attention mechanism in transformers?" => {"category": "ml_related"}',
+      '  "Find 5 papers on diffusion models" => {"category": "ml_related"}',
+      '  "Explain LoRA fine-tuning" => {"category": "ml_related"}',
+      '  "What is gradient descent?" => {"category": "ml_related"}',
+      '  "How do I login to this site?" => {"category": "website_related"}',
+      '  "Where does MLBench get its data?" => {"category": "website_related"}',
+      '  "asdfqwer" => {"category": "ambiguous"}',
     ].join("\n");
 
-    const userContent = `${userPrompt.trim()}${ROUTER_NO_THINK_SUFFIX}`;
     const raw = await generateTextFromMessagesRouter(
-      [{ role: "system", content: system }, { role: "user", content: userContent }],
-      { maxNewTokens: 48, temperature: 0, topP: 1 }
+      [{ role: "system", content: system }, { role: "user", content: userPrompt.trim() }],
+      { maxNewTokens: 32, temperature: 0, topP: 1 }
     );
 
     const jsonStr = balancedJsonExtract(raw) ?? balancedJsonExtract(raw.replace(/```(?:json)?/g, ""));
@@ -87,33 +111,44 @@ export async function routerLayer1(userPrompt: string): Promise<Layer1Category> 
 
     const ms = Math.round(performance.now() - start);
     if (typeof console !== "undefined" && console.log) {
-      console.log(`[LangChain] ${layerName}: ${ms} ms, result: ${category}`);
+      console.log(`[Router] ${layerName}: ${ms} ms, result: ${category}`);
     }
     return category;
   } catch (err) {
     const ms = Math.round(performance.now() - start);
     if (typeof console !== "undefined" && console.error) {
-      console.error(`[LangChain] ${layerName}: error after ${ms} ms`, err);
+      console.error(`[Router] ${layerName}: error after ${ms} ms`, err);
     }
     return "ambiguous";
   }
 }
 
-/** Layer 2: call_rag vs no_rag (only when Layer 1 is ml_related). If call_rag, extract rag_keyword. Logs layer name, time, result; logs errors. */
+/** Layer 2: call_rag vs no_rag (only reached when Layer 1 = ml_related). */
 export async function routerLayer2(userPrompt: string): Promise<{ action: Layer2Action; rag_keyword: string | null }> {
   const layerName = "Layer 2 (rag vs no_rag)";
   const start = performance.now();
   try {
     const system = [
-      "You are a strict router. Decide if the user wants to search/find ML papers (call_rag) or just ask an ML question (no_rag).",
-      "Return ONLY a JSON object. Keys: \"action\" (call_rag or no_rag), \"rag_keyword\" (required only when action is call_rag: the short search phrase, e.g. \"Faster RCNN\").",
-      "No other text. No markdown.",
+      "You are a strict router for an ML research database.",
+      "The user is asking an ML-related question. Decide:",
+      "  call_rag — user wants to FIND, SEARCH, or GET RECOMMENDATIONS for specific ML papers/models/benchmarks.",
+      "  no_rag   — user wants an EXPLANATION or ANSWER about an ML concept (no paper retrieval needed).",
+      "",
+      'Output ONLY JSON: {"action": "call_rag", "rag_keyword": "<short search phrase>"}',
+      '            or:  {"action": "no_rag"}',
+      "No markdown, no extra text.",
+      "",
+      "EXAMPLES:",
+      '  "Find papers on Faster RCNN" => {"action": "call_rag", "rag_keyword": "Faster RCNN"}',
+      '  "Show me 3 recent papers on diffusion models" => {"action": "call_rag", "rag_keyword": "diffusion models"}',
+      '  "What is attention mechanism?" => {"action": "no_rag"}',
+      '  "Explain gradient descent" => {"action": "no_rag"}',
+      '  "Recommend papers on LoRA" => {"action": "call_rag", "rag_keyword": "LoRA fine-tuning"}',
     ].join("\n");
 
-    const userContent = `${userPrompt.trim()}${ROUTER_NO_THINK_SUFFIX}`;
     const raw = await generateTextFromMessagesRouter(
-      [{ role: "system", content: system }, { role: "user", content: userContent }],
-      { maxNewTokens: 80, temperature: 0, topP: 1 }
+      [{ role: "system", content: system }, { role: "user", content: userPrompt.trim() }],
+      { maxNewTokens: 64, temperature: 0, topP: 1 }
     );
 
     const jsonStr = balancedJsonExtract(raw) ?? balancedJsonExtract(raw.replace(/```(?:json)?/g, ""));
@@ -122,13 +157,13 @@ export async function routerLayer2(userPrompt: string): Promise<{ action: Layer2
 
     const ms = Math.round(performance.now() - start);
     if (typeof console !== "undefined" && console.log) {
-      console.log(`[LangChain] ${layerName}: ${ms} ms, result:`, result);
+      console.log(`[Router] ${layerName}: ${ms} ms, result:`, result);
     }
     return result;
   } catch (err) {
     const ms = Math.round(performance.now() - start);
     if (typeof console !== "undefined" && console.error) {
-      console.error(`[LangChain] ${layerName}: error after ${ms} ms`, err);
+      console.error(`[Router] ${layerName}: error after ${ms} ms`, err);
     }
     return { action: "no_rag", rag_keyword: null };
   }
@@ -478,5 +513,55 @@ export async function clarifyAmbiguity(prompt: string): Promise<string> {
     { temperature: 0.3, topP: 0.9, maxNewTokens: 180 }
   );
   return text.trim() || "Could you clarify whether you want paper recommendations, an ML explanation, a follow-up on prior results, or help using this site?";
+}
+
+/**
+ * Post-RAG synthesis: given the user's original query and the retrieved
+ * paper list, generate a grounded answer using ONLY the provided papers.
+ * Papers are placed in the USER message so the model reliably sees them.
+ */
+export async function synthesizeRagAnswer(opts: {
+  userPrompt: string;
+  hits: Array<{ id: string; title: string; year: number | null; abstract?: string | null }>;
+}): Promise<string> {
+  const { userPrompt, hits } = opts;
+  if (hits.length === 0) return "";
+
+  // Compact context block — truncate abstracts to keep token budget manageable
+  const paperContext = hits
+    .map((h, i) => {
+      const year = h.year ? ` (${h.year})` : "";
+      const abs = h.abstract ? h.abstract.slice(0, 280).replace(/\n+/g, " ").trim() : "";
+      return `[${i + 1}] "${h.title}"${year}` + (abs ? `\n    Abstract: ${abs}` : "");
+    })
+    .join("\n\n");
+
+  const system = [
+    "You are MLTree LLM Agent, a research assistant inside MLBench.",
+    "Answer the user's question using ONLY the papers listed in their next message.",
+    "STRICT: Only cite papers from that list. If they asked for summaries/one-liners, give one short sentence per paper.",
+    "Be direct. No preamble. Start with the answer.",
+  ].join("\n");
+
+  // Put papers in the USER message so the model reliably sees them (many models underweight long system content).
+  const userMessage = [
+    `The following ${hits.length} papers were retrieved. Use ONLY these to answer.`,
+    "",
+    "--- RETRIEVED PAPERS ---",
+    paperContext,
+    "--- END PAPERS ---",
+    "",
+    "User question:",
+    userPrompt,
+  ].join("\n");
+
+  const text = await generateTextFromMessages(
+    [
+      { role: "system", content: system },
+      { role: "user", content: userMessage },
+    ],
+    { temperature: 0.3, topP: 0.9, maxNewTokens: 520 }
+  );
+  return text.trim();
 }
 

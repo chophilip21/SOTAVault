@@ -104,12 +104,15 @@ export default function AIChatPage() {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
 
-  // Server status
+  // Server status — 'checking' is only true during the very first probe.
+  // Background polls update vllmReady/teiReady silently so the input never
+  // gets disabled mid-type (which would cause focus loss every 5 s).
   const [serverStatus, setServerStatus] = useState<{ checking: boolean } & ServerStatus>({
     checking: true,
     vllmReady: false,
     teiReady: false,
   });
+  const hasCompletedInitialCheck = useRef(false);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sendInProgressRef = useRef(false);
@@ -123,17 +126,24 @@ export default function AIChatPage() {
   const { memory, addTurnToMemory, recordRagMemory, buildRouterMemorySnapshot } = useChatMemory(messages);
 
   // ─── Poll server health every 5 s ─────────────────────────────────────────────
-  const pollServers = useCallback(async () => {
-    setServerStatus((s) => ({ ...s, checking: true }));
+  const pollServers = useCallback(async (isInitial = false) => {
+    // Only show the 'checking' spinner on the very first probe.
+    // Background polls update status silently — this is critical to avoid
+    // disabling the input on every tick (which would steal focus from the user).
+    if (isInitial) {
+      setServerStatus((s) => ({ ...s, checking: true }));
+    }
     const status = await probeLocalServers();
+    hasCompletedInitialCheck.current = true;
     setServerStatus({ checking: false, ...status });
   }, []);
 
   useEffect(() => {
-    void pollServers();
-    const id = setInterval(() => void pollServers(), 5000);
+    void pollServers(true); // initial — show loading
+    const id = setInterval(() => void pollServers(false), 5000); // background — silent
     return () => clearInterval(id);
   }, [pollServers]);
+
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: messages.length <= 2 ? "auto" : "smooth" });
@@ -195,15 +205,15 @@ export default function AIChatPage() {
                 .map((r, idx) => {
                   const items = r.hits
                     .slice(0, 5)
-                    .map(
-                      (h, i) =>
-                        `${i + 1}. ${h.title}${h.year ? ` (${h.year})` : ""}${typeof h.distance === "number" ? ` [dist=${h.distance.toFixed(4)}]` : ""
-                        }`
-                    )
-                    .join("; ");
-                  return `RAG ${idx + 1}: query="${r.query}". Papers: ${items}`;
+                    .map((h, i) => {
+                      const titleLine = `${i + 1}. ${h.title}${h.year ? ` (${h.year})` : ""}`;
+                      const absSnippet = (h.abstract ?? "").slice(0, 220).replace(/\n+/g, " ").trim();
+                      return absSnippet ? `${titleLine}\n   Abstract: ${absSnippet}` : titleLine;
+                    })
+                    .join("\n\n");
+                  return `RAG ${idx + 1}: query="${r.query}".\nPapers:\n${items}`;
                 })
-                .join("\n");
+                .join("\n\n");
 
           reply = await answerFollowUpFromMemory({
             prompt,
@@ -323,7 +333,7 @@ export default function AIChatPage() {
                     Hi, I'm MLTree LLM Agent (Beta Mode)
                   </h1>
                   <p className="text-sm text-gray-600 mt-2 max-w-2xl">
-                    Ask about papers, concepts, or how to use MLBench. Responses are powered by local GPU inference (LFM2.5 via VLLM + Snowflake embed via TEI).
+                    Ask about papers, concepts, or how to use MLBench.
                   </p>
 
                   {/* Server status panel (shown only when not ready) */}
@@ -361,7 +371,7 @@ export default function AIChatPage() {
                           </p>
                         )}
                         <button
-                          onClick={() => void pollServers()}
+                          onClick={() => void pollServers(true)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-amber-300 bg-white/60 text-xs font-semibold text-amber-900 hover:bg-amber-100"
                         >
                           <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" aria-hidden="true">

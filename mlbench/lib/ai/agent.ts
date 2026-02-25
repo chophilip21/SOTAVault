@@ -88,6 +88,76 @@ function heuristicFallback(prompt: string): PrimaryCapability {
   return "ML_NO_RAG";
 }
 
+/**
+ * Pre-LLM heuristic: detect obviously off-topic queries so we never waste a
+ * router LLM call on them. The 1.2B LFM model is weak at zero-shot classification
+ * of non-ML content, so a deterministic guard here is much more reliable.
+ *
+ * Catches:
+ *   - "Who is <person>?" style questions about celebrities / public figures
+ *   - Sports, music, movies, TV, politics, cooking, travel, geography, weather
+ *   - Pure arithmetic / riddles / jokes
+ *   - Historical / general knowledge questions unrelated to ML/AI/CS
+ */
+/**
+ * Returns true when the prompt contains at least one meaningful ML-related
+ * term. Used as a final safety gate before calling the LLM router.
+ */
+function hasAnyMlSignal(raw: string): boolean {
+  return /\b(machine learning|deep learning|neural|transformer|bert|gpt|llm|model|paper|dataset|benchmark|algorithm|training|inference|nlp|computer vision|reinforcement|embedding|attention|gradient|loss|fine.?tun|pre.?train|rag|retrieval|diffusion|generative|ai|artificial intelligence|language model|classification|regression|cluster|encoder|decoder|autoencoder|convolution|recurrent|lstm|gan|vae|stable diffusion|resnet|vit|llama|mistral|qwen|gemma|falcon|phi|mamba|ssm|rlhf|lora|peft|quantiz|compression|pruning|distill|zero-shot|few-shot|prompt|token|vocab|softmax|activation|backprop|latent|vector|similarity|cosine|euclidean|faiss|hnswlib|milvus|weaviate|pinecone|langchain|hugging.?face|pytorch|tensorflow|jax|cuda|gpu|tpu|rcnn|faster.?rcnn|yolo|ssd|mobilenet|efficientnet|inception|alexnet|vgg|squeezenet|densenet|unet|detr|clip|dalle|stable.?diffusion|imagenet|coco|pascal|ade20k|glue|squad|mmlu|hellaswag|winogrande|arc|truthfulqa|bigbench|openai|anthropic|deepmind|mistral|gemini|whisper|wav2vec|hubert|clip|dino|sam|segment|object detection|image classification|text generation|speech recognition|question answering|named entity|sentiment|summarization|translation|multimodal|vision.?language|reward model|policy gradient|dqn|ppo|a3c|actor.?critic)\b/i.test(raw);
+}
+
+function looksLikeOffTopic(prompt: string): boolean {
+  const p = prompt.toLowerCase().trim();
+
+  // ── Guard 1: Pure numbers / phone numbers / PINs / random digit strings ─────
+  // e.g. "7789890916", "(555) 123-4567" — zero ML signal.
+  // Allow things like "top 5" or "3 papers" which are numeric but have words.
+  if (/^[\d\s\-().+#*]+$/.test(p)) return true;
+
+  // ── Guard 2: No alphabetic characters at all (emoji-only, symbols, etc.) ────
+  if (!/[a-z]/.test(p)) return true;
+
+  // ── Guard 3: Very short input that is clearly not ML (single junk word) ─────
+  // e.g. "lol", "haha", "ok", "hi", pure gibberish
+  const stripped = p.replace(/[^a-z\s]/g, "").trim();
+  if (stripped.length <= 6 && !hasAnyMlSignal(p)) return true;
+
+  // ── Guard 4: "Who is X?" pattern — person biography queries ─────────────────
+  // Only applies to "who" questions ("who is X?", "who was X?"), NOT "what is X?"
+  // "what is X?" is too often a valid ML concept question ("what is Faster RCNN?").
+  const mlPersons = /\b(turing|lecun|bengio|hinton|hochreiter|schmidhuber|vaswani|goodfellow|ng|karpathy|sutton|silver|mnih|fei.?fei|hassabis|dean|vinyals|devlin|bert|openai|deepmind|anthropic)\b/;
+  const whoIsPattern = /^(who is|who was|who are|who were)\s+.{2,}/;  // ← 'what is/was' intentionally removed
+  if (whoIsPattern.test(p) && !mlPersons.test(p) && !hasAnyMlSignal(p)) return true;
+
+  // ── Guard 5: Explicit off-topic domain keywords ───────────────────────────────
+  const offTopicPatterns = [
+    // Celebrities, sports, music, entertainment
+    /\b(taylor swift|beyonce|kanye|rihanna|drake|adele|elon musk|jeff bezos|kim kardashian|brad pitt|angelina|celebrity|singer|actor|actress|musician|pop star|rapper)\b/,
+    // Sports
+    /\b(nba|nfl|mlb|nhl|fifa|soccer|football|basketball|baseball|tennis|golf|cricket|f1|formula one|olympics|super bowl|world cup|quarterback|striker|goalkeeper)\b/,
+    // Cooking / food
+    /\b(recipe|cooking|baking|chef|restaurant|cuisine|ingredient|calorie|diet|nutrition|vegetarian|vegan)\b/,
+    // Travel / geography
+    /\b(travel|vacation|holiday|hotel|flight|airport|visa|passport|tourism|weather forecast|temperature outside)\b/,
+    // Pure arithmetic expression
+    /^(what is|calculate|solve|compute)\s+[\d\s\+\-\*\/\^()]+[\d\s\+\-\*\/\^()\.]*\??$/,
+    // Jokes / entertainment queries
+    /\b(tell me a joke|tell a joke|riddle|celebrity gossip|horoscope)\b/,
+    // Medical / health (not ml-in-healthcare)
+    /\b(symptom|prescription|drug dosage|doctor visit|hospital|surgery|diagnosis|vaccination|vitamin supplement)\b/,
+    // Finance (narrow — avoid blocking "ML in finance" questions)
+    /\b(stock price today|bitcoin price|buy stocks|mortgage rate|tax return|credit card limit)\b/,
+  ];
+
+  for (const pattern of offTopicPatterns) {
+    if (pattern.test(p)) return true;
+  }
+
+  return false;
+}
+
+
 export async function routePrompt(
   prompt: string,
   opts?: {
@@ -96,7 +166,14 @@ export async function routePrompt(
     memory?: RouterMemoryContext;
   }
 ): Promise<RoutePlan> {
-  // Deterministic fast-path: data source questions should never route to retrieval.
+  // Fast-path 0: deterministically catch obviously off-topic queries.
+  // The 1.2B model is unreliable at classifying celebrities / sports / jokes,
+  // so we short-circuit here before any LLM call.
+  if (looksLikeOffTopic(prompt)) {
+    return normalizeRoutePlan({ primary: "UNRELATED", secondary: [], constraints: { domain: prompt.slice(0, 240) } });
+  }
+
+  // Fast-path 1: data source questions should never route to retrieval.
   if (looksLikeWebsiteDataSourceQuestion(prompt)) {
     return normalizeRoutePlan({
       primary: "WEBSITE",
@@ -123,7 +200,8 @@ export async function routePrompt(
   if (wantsSearch) {
     const secondary: SecondaryTask[] = ["RETRIEVE"];
     if (/\b(rerank|most relevant|best match|prioriti[sz]e)\b/.test(p)) secondary.push("RERANK");
-    if (/\b(summary|summarize|one[- ]?liners?|tl;dr)\b/.test(p)) secondary.push("SUMMARIZE");
+    // Detect any summarisation intent: "summaries", "summarize", "summary", "one-line", "one liner", "brief", "synopsis", "tl;dr"
+    if (/\b(summar(y|ize|izes|ized|ies)|one[- ]?line|one[- ]?liner|brief overview|synopsis|tl;?dr)\b/.test(p)) secondary.push("SUMMARIZE");
     const m = p.match(/\btop\s*(\d+)\b/);
     const count = m ? Math.max(1, Math.min(50, Number(m[1] || 0))) : undefined;
     const recency = /\b(latest|recent|newest)\b/.test(p) ? ("recent" as const) : undefined;

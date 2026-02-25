@@ -3,7 +3,13 @@
 import type React from "react";
 import { embedQuery, type RoutePlan } from "@/lib/ai/agent";
 import { routerDebugGroup, routerDebugLog } from "@/lib/routerDebug";
-import { rerankHitsWithLocalModel, sortHitsByDistance, summarizeHitsWithLocalModel, buildSummaryLines } from "./ragHelpers";
+import {
+  buildSummaryLines,
+  rerankHitsWithLocalModel,
+  sortHitsByDistance,
+  summarizeHitsWithLocalModel,
+} from "./ragHelpers";
+import { synthesizeRagAnswer } from "@/lib/ai/chains";
 import type { ChatMessage, VectorSearchHit, VectorSearchResponse } from "./types";
 
 export function useRagSearch(opts: {
@@ -111,25 +117,61 @@ export function useRagSearch(opts: {
       const topHits = picked.slice(0, k);
       const displayHits = sortHitsByDistance(topHits);
 
-      // Replace searching bubble with a structured "hits" bubble.
+      if (displayHits.length === 0) {
+        // No results: single bubble.
+        upsertMessage(pendingId, { content: reply, ragHits: undefined });
+        recordRagMemory({
+          query: searchQuery,
+          hits: [],
+          embedding: embedding ? [...embedding] : undefined,
+          createdAt: Date.now(),
+        });
+        addTurnToMemory({ role: "assistant", content: reply });
+        return;
+      }
+
+      // First bubble: show RAG results immediately (titles + links).
       upsertMessage(pendingId, { content: reply, ragHits: displayHits });
 
-      // Optional task: one-line summaries per paper (if requested).
-      if (plan.secondary?.includes("SUMMARIZE") && displayHits.length > 0) {
-        try {
-          const summariesById = await summarizeHitsWithLocalModel({ query: plan.constraints?.domain || prompt, hits: displayHits });
+      // Second bubble: show "Generating…" then fill with synthesis (summaries or answer).
+      const summaryPendingId = newId();
+      const wantsPerPaperSummaries =
+        (plan.secondary && plan.secondary.includes("SUMMARIZE")) ||
+        /\b(summar(y|ies|ize|ized)|one[- ]?line|one[- ]?liner|brief overview|synopsis|short summary)\b/i.test(prompt);
+      const generatingLabel = wantsPerPaperSummaries ? "Generating summaries…" : "Generating answer…";
+      setMessages((m) => [...m, { id: summaryPendingId, role: "assistant", content: generatingLabel }]);
+      await new Promise((r) => setTimeout(r, 50));
+
+      let synthesis = "";
+      try {
+        if (wantsPerPaperSummaries) {
+          const summariesById = await summarizeHitsWithLocalModel({ query: prompt, hits: displayHits });
           const lines = buildSummaryLines(displayHits, summariesById);
-          if (lines) {
-            const summaryMsg = { id: newId(), role: "assistant" as const, content: lines };
-            setMessages((m) => [...m, summaryMsg]);
-            addTurnToMemory({ role: "assistant", content: lines });
-          }
-        } catch {
-          // ignore summary failures; keep search results
+          synthesis =
+            lines.trim().length > 0
+              ? `Here are the papers with a short summary for each:\n\n${lines}`
+              : "";
+        }
+        if (!synthesis) {
+          synthesis = await synthesizeRagAnswer({
+            userPrompt: prompt,
+            hits: displayHits.map((h) => ({
+              id: h.paper.id,
+              title: h.paper.title,
+              year: h.paper.year ?? null,
+              abstract: h.paper.abstract,
+            })),
+          });
+        }
+      } catch (err) {
+        if (typeof console !== "undefined" && console.error) {
+          console.error("[useRagSearch] Synthesis failed", err);
         }
       }
 
-      // Keep RAG context for follow-ups.
+      const finalContent = synthesis || "I couldn’t generate a response for the retrieved papers.";
+      upsertMessage(summaryPendingId, { content: finalContent });
+
       recordRagMemory({
         query: searchQuery,
         hits: displayHits.map((h) => ({
@@ -143,7 +185,7 @@ export function useRagSearch(opts: {
         createdAt: Date.now(),
       });
 
-      addTurnToMemory({ role: "assistant", content: reply });
+      addTurnToMemory({ role: "assistant", content: finalContent });
       return; // IMPORTANT: avoid also appending a second assistant message in the caller
     } catch (err) {
       // Never show the error details in the UI.
