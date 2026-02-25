@@ -18,17 +18,14 @@ export const config = {
   // Backend API
   backendUrl: process.env.NEXT_PUBLIC_BACKEND_URL || "",
 
+  // ── Local model servers (started by `bash local.sh` via docker-compose.demo.yml) ──
+  // VLLM serves LFM2.5-1.2B-Instruct-AWQ on port 8000 (OpenAI-compatible).
+  // TEI  serves snowflake-arctic-embed-s      on port 8001 (HuggingFace TEI).
+  // The Next.js dev server proxies /api/vllm/* → localhost:8000
+  //                                /api/tei/*  → localhost:8001
+  vllmUrl: process.env.NEXT_PUBLIC_VLLM_URL || "http://localhost:8000",
+  teiUrl: process.env.NEXT_PUBLIC_TEI_URL || "http://localhost:8001",
 
-
-  // ── In-browser models (wllama / CPU multi-threaded WASM) ─────────────────
-  // Primary source: repo-root config.ini → exported by local.sh as NEXT_PUBLIC_* vars.
-  // Downloaded from Hugging Face when the user clicks "Download" on the AI chat page.
-  wllamaRouterModelId: process.env.NEXT_PUBLIC_WLLAMA_ROUTER_MODEL_ID || "",
-  wllamaRouterFile: process.env.NEXT_PUBLIC_WLLAMA_ROUTER_FILE || "",
-  wllamaChatModelId: process.env.NEXT_PUBLIC_WLLAMA_CHAT_MODEL_ID || "",
-  wllamaChatFile: process.env.NEXT_PUBLIC_WLLAMA_CHAT_FILE || "",
-  wllamaEmbedModelId: process.env.NEXT_PUBLIC_WLLAMA_EMBED_MODEL_ID || "",
-  wllamaEmbedFile: process.env.NEXT_PUBLIC_WLLAMA_EMBED_FILE || "",
   // Embedding dimension (must match backend vector index dimension)
   embeddingDim: 384,
 };

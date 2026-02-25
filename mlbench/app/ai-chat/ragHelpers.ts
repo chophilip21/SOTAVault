@@ -2,7 +2,7 @@
 
 import type { VectorSearchHit } from "./types";
 import { rerankHits, summarizePapers } from "@/lib/ai/chains";
-import { stripInternalTags } from "@/lib/ai/wllamaRuntime";
+import { stripInternalTags } from "@/lib/ai/localServerRuntime";
 
 export function sortHitsByDistance(hits: VectorSearchHit[]): VectorSearchHit[] {
   return [...hits].sort((a, b) => {

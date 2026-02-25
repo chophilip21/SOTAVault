@@ -10,7 +10,7 @@ import {
   type PrimaryCapability,
   type RoutePlan,
 } from "@/lib/routerSpec";
-import { generateTextFromMessages, generateTextFromMessagesRouter, type LlmMessage } from "@/lib/ai/wllamaRuntime";
+import { generateTextFromMessages, generateTextFromMessagesRouter, type LlmMessage } from "@/lib/ai/localServerRuntime";
 import type { RouterMemoryContext } from "@/lib/ai/types";
 
 // ─── Two-layer router (Qwen3 with /no_think) ─────────────────────────────────
@@ -210,9 +210,9 @@ export function formatMemoryForRouter(memory?: RouterMemoryContext): string {
   const rag =
     memory.recentRag && memory.recentRag.length
       ? memory.recentRag
-          .slice(0, 2)
-          .map((r, idx) => `Recent RAG ${idx + 1}: query="${r.query}". Titles: ${(r.titles || []).slice(0, 6).join("; ")}`)
-          .join("\n")
+        .slice(0, 2)
+        .map((r, idx) => `Recent RAG ${idx + 1}: query="${r.query}". Titles: ${(r.titles || []).slice(0, 6).join("; ")}`)
+        .join("\n")
       : "No recent RAG.";
   const summary = memory.summary ? `Summary:\n${memory.summary}` : "No summary.";
   return [summary, "", "Recent turns:", turns, "", "Recent RAG:", rag].join("\n");
