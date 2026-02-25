@@ -1,17 +1,21 @@
 "use client";
 
+import { config } from "@/lib/config";
 import { normalizeRoutePlan, type PrimaryCapability, type RoutePlan, type SecondaryTask } from "@/lib/routerSpec";
 import type { RouterMemoryContext } from "@/lib/ai/types";
 import {
   embedText,
   getChatPipeline,
   getEmbedPipeline,
+  getRouterPipeline,
   loadChatPipelineFromCache,
   loadEmbedPipelineFromCache,
+  loadRouterPipelineFromCache,
   clearWllamaModelCache,
+  resetLocalPipelines,
   type InitProgressCallback,
 } from "@/lib/ai/wllamaRuntime";
-import { routeWithLocalModel } from "@/lib/ai/chains";
+import { routeWithLocalModel, routerLayer1, routerLayer2 } from "@/lib/ai/chains";
 
 export type { RoutePlan, PrimaryCapability, RouterMemoryContext, InitProgressCallback };
 
@@ -60,25 +64,69 @@ export async function warmupLocalChatModel(initProgressCallback?: InitProgressCa
   return await getChatPipeline(initProgressCallback);
 }
 
+/** Load all required models from cache into memory (no download). Call when cache is already complete; greenlight chat only after this. */
+export async function warmupAllModels(initProgressCallback?: InitProgressCallback): Promise<void> {
+  const report = (p: number, text: string) => {
+    try {
+      initProgressCallback?.({ progress: p, text });
+    } catch {
+      /* ignore */
+    }
+  };
+  const hasRouter = !!(config.wllamaRouterModelId?.trim() && config.wllamaRouterFile?.trim());
+  if (hasRouter) {
+    await getRouterPipeline((r) => {
+      report(Math.min(0.25, r.progress * 0.25), `Router: ${r.text}`);
+    });
+  }
+  await getChatPipeline((r) => {
+    report(hasRouter ? 0.25 + Math.min(0.5, r.progress * 0.5) : Math.min(0.9, r.progress * 0.85), `Chat: ${r.text}`);
+  });
+  await getEmbedPipeline((r) => {
+    report(0.75 + Math.min(0.25, r.progress * 0.25), `Embed: ${r.text}`);
+  });
+}
+
+/** Unload all models from memory. Call when user leaves the AI chat tab so models are freed until they return. */
+export function unloadLocalModels(): void {
+  resetLocalPipelines();
+}
+
 export async function probeLocalModelsFromCache(): Promise<{
   chatCached: boolean;
   embedCached: boolean;
+  routerCached: boolean;
 }> {
   // Checks the browser's Cache API directly — no ONNX init, no network requests.
-  const [chatCached, embedCached] = await Promise.all([
+  const [chatCached, embedCached, routerCached] = await Promise.all([
     loadChatPipelineFromCache(),
     loadEmbedPipelineFromCache(),
+    loadRouterPipelineFromCache(),
   ]);
-  return { chatCached, embedCached };
+  return { chatCached, embedCached, routerCached };
 }
 
 export async function downloadLocalModels(initProgressCallback?: InitProgressCallback) {
-  // Download/load chat first (needed for chatting), then embeddings (needed for RAG).
+  // Download/load router first (small), then chat, then embeddings.
+  const report = (p: number, text: string) => {
+    try {
+      initProgressCallback?.({ progress: p, text });
+    } catch {
+      /* ignore */
+    }
+  };
+  const hasRouter = !!(config.wllamaRouterModelId?.trim() && config.wllamaRouterFile?.trim());
+  if (hasRouter) {
+    const { getRouterPipeline } = await import("@/lib/ai/wllamaRuntime");
+    await getRouterPipeline((r) => {
+      report(Math.min(0.25, r.progress * 0.25), `Router: ${r.text}`);
+    });
+  }
   await getChatPipeline((r) => {
-    initProgressCallback?.({ progress: Math.min(0.9, r.progress * 0.85), text: `Chat: ${r.text}` });
+    report(hasRouter ? 0.25 + Math.min(0.5, r.progress * 0.5) : Math.min(0.9, r.progress * 0.85), `Chat: ${r.text}`);
   });
   await getEmbedPipeline((r) => {
-    initProgressCallback?.({ progress: 0.85 + Math.min(0.15, r.progress * 0.15), text: `Embed: ${r.text}` });
+    report(0.75 + Math.min(0.25, r.progress * 0.25), `Embed: ${r.text}`);
   });
 }
 
@@ -142,8 +190,63 @@ export async function routePrompt(
     });
   }
 
-  // If there's no prior context, treat as a normal ML question (no need to route).
-  // Only attempt local routing when it looks like an actual follow-up / ambiguous intent.
+  // Two-layer router (Qwen3 with /no_think) when configured and cached.
+  const routerConfigured = !!(config.wllamaRouterModelId?.trim() && config.wllamaRouterFile?.trim());
+  if (routerConfigured) {
+    try {
+      const routerCached = await loadRouterPipelineFromCache();
+      if (routerCached) {
+        const tRouteStart = performance.now();
+        if (typeof console !== "undefined" && console.log) {
+          console.log("[LangChain] routePrompt: starting two-layer router");
+        }
+
+        const layer1 = await routerLayer1(prompt);
+        const tAfterLayer1 = performance.now();
+        if (typeof console !== "undefined" && console.log) {
+          console.log("[LangChain] routePrompt: Layer 1 done in", Math.round(tAfterLayer1 - tRouteStart), "ms");
+        }
+
+        if (layer1 === "unrelated") {
+          return normalizeRoutePlan({ primary: "UNRELATED", secondary: [], constraints: { domain: prompt.slice(0, 240) } });
+        }
+        if (layer1 === "website_related") {
+          return normalizeRoutePlan({
+            primary: "WEBSITE",
+            secondary: websiteSecondaryFromPrompt(prompt),
+            constraints: { domain: prompt.slice(0, 240) },
+          });
+        }
+        if (layer1 === "ambiguous") {
+          return normalizeRoutePlan({ primary: "AMBIGUOUS", secondary: [], constraints: { domain: prompt.slice(0, 240) } });
+        }
+        if (layer1 === "ml_related") {
+          const tLayer2Start = performance.now();
+          const layer2 = await routerLayer2(prompt);
+          if (typeof console !== "undefined" && console.log) {
+            console.log("[LangChain] routePrompt: Layer 2 done in", Math.round(performance.now() - tLayer2Start), "ms");
+          }
+          if (layer2.action === "no_rag") {
+            return normalizeRoutePlan({ primary: "ML_NO_RAG", secondary: [], constraints: { domain: prompt.slice(0, 240) } });
+          }
+          const domain = (layer2.rag_keyword && layer2.rag_keyword.trim()) || prompt.slice(0, 240);
+          const countMatch = prompt.toLowerCase().match(/\btop\s*(\d+)\b/);
+          const count = countMatch ? Math.min(20, Math.max(1, parseInt(countMatch[1], 10))) : undefined;
+          return normalizeRoutePlan({
+            primary: "RAG_SEARCH",
+            secondary: ["RETRIEVE"],
+            constraints: { domain, ...(count != null ? { count } : {}) },
+          });
+        }
+      }
+    } catch (err) {
+      if (typeof console !== "undefined" && console.error) {
+        console.error("[LangChain] routePrompt: two-layer router failed, falling back to legacy routing", err);
+      }
+    }
+  }
+
+  // Legacy: if no prior context, treat as normal ML question (no need to route).
   const followUpHint =
     hasMemory &&
     /\b(above|earlier|previous|that|those|it|them|the paper|the results|your answer|as you said)\b/.test(p);

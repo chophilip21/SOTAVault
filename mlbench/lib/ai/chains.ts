@@ -10,8 +10,129 @@ import {
   type PrimaryCapability,
   type RoutePlan,
 } from "@/lib/routerSpec";
-import { generateTextFromMessages, type LlmMessage } from "@/lib/ai/wllamaRuntime";
+import { generateTextFromMessages, generateTextFromMessagesRouter, type LlmMessage } from "@/lib/ai/wllamaRuntime";
 import type { RouterMemoryContext } from "@/lib/ai/types";
+
+// ─── Two-layer router (Qwen3 with /no_think) ─────────────────────────────────
+
+const LAYER1_CATEGORIES = ["ml_related", "unrelated", "website_related", "ambiguous"] as const;
+export type Layer1Category = (typeof LAYER1_CATEGORIES)[number];
+
+const Layer1Schema = z.object({
+  category: z.enum(LAYER1_CATEGORIES),
+});
+
+function normalizeLayer1(raw: unknown): Layer1Category {
+  const s = typeof raw === "string" ? raw.trim().toLowerCase().replace(/["'\s]/g, "") : "";
+  if (LAYER1_CATEGORIES.includes(s as Layer1Category)) return s as Layer1Category;
+  const parsed = Layer1Schema.safeParse(raw);
+  if (parsed.success) return parsed.data.category;
+  return "ambiguous";
+}
+
+const LAYER2_ACTIONS = ["call_rag", "no_rag"] as const;
+export type Layer2Action = (typeof LAYER2_ACTIONS)[number];
+
+const Layer2Schema = z.object({
+  action: z.enum(LAYER2_ACTIONS),
+  rag_keyword: z.string().max(240).optional().nullable(),
+});
+
+function normalizeLayer2(raw: unknown): { action: Layer2Action; rag_keyword: string | null } {
+  const parsed = Layer2Schema.safeParse(raw);
+  if (parsed.success) {
+    const action = parsed.data.action;
+    const rag_keyword =
+      action === "call_rag" && parsed.data.rag_keyword
+        ? String(parsed.data.rag_keyword).trim().slice(0, 240)
+        : null;
+    return { action, rag_keyword };
+  }
+  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  const actionStr = obj?.action != null ? String(obj.action).trim().toLowerCase() : "";
+  const action: Layer2Action = LAYER2_ACTIONS.includes(actionStr as Layer2Action) ? (actionStr as Layer2Action) : "no_rag";
+  const rag_keyword =
+    action === "call_rag" && obj?.rag_keyword != null
+      ? String(obj.rag_keyword).trim().slice(0, 240)
+      : null;
+  return { action, rag_keyword };
+}
+
+const ROUTER_NO_THINK_SUFFIX = " /no_think ";
+
+/** Layer 1: 4-way classification. User prompt is sent with " /no_think " appended. Logs layer name, time, result; logs errors. */
+export async function routerLayer1(userPrompt: string): Promise<Layer1Category> {
+  const layerName = "Layer 1 (4-way classification)";
+  const start = performance.now();
+  try {
+    const system = [
+      "You are a strict router. Classify the user message into exactly one category.",
+      "Return ONLY a JSON object with a single key: \"category\". No other text.",
+      "Allowed values for \"category\": ml_related, unrelated, website_related, ambiguous",
+      "- ml_related: papers, datasets, ML concepts, benchmarks, algorithms.",
+      "- unrelated: off-topic (e.g. celebrities, general knowledge, not ML).",
+      "- website_related: questions about this website/app (data sources, login, profile, what is MLBench).",
+      "- ambiguous: intent unclear.",
+    ].join("\n");
+
+    const userContent = `${userPrompt.trim()}${ROUTER_NO_THINK_SUFFIX}`;
+    const raw = await generateTextFromMessagesRouter(
+      [{ role: "system", content: system }, { role: "user", content: userContent }],
+      { maxNewTokens: 48, temperature: 0, topP: 1 }
+    );
+
+    const jsonStr = balancedJsonExtract(raw) ?? balancedJsonExtract(raw.replace(/```(?:json)?/g, ""));
+    const parsed = jsonStr ? safeJsonParse<unknown>(jsonStr) : safeJsonParse<unknown>(raw.trim());
+    const category = normalizeLayer1(parsed ?? raw);
+
+    const ms = Math.round(performance.now() - start);
+    if (typeof console !== "undefined" && console.log) {
+      console.log(`[LangChain] ${layerName}: ${ms} ms, result: ${category}`);
+    }
+    return category;
+  } catch (err) {
+    const ms = Math.round(performance.now() - start);
+    if (typeof console !== "undefined" && console.error) {
+      console.error(`[LangChain] ${layerName}: error after ${ms} ms`, err);
+    }
+    return "ambiguous";
+  }
+}
+
+/** Layer 2: call_rag vs no_rag (only when Layer 1 is ml_related). If call_rag, extract rag_keyword. Logs layer name, time, result; logs errors. */
+export async function routerLayer2(userPrompt: string): Promise<{ action: Layer2Action; rag_keyword: string | null }> {
+  const layerName = "Layer 2 (rag vs no_rag)";
+  const start = performance.now();
+  try {
+    const system = [
+      "You are a strict router. Decide if the user wants to search/find ML papers (call_rag) or just ask an ML question (no_rag).",
+      "Return ONLY a JSON object. Keys: \"action\" (call_rag or no_rag), \"rag_keyword\" (required only when action is call_rag: the short search phrase, e.g. \"Faster RCNN\").",
+      "No other text. No markdown.",
+    ].join("\n");
+
+    const userContent = `${userPrompt.trim()}${ROUTER_NO_THINK_SUFFIX}`;
+    const raw = await generateTextFromMessagesRouter(
+      [{ role: "system", content: system }, { role: "user", content: userContent }],
+      { maxNewTokens: 80, temperature: 0, topP: 1 }
+    );
+
+    const jsonStr = balancedJsonExtract(raw) ?? balancedJsonExtract(raw.replace(/```(?:json)?/g, ""));
+    const parsed = jsonStr ? safeJsonParse<unknown>(jsonStr) : safeJsonParse<unknown>(raw.trim());
+    const result = normalizeLayer2(parsed ?? raw);
+
+    const ms = Math.round(performance.now() - start);
+    if (typeof console !== "undefined" && console.log) {
+      console.log(`[LangChain] ${layerName}: ${ms} ms, result:`, result);
+    }
+    return result;
+  } catch (err) {
+    const ms = Math.round(performance.now() - start);
+    if (typeof console !== "undefined" && console.error) {
+      console.error(`[LangChain] ${layerName}: error after ${ms} ms`, err);
+    }
+    return { action: "no_rag", rag_keyword: null };
+  }
+}
 
 function balancedJsonExtract(text: string): string | null {
   const s = String(text || "");

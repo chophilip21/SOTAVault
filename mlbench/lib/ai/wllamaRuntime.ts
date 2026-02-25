@@ -34,16 +34,19 @@ type BackendInfo = {
 
 let lastChatBackend: BackendInfo | null = null;
 let lastEmbedBackend: BackendInfo | null = null;
+let lastRouterBackend: BackendInfo | null = null;
 
-export function getLastBackendInfo(): { chat: BackendInfo | null; embed: BackendInfo | null } {
-  return { chat: lastChatBackend, embed: lastEmbedBackend };
+export function getLastBackendInfo(): { chat: BackendInfo | null; embed: BackendInfo | null; router: BackendInfo | null } {
+  return { chat: lastChatBackend, embed: lastEmbedBackend, router: lastRouterBackend };
 }
 
 type WllamaInstance = Awaited<ReturnType<typeof loadWllama>>;
 let wllamaChatInstance: WllamaInstance | null = null;
 let wllamaEmbedInstance: WllamaInstance | null = null;
+let wllamaRouterInstance: WllamaInstance | null = null;
 let chatLoadPromise: Promise<WllamaInstance> | null = null;
 let embedLoadPromise: Promise<WllamaInstance> | null = null;
+let routerLoadPromise: Promise<WllamaInstance> | null = null;
 
 async function loadWllama(): Promise<{
   createCompletion: (prompt: string, opts: unknown) => Promise<string>;
@@ -58,10 +61,13 @@ async function loadWllama(): Promise<{
 export function resetLocalPipelines() {
   chatLoadPromise = null;
   embedLoadPromise = null;
+  routerLoadPromise = null;
   wllamaChatInstance = null;
   wllamaEmbedInstance = null;
+  wllamaRouterInstance = null;
   lastChatBackend = null;
   lastEmbedBackend = null;
+  lastRouterBackend = null;
 }
 
 function getChatModelConfig(): { modelId: string; filePath: string } {
@@ -83,6 +89,14 @@ function getEmbedModelConfig(): { modelId: string; filePath: string } {
       "Embedding model not configured. Set NEXT_PUBLIC_WLLAMA_EMBED_MODEL_ID and NEXT_PUBLIC_WLLAMA_EMBED_FILE in config.ini."
     );
   }
+  return { modelId, filePath };
+}
+
+/** Router model config. Returns null if either env var is missing (two-layer router disabled). */
+function getRouterModelConfig(): { modelId: string; filePath: string } | null {
+  const modelId = (config.wllamaRouterModelId || "").trim();
+  const filePath = (config.wllamaRouterFile || "").trim();
+  if (!modelId || !filePath) return null;
   return { modelId, filePath };
 }
 
@@ -151,6 +165,55 @@ async function getWllamaChat(args?: { initProgressCallback?: InitProgressCallbac
   return chatLoadPromise;
 }
 
+async function getWllamaRouter(args?: { initProgressCallback?: InitProgressCallback }): Promise<WllamaInstance> {
+  const cfg = getRouterModelConfig();
+  if (!cfg) throw new Error("Router model not configured. Set NEXT_PUBLIC_WLLAMA_ROUTER_MODEL_ID and NEXT_PUBLIC_WLLAMA_ROUTER_FILE.");
+  if (wllamaRouterInstance) return wllamaRouterInstance;
+  if (routerLoadPromise) return routerLoadPromise;
+
+  const { modelId, filePath } = cfg;
+  const report = (p: number, text: string) => {
+    try {
+      args?.initProgressCallback?.({ progress: p, text });
+    } catch {
+      /* ignore */
+    }
+  };
+
+  report(0, "Initializing router model…");
+
+  routerLoadPromise = (async () => {
+    const wllama = await loadWllama();
+    await wllama.loadModelFromHF(modelId, filePath, {
+      n_ctx: 1024,
+      parallelDownloads: 5,
+      useCache: true,
+      progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
+        const p = total > 0 ? loaded / total : 0;
+        const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
+        report(p * 0.98, `Downloading router model… ${percent}%`);
+      },
+    });
+
+    report(0.98, "Router model ready");
+    wllamaRouterInstance = wllama;
+    const hasSAB = typeof (globalThis as unknown as { SharedArrayBuffer?: unknown }).SharedArrayBuffer === "function";
+    const nThreads = typeof navigator !== "undefined" && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : null;
+    lastRouterBackend = {
+      device: "wasm",
+      dtype: "gguf",
+      modelId: `${modelId}/${filePath}`,
+      webgpuAvailable: false,
+      crossOriginIsolated: typeof crossOriginIsolated !== "undefined" ? crossOriginIsolated : false,
+      sharedArrayBuffer: hasSAB,
+      wasmNumThreads: nThreads,
+    };
+    return wllama;
+  })();
+
+  return routerLoadPromise;
+}
+
 async function getWllamaEmbed(args?: { initProgressCallback?: InitProgressCallback }): Promise<WllamaInstance> {
   if (wllamaEmbedInstance) return wllamaEmbedInstance;
   if (embedLoadPromise) return embedLoadPromise;
@@ -217,6 +280,18 @@ export async function getEmbedPipeline(initProgressCallback?: InitProgressCallba
   return (input: string) => wllama.createEmbedding(input);
 }
 
+export async function getRouterPipeline(initProgressCallback?: InitProgressCallback) {
+  const wllama = await getWllamaRouter({ initProgressCallback });
+  return (prompt: string, opts: Record<string, unknown>) =>
+    wllama.createCompletion(prompt, {
+      nPredict: Math.max(1, Math.min(256, Number(opts.max_new_tokens) || 64)),
+      sampling: {
+        temp: Number(opts.temperature ?? 0),
+        top_p: Number(opts.top_p ?? 1),
+      },
+    });
+}
+
 const SYSTEM_DIRECT_RESPONSE =
   "Respond directly and concisely. Do not use internal thought tags or headers. Start your response immediately with the answer.";
 
@@ -258,6 +333,24 @@ export async function generateTextFromMessages(
 
   const result = await gen(prompt, {
     max_new_tokens: opts?.maxNewTokens ?? 256,
+    temperature: opts?.temperature ?? 0,
+    top_p: opts?.topP ?? 1,
+  });
+
+  const raw = (typeof result === "string" ? result : String(result ?? "")).trim();
+  return stripInternalTags(raw);
+}
+
+/** Router model generation (Qwen3 etc.). Uses same chat template; caller should append " /no_think " to user content when needed. */
+export async function generateTextFromMessagesRouter(
+  messages: LlmMessage[],
+  opts?: { maxNewTokens?: number; temperature?: number; topP?: number }
+): Promise<string> {
+  const gen = await getRouterPipeline();
+  const prompt = llama3ChatTemplate(messages);
+
+  const result = await gen(prompt, {
+    max_new_tokens: opts?.maxNewTokens ?? 64,
     temperature: opts?.temperature ?? 0,
     top_p: opts?.topP ?? 1,
   });
@@ -312,6 +405,17 @@ export async function loadEmbedPipelineFromCache(): Promise<boolean> {
   }
 }
 
+export async function loadRouterPipelineFromCache(): Promise<boolean> {
+  const cfg = getRouterModelConfig();
+  if (!cfg) return false;
+  if (routerLoadPromise || wllamaRouterInstance) return true;
+  try {
+    return await isModelInCache(cfg.modelId, cfg.filePath);
+  } catch {
+    return false;
+  }
+}
+
 export async function clearWllamaModelCache(): Promise<{ cachesDeleted: string[]; idbDeleted: string[] }> {
   resetLocalPipelines();
   const cachesDeleted: string[] = [];
@@ -339,8 +443,13 @@ export async function clearWllamaModelCache(): Promise<{ cachesDeleted: string[]
         return null;
       }
     })();
+    const routerUrl = (() => {
+      const cfg = getRouterModelConfig();
+      if (!cfg) return null;
+      return hfUrl(cfg.modelId, cfg.filePath);
+    })();
     const list = await w.cacheManager.list();
-    const toDelete = new Set([chatUrl, embedUrl].filter(Boolean) as string[]);
+    const toDelete = new Set([chatUrl, embedUrl, routerUrl].filter(Boolean) as string[]);
     if (toDelete.size > 0) {
       await w.cacheManager.deleteMany((entry) => {
         const url = entry.metadata?.originalURL;

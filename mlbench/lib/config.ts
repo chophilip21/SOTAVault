@@ -23,6 +23,8 @@ export const config = {
   // ── In-browser models (wllama / CPU multi-threaded WASM) ─────────────────
   // Primary source: repo-root config.ini → exported by local.sh as NEXT_PUBLIC_* vars.
   // Downloaded from Hugging Face when the user clicks "Download" on the AI chat page.
+  wllamaRouterModelId: process.env.NEXT_PUBLIC_WLLAMA_ROUTER_MODEL_ID || "",
+  wllamaRouterFile: process.env.NEXT_PUBLIC_WLLAMA_ROUTER_FILE || "",
   wllamaChatModelId: process.env.NEXT_PUBLIC_WLLAMA_CHAT_MODEL_ID || "",
   wllamaChatFile: process.env.NEXT_PUBLIC_WLLAMA_CHAT_FILE || "",
   wllamaEmbedModelId: process.env.NEXT_PUBLIC_WLLAMA_EMBED_MODEL_ID || "",

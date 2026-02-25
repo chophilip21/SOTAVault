@@ -181,12 +181,12 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
 
       {/* Sidebar */}
       <aside
-        className="fixed left-0 top-20 h-[calc(100vh-5rem)] w-screen md:w-64 bg-gray-50 border-r border-gray-200 z-[40] transform transition-transform duration-300 ease-in-out overflow-y-auto"
+        className="fixed left-0 top-20 h-[calc(100vh-5rem)] w-screen md:w-64 bg-gray-50 border-r border-gray-200 z-[40] transform transition-transform duration-300 ease-in-out flex flex-col"
         style={{ transform: isOpen ? 'translateX(0)' : 'translateX(-100%)' }}
       >
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full min-h-0">
           {/* Sidebar Header - Only on mobile */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-200 md:hidden">
+          <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-gray-200 md:hidden">
             <h2 className="text-lg font-semibold text-gray-900">Navigation</h2>
             <button
               onClick={onClose}
@@ -209,9 +209,9 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
             </button>
           </div>
 
-          {/* Navigation Items */}
-          <nav className="flex-1 p-4 flex flex-col">
-            <ul className="space-y-2 flex-1">
+          {/* Navigation Items - scrollable so footer stays visible */}
+          <nav className="flex-1 min-h-0 p-4 flex flex-col overflow-hidden">
+            <ul className="space-y-2 min-h-0 overflow-y-auto flex-1">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
                 const requiresAuth = protectedRoutes.includes(item.href);
@@ -278,10 +278,10 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
             </ul>
 
             {/* Divider */}
-            <div className="border-t border-gray-200 my-4"></div>
+            <div className="border-t border-gray-200 my-4 flex-shrink-0"></div>
 
-            {/* Second-tier Navigation */}
-            <ul className="space-y-1">
+            {/* Second-tier Navigation - always visible at bottom */}
+            <ul className="space-y-1 flex-shrink-0 pb-6">
               <li>
                 <Link
                   href="/terms"

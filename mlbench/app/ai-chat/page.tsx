@@ -1,7 +1,7 @@
 "use client";
 import { Playfair_Display } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { downloadLocalModels, probeLocalModelsFromCache, removeCachedLocalModels, routePrompt } from "@/lib/ai/agent";
+import { downloadLocalModels, probeLocalModelsFromCache, removeCachedLocalModels, routePrompt, warmupAllModels, unloadLocalModels } from "@/lib/ai/agent";
 import { routerDebugGroup, routerDebugLog } from "@/lib/routerDebug";
 import Image from "next/image";
 import { useChatMemory } from "./useChatMemory";
@@ -11,6 +11,8 @@ import { useRagSearch } from "./useRagSearch";
 import { answerWebsiteQuestion, looksLikeWebsiteQuestion } from "./websiteNavigator";
 import { answerFollowUpFromMemory, answerMlQuestion, clarifyAmbiguity } from "@/lib/ai/chains";
 import { config } from "@/lib/config";
+
+const ROUTER_REQUIRED = !!(config.wllamaRouterModelId?.trim() && config.wllamaRouterFile?.trim());
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -100,6 +102,7 @@ export default function AIChatPage() {
     checking: boolean;
     chatCached: boolean;
     embedCached: boolean;
+    routerCached?: boolean;
     webgpuAvailable?: boolean;
   }>({ checking: true, chatCached: false, embedCached: false });
 
@@ -116,7 +119,11 @@ export default function AIChatPage() {
   // produce a backwards-moving bar — state is only ever set to a value >= this ref.
   const progressCeilingRef = useRef(0);
 
-  const canChat = engineState.state === "ready" && requirements.chatCached;
+  const allModelsCached =
+    requirements.chatCached &&
+    requirements.embedCached &&
+    (!ROUTER_REQUIRED || requirements.routerCached === true);
+  const canChat = engineState.state === "ready";
   const showWebGpuDetails = false; // unused; dead WebGPU block below never rendered
 
   const canSend = useMemo(() => input.trim().length > 0 && !isSending && canChat, [input, isSending, canChat]);
@@ -124,19 +131,21 @@ export default function AIChatPage() {
   const isLoadingModel = engineState.state === "loading";
   const isReady = engineState.state === "ready";
   const hasConversation = messages.length > 0;
+  const warmupStartedRef = useRef(false);
+
   useEffect(() => {
     // Do NOT auto-download models. Only probe browser cache.
     let cancelled = false;
     setRequirements((r) => ({ ...r, checking: true }));
     setEngineState({ state: "idle" });
+    warmupStartedRef.current = false;
 
-    // Probe cache asynchronously (no downloads).
     Promise.resolve()
       .then(() => probeLocalModelsFromCache())
-      .then(({ chatCached, embedCached }) => {
+      .then(({ chatCached, embedCached, routerCached }) => {
         if (cancelled) return;
-        setRequirements({ checking: false, chatCached, embedCached });
-        if (chatCached) setEngineState({ state: "ready" });
+        setRequirements({ checking: false, chatCached, embedCached, routerCached });
+        // Do NOT set ready here. Warmup effect will run when allModelsCached and load models, then set ready.
       })
       .catch(() => {
         if (cancelled) return;
@@ -145,6 +154,39 @@ export default function AIChatPage() {
 
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // When cache is complete, warmup load all models into memory; only then greenlight chat. Run once per mount.
+  useEffect(() => {
+    if (requirements.checking || !allModelsCached || warmupStartedRef.current) return;
+    if (engineState.state === "ready" || engineState.state === "loading") return;
+
+    warmupStartedRef.current = true;
+    setEngineState({ state: "loading", progress: 0, text: "Warmup…" });
+
+    const progressCeiling = progressCeilingRef;
+    function advance(p: number, text: string) {
+      const next = Math.min(1, Math.max(progressCeiling.current, p));
+      progressCeiling.current = next;
+      setEngineState((prev) => (prev.state === "loading" ? { state: "loading", progress: next, text } : prev));
+    }
+
+    warmupAllModels((r) => advance(r.progress, r.text))
+      .then(() => {
+        setEngineState({ state: "ready" });
+      })
+      .catch((err: unknown) => {
+        if (typeof console !== "undefined" && console.error) console.error("Warmup failed", err);
+        setEngineState({ state: "error", message: err instanceof Error ? err.message : "Warmup failed." });
+        warmupStartedRef.current = false;
+      });
+  }, [requirements.checking, allModelsCached, requirements.chatCached, requirements.embedCached, requirements.routerCached]);
+
+  // Unload models when user leaves the AI chat tab so memory is freed until they return.
+  useEffect(() => {
+    return () => {
+      unloadLocalModels();
     };
   }, []);
 
@@ -184,8 +226,8 @@ export default function AIChatPage() {
       await downloadLocalModels((r) => advanceProgress(r.progress, r.text));
       // Snap to 100 % so user sees a complete bar before the overlay disappears.
       advanceProgress(1, "Complete");
-      const { chatCached, embedCached } = await probeLocalModelsFromCache();
-      setRequirements((prev) => ({ ...prev, chatCached, embedCached }));
+      const { chatCached, embedCached, routerCached } = await probeLocalModelsFromCache();
+      setRequirements((prev) => ({ ...prev, chatCached, embedCached, routerCached }));
       setEngineState({ state: "ready" });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to download models.";
@@ -205,8 +247,8 @@ export default function AIChatPage() {
     setEngineState({ state: "loading", progress: 0, text: "Clearing model cache…" });
     try {
       await removeCachedLocalModels();
-      const { chatCached, embedCached } = await probeLocalModelsFromCache();
-      setRequirements((prev) => ({ ...prev, chatCached, embedCached }));
+      const { chatCached, embedCached, routerCached } = await probeLocalModelsFromCache();
+      setRequirements((prev) => ({ ...prev, chatCached, embedCached, routerCached }));
       setEngineState({ state: "idle" });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to clear model cache.";
@@ -342,16 +384,16 @@ export default function AIChatPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-5rem)] overflow-hidden px-4 sm:px-6 lg:px-8 py-6">
-      <div className="h-full mx-auto w-full max-w-6xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px]">
+    <div className="min-h-[calc(100vh-5rem)] h-[calc(100vh-5rem)] flex flex-col overflow-hidden px-4 sm:px-6 lg:px-8 py-6">
+      <div className="flex-1 min-h-0 mx-auto w-full max-w-6xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] flex flex-col">
         {/* Background gradient */}
-        <div className="h-full rounded-[28px] bg-gradient-to-br from-slate-50 via-rose-50 to-violet-100 p-4 sm:p-6 border border-white/60 shadow-[0_20px_60px_rgba(15,23,42,0.10)]">
+        <div className="flex-1 min-h-0 rounded-[28px] bg-gradient-to-br from-slate-50 via-rose-50 to-violet-100 p-4 sm:p-6 border border-white/60 shadow-[0_20px_60px_rgba(15,23,42,0.10)] flex flex-col">
           {/* Glass card */}
-          <div className="relative h-full rounded-[24px] bg-white/65 backdrop-blur-xl border border-white/70 shadow-sm overflow-hidden flex flex-col">
-            {/* Header */}
+          <div className="relative flex-1 min-h-0 rounded-[24px] bg-white/65 backdrop-blur-xl border border-white/70 shadow-sm overflow-hidden flex flex-col">
+            {/* Header - shrink so messages area can take space */}
             <div
               className={[
-                "border-b border-white/60 transition-all duration-500 ease-in-out",
+                "flex-shrink-0 border-b border-white/60 transition-all duration-500 ease-in-out",
                 hasConversation ? "px-4 sm:px-6 py-3" : "px-5 sm:px-7 pt-5 sm:pt-7 pb-4",
               ].join(" ")}
             >
@@ -412,7 +454,7 @@ export default function AIChatPage() {
                     Ask about papers, concepts, or how to use MLBench. Responses run locally in your browser (CPU, multi-threaded).
                   </p>
 
-                  {(requirements.chatCached || requirements.embedCached) && engineState.state !== "loading" && (
+                  {(requirements.chatCached || requirements.embedCached || requirements.routerCached) && engineState.state !== "loading" && (
                     <div className="mt-3">
                       <button
                         onClick={() => void handleRemoveCachedModels()}
@@ -462,72 +504,78 @@ export default function AIChatPage() {
               </div>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-hidden">
-              <div className="relative h-full px-4 sm:px-7 py-4 overflow-y-auto">
+            {/* Messages - takes remaining height and scrolls */}
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+              <div className="relative flex-1 min-h-0 px-4 sm:px-7 py-4 overflow-y-auto">
                 {messages.length === 0 ? (
-                  <div className="h-full flex items-center justify-center">
+                  <div className="min-h-full flex items-center justify-center py-4">
                     {requirements.checking ? (
                       <div className="text-center max-w-lg">
                         <div className="text-sm font-semibold text-gray-900">Checking local model cache…</div>
                         <div className="text-sm text-gray-600 mt-1">This won’t download anything.</div>
                       </div>
-                    ) : !requirements.chatCached || !requirements.embedCached ? (
+                    ) : !allModelsCached ? (
                       <div className="w-full max-w-xl space-y-4">
-                        {(!requirements.chatCached || !requirements.embedCached) && (
-                          <div className="rounded-3xl border border-amber-200 bg-amber-50/70 px-5 py-5">
-                            <div className="flex flex-col items-center text-center gap-3">
-                              <Image
-                                src="/warning.png"
-                                alt="Models not cached"
-                                width={84}
-                                height={84}
-                                className="opacity-90"
-                              />
-                              <div>
-                                <div className="text-sm font-semibold text-gray-900">Models must be downloaded first</div>
-                                <div className="text-sm text-gray-700 mt-1">
-                                  The LLM models must be downloaded to browser cache first before chatting.
-                                </div>
-                                <div className="mt-3 text-xs text-gray-700 space-y-0.5">
+                        <div className="rounded-3xl border border-amber-200 bg-amber-50/70 px-5 py-5">
+                          <div className="flex flex-col items-center text-center gap-3">
+                            <Image
+                              src="/warning.png"
+                              alt="Models not cached"
+                              width={84}
+                              height={84}
+                              className="opacity-90"
+                            />
+                            <div>
+                              <div className="text-sm font-semibold text-gray-900">All models must be downloaded first</div>
+                              <div className="text-sm text-gray-700 mt-1">
+                                Download all three models to browser cache before chatting. After download, models are loaded into memory (warmup) and then you can start.
+                              </div>
+                              <div className="mt-3 text-xs text-gray-700 space-y-0.5">
+                                {ROUTER_REQUIRED && (
                                   <div>
-                                    Chat model:{" "}
-                                    <span className={requirements.chatCached ? "font-semibold text-emerald-700" : "font-semibold text-amber-800"}>
-                                      {requirements.chatCached ? "cached" : "not cached"}
+                                    Router model:{" "}
+                                    <span className={requirements.routerCached ? "font-semibold text-emerald-700" : "font-semibold text-amber-800"}>
+                                      {requirements.routerCached ? "cached" : "not cached"}
                                     </span>
-                                  </div>
-                                  <div>
-                                    Embedding model:{" "}
-                                    <span className={requirements.embedCached ? "font-semibold text-emerald-700" : "font-semibold text-amber-800"}>
-                                      {requirements.embedCached ? "cached" : "not cached"}
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="mt-4">
-                                  <button
-                                    onClick={() => void handleDownloadModels()}
-                                    disabled={engineState.state === "loading"}
-                                    className="inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-gray-900 text-white font-semibold text-sm hover:bg-gray-800 disabled:opacity-60"
-                                  >
-                                    Download models
-                                  </button>
-                                </div>
-
-                                {(requirements.chatCached || requirements.embedCached) && (
-                                  <div className="mt-3">
-                                    <button
-                                      onClick={() => void handleRemoveCachedModels()}
-                                      disabled={engineState.state === "loading"}
-                                      className="inline-flex items-center justify-center px-3 py-1.5 rounded-2xl border border-amber-300 text-amber-900 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60"
-                                    >
-                                      Remove cached models
-                                    </button>
                                   </div>
                                 )}
+                                <div>
+                                  Chat model:{" "}
+                                  <span className={requirements.chatCached ? "font-semibold text-emerald-700" : "font-semibold text-amber-800"}>
+                                    {requirements.chatCached ? "cached" : "not cached"}
+                                  </span>
+                                </div>
+                                <div>
+                                  Embedding model:{" "}
+                                  <span className={requirements.embedCached ? "font-semibold text-emerald-700" : "font-semibold text-amber-800"}>
+                                    {requirements.embedCached ? "cached" : "not cached"}
+                                  </span>
+                                </div>
                               </div>
+                              <div className="mt-4">
+                                <button
+                                  onClick={() => void handleDownloadModels()}
+                                  disabled={engineState.state === "loading"}
+                                  className="inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-gray-900 text-white font-semibold text-sm hover:bg-gray-800 disabled:opacity-60"
+                                >
+                                  Download models
+                                </button>
+                              </div>
+
+                              {(requirements.chatCached || requirements.embedCached || requirements.routerCached) && (
+                                <div className="mt-3">
+                                  <button
+                                    onClick={() => void handleRemoveCachedModels()}
+                                    disabled={engineState.state === "loading"}
+                                    className="inline-flex items-center justify-center px-3 py-1.5 rounded-2xl border border-amber-300 text-amber-900 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60"
+                                  >
+                                    Remove cached models
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </div>
-                        )}
+                        </div>
                       </div>
                     ) : (
                       <div className="text-center max-w-lg">
@@ -661,8 +709,8 @@ export default function AIChatPage() {
               </div>
             </div>
 
-            {/* Composer */}
-            <div className="px-4 sm:px-7 py-4 border-t border-white/60 bg-white/50">
+            {/* Composer - always visible at bottom */}
+            <div className="flex-shrink-0 px-4 sm:px-7 py-4 border-t border-white/60 bg-white/50">
               <div className="flex gap-2 items-stretch">
                 <div className="flex-1">
                   <input
