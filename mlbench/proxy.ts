@@ -9,7 +9,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * from another page (client-side nav does not reload the document).
  * next.config.ts headers() can have ordering issues; middleware always wins.
  */
-export function middleware(_request: NextRequest) {
+export function proxy(_request: NextRequest) {
   const response = NextResponse.next();
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
   response.headers.set("Cross-Origin-Embedder-Policy", "credentialless");
