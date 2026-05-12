@@ -128,8 +128,8 @@ export default function Header() {
             <div className="flex items-center pl-4 sm:pl-8 lg:pl-16">
               <Link href="/" className="flex items-center">
                 <Image
-                  src="/logo.svg"
-                  alt="MLBench Logo"
+                  src="/sotavault.svg"
+                  alt="sotavault Logo"
                   width={120}
                   height={120}
                   className="object-contain h-[60px] w-[60px] sm:h-[80px] sm:w-[80px] md:h-[100px] md:w-[100px] lg:h-[120px] lg:w-[120px]"

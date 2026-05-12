@@ -19,9 +19,9 @@ const ConferenceMap = dynamic(() => import("./components/ConferenceMap"), { ssr:
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
 
-const annoucement_header = `Welcome to MLTree 👋`;
+const annoucement_header = `Welcome to SotaVault `;
 const description = `
-MLTree is a non-commercial project to help researchers and machine learning enthusiasts discover machine learning conferences, research papers, and benchmark scores on various datasets.
+SotaVault is a non-commercial project to help researchers and machine learning enthusiasts discover machine learning conferences, research papers, and benchmark scores on various datasets.
 Stay up-to-date with upcoming deadlines, explore venues worldwide, and access a curated collection
 of impactful research from the ML community.
 `;

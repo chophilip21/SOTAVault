@@ -57,7 +57,7 @@ function hasPriorContext(memory?: RouterMemoryContext): boolean {
 function looksLikeWebsiteDataSourceQuestion(prompt: string): boolean {
   const p = prompt.toLowerCase();
   const asksHowData = /\b(where|how)\b[\s\S]{0,80}\b(data|dataset|source|collected|collection|gather|gathered)\b/.test(p);
-  const aboutUs = /\b(mlbench|mltree|this website|this site|your website|your site|your app|this app)\b/.test(p);
+  const aboutUs = /\b(mlbench|SotaVault|this website|this site|your website|your site|your app|this app)\b/.test(p);
   const aboutYou = /\b(you|your)\b/.test(p);
   return asksHowData && (aboutUs || aboutYou);
 }

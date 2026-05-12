@@ -309,7 +309,7 @@ export default function AIChatPage() {
                       </svg>
                     </div>
 
-                    <span className="text-sm font-semibold text-gray-900">MLTree AI Chat</span>
+                    <span className="text-sm font-semibold text-gray-900">SotaVault AI Chat</span>
 
                     {/* Status pills */}
                     <div className="flex items-center gap-1.5 ml-1">
@@ -330,7 +330,7 @@ export default function AIChatPage() {
               >
                 <div className="flex flex-col items-center text-center">
                   <h1 className={`mt-4 text-2xl sm:text-4xl font-bold text-gray-900 ${playfairDisplay.className}`}>
-                    Hi, I'm MLTree LLM Agent (Beta Mode)
+                    Hi, I'm SotaVault LLM Agent (Beta Mode)
                   </h1>
                   <p className="text-sm text-gray-600 mt-2 max-w-2xl">
                     Ask about papers, concepts, or how to use MLBench.
