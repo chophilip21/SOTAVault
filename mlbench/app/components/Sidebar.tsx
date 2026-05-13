@@ -246,6 +246,32 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                         </span>
                       </button>
                     ) : (
+                      item.href === "/ai-chat" ? (
+                      <a
+                        href={item.href}
+                        onClick={() => {
+                          if (window.innerWidth < 768) {
+                            onClose();
+                          }
+                        }}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${isActive
+                          ? "bg-green-50 text-green-600 border-l-4 border-green-500"
+                          : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                          }`}
+                      >
+                        <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
+                          {item.icon}
+                        </span>
+                        <span className="flex items-center gap-2">
+                          {item.name}
+                          {item.beta && (
+                            <span className="text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+                              BETA
+                            </span>
+                          )}
+                        </span>
+                      </a>
+                      ) : (
                       <Link
                         href={item.href}
                         onClick={() => {
@@ -271,6 +297,7 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                           )}
                         </span>
                       </Link>
+                      )
                     )}
                   </li>
                 );
