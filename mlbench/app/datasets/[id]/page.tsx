@@ -23,6 +23,8 @@ interface Dataset {
   variants?: string[];
   task_ids?: string[];
   paper_count?: number;
+  series_id: string;
+  series_name?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -397,9 +399,15 @@ export default function DatasetDetailPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <Link href="/benchmark" className="text-green-600 hover:underline inline-flex items-center gap-1">
-        <span>←</span> Back to Benchmarks
-      </Link>
+      {dataset.series_id ? (
+        <Link href={`/dataset-series/${dataset.series_id}`} className="text-green-600 hover:underline inline-flex items-center gap-1">
+          <span>←</span> Back to {dataset.series_name || 'Series'}
+        </Link>
+      ) : (
+        <Link href="/benchmark" className="text-green-600 hover:underline inline-flex items-center gap-1">
+          <span>←</span> Back to Benchmarks
+        </Link>
+      )}
 
       <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm">
         <div className="flex items-start gap-6">

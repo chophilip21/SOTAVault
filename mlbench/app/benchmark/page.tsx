@@ -155,10 +155,7 @@ export default function BenchmarkPage() {
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
 
-  // On-demand "papers using this dataset" preview.
-  const [openPapersFor, setOpenPapersFor] = useState<string | null>(null);
-  const [papersByDatasetId, setPapersByDatasetId] = useState<Record<string, PaperRef[]>>({});
-  const [papersLoadingByDatasetId, setPapersLoadingByDatasetId] = useState<Record<string, boolean>>({});
+
   const taskDropdownRef = useRef<HTMLDivElement>(null);
   const restoredRef = useRef(false);
   const skipNextSearchEffectRef = useRef(false);
@@ -170,7 +167,7 @@ export default function BenchmarkPage() {
     setLoading(true);
     setError(null);
     try {
-      const url = new URL(`${getBackendBaseUrl()}/datasets/`);
+      const url = new URL(`${getBackendBaseUrl()}/dataset_series/`);
       url.searchParams.set("limit", limit.toString());
       if (cursor) {
         url.searchParams.set("cursor", cursor);
@@ -626,46 +623,33 @@ export default function BenchmarkPage() {
   const renderBubbles = (benchmark: Benchmark) => {
     const MAX_VISIBLE_TAGS = 8;
 
-    const validModalities = (benchmark.modalities || [])
-      .filter((m) => /^[\x00-\x7F]*$/.test(m)); // Filter out non-English modalities
-
     const validTaskNames = (benchmark.task_ids || [])
       .map((id) => taskById[id]?.name)
       .filter(Boolean)
       .filter((name) => /^[\x00-\x7F]*$/.test(name as string)) // Filter out non-English (non-ASCII) tags
       .map((name) => formatTaskName(name as string))
-      .filter((name) => name.toLowerCase() !== "task"); // Filter out generic "task" label
+      .filter((name) => name.toLowerCase() !== "task") // Filter out generic "task" label
+      .map((name) => name.toLowerCase() === "none" ? "Other" : name);
 
     // Deduplicate task names
-    const uniqTasks = Array.from(new Set(validTaskNames)).sort((a, b) => a.localeCompare(b));
+    let uniqTasks = Array.from(new Set(validTaskNames)).sort((a, b) => a.localeCompare(b));
 
-    const totalCount = validModalities.length + uniqTasks.length;
-    let visibleModalities = validModalities;
+    const hasUnresolvedTasks = (benchmark.task_ids || []).some(
+      (id) => !taskById[id] && !missingTaskIdsRef.current.has(id),
+    );
+
+    if (uniqTasks.length === 0 && !hasUnresolvedTasks) {
+      uniqTasks = ["Other"];
+    }
+
+    const totalCount = uniqTasks.length;
     let visibleTasks = uniqTasks;
     let overflowCount = 0;
 
     if (totalCount > MAX_VISIBLE_TAGS) {
-      // Prioritize modalities, then fill remaining slots with task tags.
-      // If modalities alone exceed MAX, they get truncated too.
-      if (validModalities.length >= MAX_VISIBLE_TAGS) {
-        visibleModalities = validModalities.slice(0, MAX_VISIBLE_TAGS);
-        visibleTasks = [];
-        overflowCount = totalCount - MAX_VISIBLE_TAGS;
-      } else {
-        const remainingSlots = MAX_VISIBLE_TAGS - validModalities.length;
-        visibleTasks = uniqTasks.slice(0, remainingSlots);
-        overflowCount = totalCount - (validModalities.length + visibleTasks.length);
-      }
+      visibleTasks = uniqTasks.slice(0, MAX_VISIBLE_TAGS);
+      overflowCount = totalCount - MAX_VISIBLE_TAGS;
     }
-
-    const modalityBubbles = visibleModalities.map((m) => (
-      <span
-        key={`m:${m}`}
-        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100"
-      >
-        {m}
-      </span>
-    ));
 
     const taskBubbles = visibleTasks.map((t) => (
       <span
@@ -676,15 +660,10 @@ export default function BenchmarkPage() {
       </span>
     ));
 
-    const hasUnresolvedTasks = (benchmark.task_ids || []).some(
-      (id) => !taskById[id] && !missingTaskIdsRef.current.has(id),
-    );
-
-    if (modalityBubbles.length === 0 && taskBubbles.length === 0) return null;
+    if (taskBubbles.length === 0 && !hasUnresolvedTasks) return null;
 
     return (
       <div className="mt-3 flex flex-wrap gap-1">
-        {modalityBubbles}
         {taskBubbles}
         {overflowCount > 0 && (
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-500 border border-gray-200" title={`${overflowCount} more tags`}>
@@ -700,24 +679,7 @@ export default function BenchmarkPage() {
     );
   };
 
-  const togglePapersPreview = async (datasetId: string) => {
-    setOpenPapersFor((prev) => (prev === datasetId ? null : datasetId));
-    if (papersByDatasetId[datasetId]) return;
-    if (papersLoadingByDatasetId[datasetId]) return;
 
-    setPapersLoadingByDatasetId((prev) => ({ ...prev, [datasetId]: true }));
-    try {
-      const url = new URL(`${getBackendBaseUrl()}/datasets/${datasetId}/papers`);
-      url.searchParams.set("limit", "6");
-      url.searchParams.set("offset", "0");
-      const res = await fetch(url.toString());
-      if (!res.ok) return;
-      const data: PaperListResponse = await res.json();
-      setPapersByDatasetId((prev) => ({ ...prev, [datasetId]: data.items || [] }));
-    } finally {
-      setPapersLoadingByDatasetId((prev) => ({ ...prev, [datasetId]: false }));
-    }
-  };
 
   return (
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -977,11 +939,19 @@ export default function BenchmarkPage() {
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <Link href={`/datasets/${benchmark.id}`}>
-                  <h2 className="text-base font-semibold text-gray-900 hover:text-green-600 transition leading-tight line-clamp-2">
-                    <MathText>{benchmark.name}</MathText>
-                  </h2>
-                </Link>
+                {isSearchMode ? (
+                  <Link href={`/datasets/${benchmark.id}`}>
+                    <h2 className="text-base font-semibold text-gray-900 hover:text-green-600 transition leading-tight line-clamp-2">
+                      <MathText>{benchmark.name}</MathText>
+                    </h2>
+                  </Link>
+                ) : (
+                  <Link href={`/dataset-series/${benchmark.id}`}>
+                    <h2 className="text-base font-semibold text-gray-900 hover:text-green-600 transition leading-tight line-clamp-2">
+                      <MathText>{benchmark.name}</MathText>
+                    </h2>
+                  </Link>
+                )}
                 {benchmark.full_name && benchmark.full_name !== benchmark.name && (
                   <p className="text-xs text-gray-500 mt-1 truncate">
                     <MathText>{benchmark.full_name}</MathText>
@@ -998,51 +968,7 @@ export default function BenchmarkPage() {
             {/* Bubbles for modalities and tasks */}
             {renderBubbles(benchmark)}
 
-            {/* Paper count & preview */}
-            {benchmark.paper_count !== undefined && benchmark.paper_count > 0 && (
-              <div className="mt-3 text-sm text-gray-600">
-                <button
-                  type="button"
-                  onClick={() => togglePapersPreview(benchmark.id)}
-                  className="inline-flex items-center gap-2 text-gray-700 hover:text-green-700"
-                  aria-expanded={openPapersFor === benchmark.id}
-                >
-                  <span className="text-xs">
-                    {benchmark.paper_count} {benchmark.paper_count === 1 ? "paper" : "papers"}
-                  </span>
-                  <span className="text-gray-400 text-xs" aria-hidden>
-                    {openPapersFor === benchmark.id ? "▴" : "▾"}
-                  </span>
-                </button>
 
-                {openPapersFor === benchmark.id && (
-                  <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                    {papersLoadingByDatasetId[benchmark.id] ? (
-                      <div className="flex items-center gap-2 text-sm text-gray-500">
-                        <LoadingSpinner size="sm" />
-                        <span>Loading papers…</span>
-                      </div>
-                    ) : (papersByDatasetId[benchmark.id] || []).length === 0 ? (
-                      <div className="text-sm text-gray-500">No paper references found.</div>
-                    ) : (
-                      <div className="space-y-1">
-                        {(papersByDatasetId[benchmark.id] || []).slice(0, 6).map((p) => (
-                          <a
-                            key={p.id}
-                            href={`/papers/${p.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block text-sm text-green-700 hover:underline"
-                          >
-                            {p.title || p.id}
-                          </a>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Footer: Created date & Bookmark button */}
             <div className="mt-auto pt-3 space-y-2 flex flex-col items-center">
