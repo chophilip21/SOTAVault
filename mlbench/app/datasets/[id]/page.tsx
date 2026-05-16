@@ -4,10 +4,22 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import {
+  cleanMetricDescription,
+  formatMetricSubtitle,
+  type MetricDirection,
+} from "@/lib/metricDescription";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
+
+/** Matches GET /datasets/:id → metrics (same direction metadata as leaderboards). */
+type DatasetMetric = {
+  description: string;
+  direction: MetricDirection;
+  range_max: number | null;
+  range_min: number | null;
+};
 
 interface Dataset {
   id: string;
@@ -25,6 +37,7 @@ interface Dataset {
   paper_count?: number;
   series_id: string;
   series_name?: string;
+  metrics?: Record<string, DatasetMetric>;
   created_at?: string;
   updated_at?: string;
 }
@@ -66,13 +79,15 @@ type DatasetLeaderboardEntry = {
   created_at?: string;
 };
 
+/** Matches GET /datasets/:id/leaderboards items. */
 type DatasetLeaderboard = {
   id: string;
   dataset_id: string;
   task_id: string;
   metric_name: string;
-  metric_description?: string; // New field
-  higher_is_better: boolean;
+  direction: MetricDirection;
+  metric_description?: string | null;
+  metric_range_max?: number | null;
   entries: DatasetLeaderboardEntry[];
   top_k: number;
   computed_at?: string;
@@ -83,19 +98,61 @@ type DatasetLeaderboardListResponse = {
   limit_entries?: number | null;
 };
 
-function stripTrailingSourceLink(desc: string): string {
-  let s = (desc || "").trim();
-  if (!s) return s;
+type EntryValueStats = { min: number; max: number };
 
-  // Remove a trailing "Source: <url>" (or "source <url>") suffix, common in ingested descriptions.
-  // Do this iteratively to handle repeated "Source:" lines.
-  // Examples we want to catch:
-  // - "Source:https://example.com"
-  // - "Source: https://example.com"
-  // - "\nSource: https://example.com\n"
-  const re = /\s*(?:source)\s*:?\s*https?:\/\/\S+\s*$/i;
-  while (re.test(s)) s = s.replace(re, "").trim();
-  return s;
+function entryValueStats(entries: DatasetLeaderboardEntry[]): EntryValueStats | null {
+  const values = entries.map((e) => e.metric_value).filter((v) => Number.isFinite(v));
+  if (values.length === 0) return null;
+  return { min: Math.min(...values), max: Math.max(...values) };
+}
+
+/** Bar width 0–100 from API ``direction`` + values in the current leaderboard slice. */
+function barWidthPercent(
+  direction: MetricDirection,
+  value: number,
+  stats: EntryValueStats | null,
+  rangeMax: number | null | undefined,
+): number {
+  if (!Number.isFinite(value)) return 0;
+
+  const span = (v: number, min: number, max: number) => {
+    if (max === min) return v >= max ? 100 : 0;
+    return Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
+  };
+
+  if (direction === "higher" || direction === "target_centered") {
+    if (rangeMax != null && rangeMax > 0) {
+      return Math.max(0, Math.min(100, (value / rangeMax) * 100));
+    }
+    return stats ? span(value, stats.min, stats.max) : 0;
+  }
+
+  if (direction === "lower") {
+    if (rangeMax != null && rangeMax > 0) {
+      return Math.max(0, Math.min(100, (value / rangeMax) * 100));
+    }
+    return stats ? span(value, stats.min, stats.max) : 0;
+  }
+
+  if (direction === "zero_centered") {
+    const abs = Math.abs(value);
+    let deviation = 0;
+    if (rangeMax != null && rangeMax > 0) {
+      deviation = Math.max(0, Math.min(100, (abs / rangeMax) * 100));
+    } else if (stats) {
+      const cap = Math.max(Math.abs(stats.min), Math.abs(stats.max));
+      deviation = cap === 0 ? 0 : Math.max(0, Math.min(100, (abs / cap) * 100));
+    }
+    return Math.max(0, Math.min(100, 100 - deviation));
+  }
+
+  return stats ? span(value, stats.min, stats.max) : 0;
+}
+
+function barFillClass(direction: MetricDirection): string {
+  return direction === "lower"
+    ? "bg-gradient-to-r from-red-400 to-red-600"
+    : "bg-gradient-to-r from-green-400 to-green-600";
 }
 
 function stripWrappingQuotes(s: string): string {
@@ -260,10 +317,6 @@ export default function DatasetDetailPage() {
       const bm = (b.metric_name || "").toLowerCase();
       if (am < bm) return -1;
       if (am > bm) return 1;
-      const at = (a.task_id || "").toLowerCase();
-      const bt = (b.task_id || "").toLowerCase();
-      if (at < bt) return -1;
-      if (at > bt) return 1;
       return (a.id || "").localeCompare(b.id || "");
     });
     return copy;
@@ -362,17 +415,6 @@ export default function DatasetDetailPage() {
     const taskName = tasksById[lb.task_id]?.name;
     // Never show raw IDs to users (task_id is often a hash-like identifier).
     return taskName ? `${lb.metric_name} · ${taskName}` : lb.metric_name;
-  };
-
-  const barPct = (lb: DatasetLeaderboard, value: number, best: number) => {
-    if (!Number.isFinite(value) || !Number.isFinite(best)) return 0;
-    if (lb.higher_is_better) {
-      if (best === 0) return 0;
-      return Math.max(0, Math.min(100, (value / best) * 100));
-    }
-    // Lower is better: normalize against best (min). If values are non-positive, fall back to 0.
-    if (value <= 0 || best <= 0) return 0;
-    return Math.max(0, Math.min(100, (best / value) * 100));
   };
 
   if (loading) {
@@ -502,7 +544,7 @@ export default function DatasetDetailPage() {
           <div className="mt-6 pt-6 border-t border-gray-100">
             <h2 className="text-lg font-semibold text-gray-900 mb-2">Description</h2>
             <p className="text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
-              <MathText>{stripTrailingSourceLink(dataset.description)}</MathText>
+              <MathText>{cleanMetricDescription(dataset.description || "")}</MathText>
             </p>
           </div>
         )}
@@ -650,8 +692,8 @@ export default function DatasetDetailPage() {
               {selectedLeaderboard ? (
                 (() => {
                   const lb = selectedLeaderboard;
+                  const { direction, metric_description: metricDescription, metric_range_max: rangeMax } = lb;
                   const entriesAll = lb.entries || [];
-                  // Dedupe by logical_id (if available), otherwise by paper_id.
                   const seenLogical = new Set<string>();
                   const entries = entriesAll.filter((e) => {
                     const lid = paperLogicalIdById[e.paper_id] || e.paper_id;
@@ -660,17 +702,8 @@ export default function DatasetDetailPage() {
                     seenLogical.add(lid);
                     return true;
                   });
-                  const values = entries.map((e) => e.metric_value).filter((v) => Number.isFinite(v)) as number[];
-                  const best = lb.higher_is_better ? Math.max(...values, 0) : Math.min(...values, 0);
-
-                  const metricDesc = (lb.metric_description || "").trim();
-                  // Avoid double period: remove trailing period from description if present
-                  const cleanDesc = metricDesc.endsWith(".") ? metricDesc.slice(0, -1) : metricDesc;
-                  const direction = lb.higher_is_better ? "Higher is better" : "Lower is better";
-
-                  const description = cleanDesc
-                    ? `${cleanDesc}. ${direction}`
-                    : direction;
+                  const stats = entryValueStats(entries);
+                  const subtitle = formatMetricSubtitle(metricDescription, direction);
 
                   return (
                     <div className="mt-4 rounded-xl border border-gray-200 bg-white overflow-hidden">
@@ -678,9 +711,9 @@ export default function DatasetDetailPage() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="font-semibold text-gray-900 truncate">{leaderboardLabel(lb)}</div>
-                            <div className="text-xs text-gray-500 mt-0.5" title={lb.metric_description}>
-                              {description}
-                            </div>
+                            {subtitle ? (
+                              <div className="text-xs text-gray-500 mt-0.5">{subtitle}</div>
+                            ) : null}
                           </div>
                           <div className="text-xs text-gray-500 whitespace-nowrap">Top {entries.length}</div>
                         </div>
@@ -693,7 +726,8 @@ export default function DatasetDetailPage() {
                           {entries.map((e, idx) => {
                             const paperTitle = stripWrappingQuotes(paperTitleById[e.paper_id] || "");
                             const paperLabel = paperTitle || "Untitled paper";
-                            const pct = barPct(lb, e.metric_value, best);
+                            const pct = barWidthPercent(direction, e.metric_value, stats, rangeMax);
+                            const fillClass = barFillClass(direction);
                             return (
                               <div
                                 key={`${lb.id}:${e.paper_id}:${e.paper_result_id}`}
@@ -714,9 +748,16 @@ export default function DatasetDetailPage() {
                                       </a>
                                       {e.has_code && <CodeIcon />}
                                     </div>
-                                    <div className="mt-2 h-2 w-full rounded bg-gray-200 overflow-hidden">
+                                    <div
+                                      className="mt-2 h-2 w-full rounded bg-gray-200 overflow-hidden"
+                                      title={
+                                        rangeMax != null && rangeMax > 0
+                                          ? `${formatMetricValue(e.metric_value)} / ${formatMetricValue(rangeMax)}`
+                                          : undefined
+                                      }
+                                    >
                                       <div
-                                        className="h-2 rounded bg-green-500"
+                                        className={`h-2 rounded ${fillClass}`}
                                         style={{ width: `${pct}%` }}
                                       />
                                     </div>

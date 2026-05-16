@@ -8,6 +8,7 @@ import { PaperCoverArt } from "../../components/PaperCoverArt";
 import { GithubRepoStats } from "../../components/GithubRepoStats";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { cleanMetricDescription } from "@/lib/metricDescription";
 import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse } from "@/lib/github";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
@@ -48,7 +49,7 @@ interface PaperResult {
   split?: string;
   metric_name: string;
   metric_value: number;
-  higher_is_better?: boolean;
+  metric_description?: string | null;
 }
 
 interface Task {
@@ -656,8 +657,12 @@ export default function PaperDetailPage() {
                                   <div className="flex-1">
                                     <div className="font-medium text-gray-900">
                                       {r.metric_name}: {r.metric_value}
-                                      {r.higher_is_better === false ? " (lower is better)" : ""}
                                     </div>
+                                    {r.metric_description?.trim() ? (
+                                      <div className="text-xs text-gray-600 mt-0.5 line-clamp-2">
+                                        {cleanMetricDescription(r.metric_description)}
+                                      </div>
+                                    ) : null}
                                     <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 mt-0.5">
                                       {r.task_id && (
                                         <span>
