@@ -39,6 +39,23 @@ export function cleanMetricDescription(desc: string): string {
   return s.trim();
 }
 
+/**
+ * Drop values outside the unit scale [0, rangeMax] and percent scale [0, rangeMax×100].
+ * e.g. rangeMax 1 accepts 0.42 and 81.2 but not 207.7.
+ */
+export function isPlausibleLeaderboardMetricValue(
+  value: number,
+  rangeMax: number | null | undefined,
+): boolean {
+  if (!Number.isFinite(value)) return false;
+  if (rangeMax == null || !Number.isFinite(rangeMax) || rangeMax <= 0) {
+    return true;
+  }
+  const unitCap = rangeMax;
+  const percentCap = rangeMax * 100;
+  return value <= unitCap || value <= percentCap;
+}
+
 export function formatMetricSubtitle(
   metricDescription: string | null | undefined,
   direction: MetricDirection,

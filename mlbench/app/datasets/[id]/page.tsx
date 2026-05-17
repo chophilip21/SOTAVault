@@ -8,8 +8,10 @@ import { getBackendBaseUrl } from "@/lib/backendUrl";
 import {
   cleanMetricDescription,
   formatMetricSubtitle,
+  isPlausibleLeaderboardMetricValue,
   type MetricDirection,
 } from "@/lib/metricDescription";
+import { formatLeaderboardModelVariant } from "@/lib/modelVariant";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
 
@@ -75,7 +77,8 @@ type DatasetLeaderboardEntry = {
   paper_id: string;
   paper_result_id: string;
   metric_value: number;
-  has_code?: boolean; // New field
+  has_code?: boolean;
+  model_variant?: string | null;
   created_at?: string;
 };
 
@@ -99,6 +102,8 @@ type DatasetLeaderboardListResponse = {
 };
 
 type EntryValueStats = { min: number; max: number };
+
+const LEADERBOARD_PAGE_SIZE = 50;
 
 function entryValueStats(entries: DatasetLeaderboardEntry[]): EntryValueStats | null {
   const values = entries.map((e) => e.metric_value).filter((v) => Number.isFinite(v));
@@ -210,8 +215,8 @@ export default function DatasetDetailPage() {
   const [leaderboardsLoading, setLeaderboardsLoading] = useState(false);
   const [leaderboards, setLeaderboards] = useState<DatasetLeaderboard[]>([]);
   const [paperTitleById, setPaperTitleById] = useState<Record<string, string>>({});
-  const [paperLogicalIdById, setPaperLogicalIdById] = useState<Record<string, string>>({});
   const [selectedLeaderboardId, setSelectedLeaderboardId] = useState<string>("");
+  const [leaderboardPage, setLeaderboardPage] = useState(1);
   const { bookmarkedIds, toggleBookmark } = useBookmarks("dataset");
 
   useEffect(() => {
@@ -249,13 +254,12 @@ export default function DatasetDetailPage() {
     setLeaderboardsLoading(true);
     setLeaderboards([]);
     setPaperTitleById({});
-    setPaperLogicalIdById({});
     setSelectedLeaderboardId("");
 
     (async () => {
       try {
         const url = new URL(`${getBackendBaseUrl()}/datasets/${datasetId}/leaderboards`);
-        url.searchParams.set("limit_entries", "10");
+        url.searchParams.set("limit_entries", "100");
         const res = await fetch(url.toString(), { signal });
         if (!res.ok) {
           if (!signal.aborted) setLeaderboards([]);
@@ -274,7 +278,6 @@ export default function DatasetDetailPage() {
         );
 
         const titles: Record<string, string> = {};
-        const logicalIds: Record<string, string> = {};
         for (let i = 0; i < paperIds.length; i += 200) {
           const chunk = paperIds.slice(i, i + 200);
           const bulkUrl = new URL(`${getBackendBaseUrl()}/papers/bulk`);
@@ -287,7 +290,6 @@ export default function DatasetDetailPage() {
             if (!p?.id) continue;
             returned.add(p.id);
             titles[p.id] = stripWrappingQuotes(p.title || "");
-            if (p.logical_id) logicalIds[p.id] = String(p.logical_id);
           }
           for (const id of chunk) {
             if (!returned.has(id)) titles[id] = "";
@@ -313,7 +315,6 @@ export default function DatasetDetailPage() {
         if (signal.aborted) return;
 
         setPaperTitleById(titles);
-        setPaperLogicalIdById(logicalIds);
         if (Object.keys(taskPatch).length > 0) {
           setTasksById((prev) => ({ ...prev, ...taskPatch }));
         }
@@ -341,12 +342,42 @@ export default function DatasetDetailPage() {
     return copy;
   }, [leaderboards]);
 
+  const selectedLeaderboard = useMemo(() => {
+    if (!selectedLeaderboardId) return null;
+    return leaderboardsSorted.find((lb) => lb.id === selectedLeaderboardId) || null;
+  }, [leaderboardsSorted, selectedLeaderboardId]);
+
   // Default to first metric (alphabetical) once we have data.
   useEffect(() => {
     if (selectedLeaderboardId) return;
     if (leaderboardsSorted.length === 0) return;
     setSelectedLeaderboardId(leaderboardsSorted[0].id);
   }, [leaderboardsSorted, selectedLeaderboardId]);
+
+  useEffect(() => {
+    setLeaderboardPage(1);
+  }, [selectedLeaderboardId]);
+
+  const selectedLeaderboardEntries = useMemo(() => {
+    if (!selectedLeaderboard) return [];
+    const rangeMax = selectedLeaderboard.metric_range_max;
+    return (selectedLeaderboard.entries || []).filter((e) =>
+      isPlausibleLeaderboardMetricValue(e.metric_value, rangeMax),
+    );
+  }, [selectedLeaderboard]);
+
+  const leaderboardTotalPages = Math.max(
+    1,
+    Math.ceil(selectedLeaderboardEntries.length / LEADERBOARD_PAGE_SIZE),
+  );
+  const safeLeaderboardPage = Math.min(leaderboardPage, leaderboardTotalPages);
+  const leaderboardPageStart = (safeLeaderboardPage - 1) * LEADERBOARD_PAGE_SIZE;
+  const leaderboardPageEntries = selectedLeaderboardEntries.slice(
+    leaderboardPageStart,
+    leaderboardPageStart + LEADERBOARD_PAGE_SIZE,
+  );
+  const leaderboardHasPrev = safeLeaderboardPage > 1;
+  const leaderboardHasNext = safeLeaderboardPage < leaderboardTotalPages;
 
   const togglePapers = async () => {
     const next = !papersOpen;
@@ -424,11 +455,6 @@ export default function DatasetDetailPage() {
     if (abs >= 10) return v.toFixed(2);
     return v.toFixed(4);
   };
-
-  const selectedLeaderboard = useMemo(() => {
-    if (!selectedLeaderboardId) return null;
-    return leaderboardsSorted.find((lb) => lb.id === selectedLeaderboardId) || null;
-  }, [leaderboardsSorted, selectedLeaderboardId]);
 
   const leaderboardLabel = (lb: DatasetLeaderboard) => {
     const taskName = tasksById[lb.task_id]?.name;
@@ -715,17 +741,26 @@ export default function DatasetDetailPage() {
                 (() => {
                   const lb = selectedLeaderboard;
                   const { direction, metric_description: metricDescription, metric_range_max: rangeMax } = lb;
-                  const entriesAll = lb.entries || [];
-                  const seenLogical = new Set<string>();
-                  const entries = entriesAll.filter((e) => {
-                    const lid = paperLogicalIdById[e.paper_id] || e.paper_id;
-                    if (!lid) return false;
-                    if (seenLogical.has(lid)) return false;
-                    seenLogical.add(lid);
-                    return true;
-                  });
-                  const stats = entryValueStats(entries);
+                  const entries = leaderboardPageEntries;
+                  const totalEntries = selectedLeaderboardEntries.length;
+                  const stats = entryValueStats(selectedLeaderboardEntries);
                   const subtitle = formatMetricSubtitle(metricDescription, direction);
+                  const rangeEnd = leaderboardPageStart + entries.length;
+                  const rangeLabel =
+                    totalEntries === 0
+                      ? ""
+                      : entries.length === 0
+                        ? `0 of ${totalEntries}`
+                        : `${leaderboardPageStart + 1}–${rangeEnd} of ${totalEntries}`;
+
+                  const goLeaderboardPrev = () => {
+                    if (!leaderboardHasPrev) return;
+                    setLeaderboardPage((p) => Math.max(1, p - 1));
+                  };
+                  const goLeaderboardNext = () => {
+                    if (!leaderboardHasNext) return;
+                    setLeaderboardPage((p) => p + 1);
+                  };
 
                   return (
                     <div className="mt-4 rounded-xl border border-gray-200 bg-white overflow-hidden">
@@ -737,7 +772,7 @@ export default function DatasetDetailPage() {
                               <div className="text-xs text-gray-500 mt-0.5">{subtitle}</div>
                             ) : null}
                           </div>
-                          <div className="text-xs text-gray-500 whitespace-nowrap">Top {entries.length}</div>
+                          <div className="text-xs text-gray-500 whitespace-nowrap">{rangeLabel}</div>
                         </div>
                       </div>
 
@@ -748,6 +783,7 @@ export default function DatasetDetailPage() {
                           {entries.map((e, idx) => {
                             const paperTitle = stripWrappingQuotes(paperTitleById[e.paper_id] || "");
                             const paperLabel = paperTitle || "Untitled paper";
+                            const modelVariant = formatLeaderboardModelVariant(e.model_variant);
                             const pct = barWidthPercent(direction, e.metric_value, stats, rangeMax);
                             const fillClass = barFillClass(direction);
                             return (
@@ -755,21 +791,33 @@ export default function DatasetDetailPage() {
                                 key={`${lb.id}:${e.paper_id}:${e.paper_result_id}`}
                                 className="px-4 py-3 flex items-center gap-4"
                               >
-                                <div className="w-8 text-sm text-gray-500 tabular-nums">{idx + 1}</div>
+                                <div className="w-8 text-sm text-gray-500 tabular-nums">{leaderboardPageStart + idx + 1}</div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex-1 min-w-0">
-                                    <div className="flex items-center">
+                                    <div className="flex items-center min-w-0">
                                       <a
                                         href={`/papers/${e.paper_id}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="text-sm font-medium text-gray-900 hover:text-green-700 hover:underline truncate"
-                                        title={paperLabel}
+                                        title={
+                                          modelVariant
+                                            ? `${paperLabel} — ${modelVariant}`
+                                            : paperLabel
+                                        }
                                       >
                                         {paperLabel}
                                       </a>
                                       {e.has_code && <CodeIcon />}
                                     </div>
+                                    {modelVariant ? (
+                                      <div
+                                        className="text-xs text-gray-500 mt-0.5 truncate"
+                                        title={modelVariant}
+                                      >
+                                        <MathText>{modelVariant}</MathText>
+                                      </div>
+                                    ) : null}
                                     <div
                                       className="mt-2 h-2 w-full rounded bg-gray-200 overflow-hidden"
                                       title={
@@ -793,6 +841,35 @@ export default function DatasetDetailPage() {
                           })}
                         </div>
                       )}
+
+                      {leaderboardTotalPages > 1 ? (
+                        <div className="px-4 py-3 border-t border-gray-100 flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={goLeaderboardPrev}
+                            disabled={!leaderboardHasPrev}
+                            className="px-4 py-2 text-sm rounded border border-gray-200 text-gray-700 disabled:opacity-50 enabled:hover:bg-gray-50 enabled:hover:border-gray-300"
+                          >
+                            Previous
+                          </button>
+                          <div
+                            className="inline-flex items-center justify-center w-9 h-9 rounded bg-cyan-500/80 text-white font-serif font-thin select-none"
+                            aria-label={`Leaderboard page ${safeLeaderboardPage}`}
+                            title={`Page ${safeLeaderboardPage}`}
+                            role="status"
+                          >
+                            {safeLeaderboardPage}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={goLeaderboardNext}
+                            disabled={!leaderboardHasNext}
+                            className="px-4 py-2 text-sm rounded bg-green-500 text-white disabled:opacity-50 enabled:hover:bg-green-600"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })()
