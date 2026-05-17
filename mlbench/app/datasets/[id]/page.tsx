@@ -151,7 +151,7 @@ function barWidthPercent(
 
 function barFillClass(direction: MetricDirection): string {
   return direction === "lower"
-    ? "bg-gradient-to-r from-red-400 to-red-600"
+    ? "bg-gradient-to-r from-orange-400 to-orange-600"
     : "bg-gradient-to-r from-green-400 to-green-600";
 }
 
@@ -240,74 +240,93 @@ export default function DatasetDetailPage() {
     }
   }, [datasetId]);
 
-  // Fetch dataset leaderboards (derived view).
+  // Fetch leaderboards + paper titles + task labels before showing the module.
   useEffect(() => {
     if (!datasetId) return;
     const controller = new AbortController();
+    const { signal } = controller;
+
     setLeaderboardsLoading(true);
+    setLeaderboards([]);
+    setPaperTitleById({});
+    setPaperLogicalIdById({});
+    setSelectedLeaderboardId("");
+
     (async () => {
       try {
         const url = new URL(`${getBackendBaseUrl()}/datasets/${datasetId}/leaderboards`);
         url.searchParams.set("limit_entries", "10");
-        const res = await fetch(url.toString(), { signal: controller.signal });
+        const res = await fetch(url.toString(), { signal });
         if (!res.ok) {
-          setLeaderboards([]);
+          if (!signal.aborted) setLeaderboards([]);
           return;
         }
         const data: DatasetLeaderboardListResponse = await res.json();
         const items = data.items || [];
-        setLeaderboards(items);
 
-        // Bulk fetch paper titles for entries shown.
         const paperIds = Array.from(
           new Set(
             items
               .flatMap((lb) => lb.entries || [])
               .map((e) => e.paper_id)
-              .filter(Boolean)
-          )
+              .filter(Boolean),
+          ),
         );
-        if (paperIds.length === 0) return;
 
-        const missing = paperIds.filter((id) => !paperTitleById[id]);
-        if (missing.length === 0) return;
-
-        const chunks: string[][] = [];
-        for (let i = 0; i < missing.length; i += 200) chunks.push(missing.slice(i, i + 200));
-
-        for (const chunk of chunks) {
+        const titles: Record<string, string> = {};
+        const logicalIds: Record<string, string> = {};
+        for (let i = 0; i < paperIds.length; i += 200) {
+          const chunk = paperIds.slice(i, i + 200);
           const bulkUrl = new URL(`${getBackendBaseUrl()}/papers/bulk`);
           chunk.forEach((id) => bulkUrl.searchParams.append("ids", id));
-          const r = await fetch(bulkUrl.toString(), { signal: controller.signal });
+          const r = await fetch(bulkUrl.toString(), { signal });
           if (!r.ok) continue;
           const papersData: PaperListResponse = await r.json();
-          const fetched = papersData.items || [];
-          if (fetched.length === 0) continue;
-          setPaperTitleById((prev) => {
-            const next = { ...prev };
-            for (const p of fetched) {
-              if (p?.id) next[p.id] = stripWrappingQuotes(p.title || "");
-            }
-            return next;
-          });
-          setPaperLogicalIdById((prev) => {
-            const next = { ...prev };
-            for (const p of fetched) {
-              if (p?.id && p.logical_id) next[p.id] = String(p.logical_id);
-            }
-            return next;
-          });
+          const returned = new Set<string>();
+          for (const p of papersData.items || []) {
+            if (!p?.id) continue;
+            returned.add(p.id);
+            titles[p.id] = stripWrappingQuotes(p.title || "");
+            if (p.logical_id) logicalIds[p.id] = String(p.logical_id);
+          }
+          for (const id of chunk) {
+            if (!returned.has(id)) titles[id] = "";
+          }
         }
-      } catch (err: any) {
-        if (err?.name === "AbortError") return;
-        setLeaderboards([]);
+
+        const lbTaskIds = Array.from(
+          new Set(items.map((lb) => lb.task_id).filter(Boolean)),
+        );
+        const taskPatch: Record<string, Task> = {};
+        for (let i = 0; i < lbTaskIds.length; i += 200) {
+          const chunk = lbTaskIds.slice(i, i + 200);
+          const taskUrl = new URL(`${getBackendBaseUrl()}/tasks/bulk`);
+          chunk.forEach((id) => taskUrl.searchParams.append("ids", id));
+          const tr = await fetch(taskUrl.toString(), { signal });
+          if (!tr.ok) continue;
+          const taskData: TasksResponse = await tr.json();
+          for (const t of taskData.items || []) {
+            if (t?.id) taskPatch[t.id] = t;
+          }
+        }
+
+        if (signal.aborted) return;
+
+        setPaperTitleById(titles);
+        setPaperLogicalIdById(logicalIds);
+        if (Object.keys(taskPatch).length > 0) {
+          setTasksById((prev) => ({ ...prev, ...taskPatch }));
+        }
+        setLeaderboards(items);
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        if (!signal.aborted) setLeaderboards([]);
       } finally {
-        setLeaderboardsLoading(false);
+        if (!signal.aborted) setLeaderboardsLoading(false);
       }
     })();
+
     return () => controller.abort();
-    // paperTitleById intentionally omitted: we only use it to skip already-known titles.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetId]);
 
   const leaderboardsSorted = useMemo(() => {
@@ -360,7 +379,7 @@ export default function DatasetDetailPage() {
   // Resolve task_ids -> task names for this dataset.
   // Performance: only fetch the first 7 initially; fetch all when expanded.
   useEffect(() => {
-    if (dataset || visibleTaskIds.length === 0) return;
+    if (!dataset || visibleTaskIds.length === 0) return;
 
     const controller = new AbortController();
     setTasksLoading(true);
@@ -647,7 +666,10 @@ export default function DatasetDetailPage() {
           <h2 className="text-lg font-semibold text-gray-900">Leaderboards</h2>
 
           {leaderboardsLoading ? (
-            <div className="mt-4 text-sm text-gray-500">Loading leaderboards…</div>
+            <div className="mt-8 flex flex-col items-center justify-center py-12">
+              <LoadingSpinner size="md" />
+              <p className="mt-3 text-sm text-gray-500">Loading leaderboards…</p>
+            </div>
           ) : leaderboardsSorted.length === 0 ? (
             <div className="mt-4 text-sm text-gray-500">No leaderboard data yet for this dataset.</div>
           ) : (

@@ -13,13 +13,19 @@ import { MathText } from "@/lib/mathText";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
+function capitalizeSeriesName(name: string): string {
+  const s = (name || "").trim();
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 // Cache for tasks data
 let tasksCache: Task[] | null = null;
 let tasksCacheTime: number | null = null;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // Persist Benchmark tab state so navigating to a dataset and back doesn't reset filters/page.
-const BENCHMARK_STATE_KEY = "mlbench:benchmark_state:v2";
+const BENCHMARK_STATE_KEY = "mlbench:benchmark_state:v3";
 const BENCHMARK_STATE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 function hasMeaningfulBenchmarkState(s: any): boolean {
@@ -184,6 +190,14 @@ export default function BenchmarkPage() {
       }
 
       const res = await fetch(url.toString());
+      if (res.status === 400) {
+        // Stale cursor after API sort change — restart from first page.
+        if (cursor) {
+          setPrevCursors([null]);
+          setCurrentCursor(null);
+          return fetchPage(null, task, domain);
+        }
+      }
       if (!res.ok) throw new Error("Failed to load benchmarks");
       const data: BenchmarksResponse = await res.json();
 
@@ -927,8 +941,8 @@ export default function BenchmarkPage() {
             key={benchmark.id}
             className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-green-200 transition-all duration-200 flex flex-col"
           >
-            {/* Header: Icon + Title */}
-            <div className="flex items-start gap-3">
+            {/* Header: icon + title, vertically centered */}
+            <div className="flex items-center gap-3">
               <div className="flex-shrink-0 w-14 h-14 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
                 <Image
                   src={getDomainIcon(benchmark.domain)}
@@ -938,17 +952,21 @@ export default function BenchmarkPage() {
                   className="object-contain p-2"
                 />
               </div>
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 flex flex-col justify-center min-h-14">
                 {isSearchMode ? (
                   <Link href={`/datasets/${benchmark.id}`}>
-                    <h2 className="text-base font-semibold text-gray-900 hover:text-green-600 transition leading-tight line-clamp-2">
-                      <MathText>{benchmark.name}</MathText>
+                    <h2
+                      className={`text-lg font-bold text-gray-900 hover:text-green-600 transition leading-snug line-clamp-2 ${playfairDisplay.className}`}
+                    >
+                      <MathText>{capitalizeSeriesName(benchmark.name)}</MathText>
                     </h2>
                   </Link>
                 ) : (
                   <Link href={`/dataset-series/${benchmark.id}`}>
-                    <h2 className="text-base font-semibold text-gray-900 hover:text-green-600 transition leading-tight line-clamp-2">
-                      <MathText>{benchmark.name}</MathText>
+                    <h2
+                      className={`text-lg font-bold text-gray-900 hover:text-green-600 transition leading-snug line-clamp-2 ${playfairDisplay.className}`}
+                    >
+                      <MathText>{capitalizeSeriesName(benchmark.name)}</MathText>
                     </h2>
                   </Link>
                 )}

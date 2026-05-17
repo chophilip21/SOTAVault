@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -43,6 +43,58 @@ const getDomainIcon = (domain?: string): string => {
   if (!domain) return "/icons/cv.png";
   return DOMAIN_ICONS[domain] || "/icons/cv.png";
 };
+
+function normalizeForMatch(s: string): string {
+  return (s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j];
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + cost);
+      prev = tmp;
+    }
+  }
+  return row[b.length];
+}
+
+/** Higher score = closer to the series name (e.g. COCO before coco-stuff before CIRCO). */
+function seriesNameMatchScore(seriesName: string, datasetName: string): number {
+  const series = normalizeForMatch(seriesName);
+  const dataset = normalizeForMatch(datasetName);
+  if (!series || !dataset) return 0;
+  if (dataset === series) return 1000;
+  if (dataset.startsWith(series)) return 800 - Math.min(dataset.length - series.length, 200);
+  if (series.startsWith(dataset)) return 750 - Math.min(series.length - dataset.length, 200);
+  if (dataset.includes(series)) return 600 - Math.min(dataset.length - series.length, 200);
+  if (series.includes(dataset)) return 550 - Math.min(series.length - dataset.length, 200);
+
+  const dist = levenshtein(series, dataset);
+  const maxLen = Math.max(series.length, dataset.length, 1);
+  return Math.round((1 - dist / maxLen) * 100);
+}
+
+function sortDatasetsForSeries(seriesName: string, items: Dataset[]): Dataset[] {
+  return [...items].sort((a, b) => {
+    const aBase = a.variant_key?.toLowerCase() === "base";
+    const bBase = b.variant_key?.toLowerCase() === "base";
+    if (aBase !== bBase) return aBase ? -1 : 1;
+
+    const scoreDiff =
+      seriesNameMatchScore(seriesName, b.name) - seriesNameMatchScore(seriesName, a.name);
+    if (scoreDiff !== 0) return scoreDiff;
+
+    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  });
+}
 
 export default function DatasetSeriesDetailPage() {
   const params = useParams();
@@ -87,6 +139,11 @@ export default function DatasetSeriesDetailPage() {
       fetchSeriesAndDatasets();
     }
   }, [seriesId]);
+
+  const sortedDatasets = useMemo(
+    () => (series ? sortDatasetsForSeries(series.name, datasets) : datasets),
+    [series, datasets],
+  );
 
   if (loading) {
     return (
@@ -151,13 +208,7 @@ export default function DatasetSeriesDetailPage() {
             <div className="mt-4 text-sm text-gray-500">No datasets found for this series.</div>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-              {[...datasets].sort((a, b) => {
-                const aIsBase = a.variant_key?.toLowerCase() === "base";
-                const bIsBase = b.variant_key?.toLowerCase() === "base";
-                if (aIsBase && !bIsBase) return -1;
-                if (!aIsBase && bIsBase) return 1;
-                return 0;
-              }).map((dataset) => {
+              {sortedDatasets.map((dataset) => {
                 const isBase = dataset.variant_key?.toLowerCase() === "base";
                 
                 const GRADIENTS = [
