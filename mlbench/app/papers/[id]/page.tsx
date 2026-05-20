@@ -13,11 +13,7 @@ import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
-
-function stripOuterQuotes(s: string): string {
-  const t = (s || "").trim();
-  return t.replace(/^["'“”]+/, "").replace(/["'“”]+$/, "").trim();
-}
+import { cleanPaperTitle } from "@/lib/paperTitle";
 
 interface PaperDetail {
   id: string;
@@ -98,7 +94,7 @@ export default function PaperDetailPage() {
   const [resultsOpen, setResultsOpen] = useState(true);
   const { bookmarkedIds, toggleBookmark } = useBookmarks("paper");
 
-  const displayTitle = paper ? stripOuterQuotes(paper.title || "") : "";
+  const displayTitle = paper ? cleanPaperTitle(paper.title) : "";
 
   useEffect(() => {
     const load = async () => {
@@ -116,7 +112,7 @@ export default function PaperDetailPage() {
           throw new Error("Failed to load paper");
         }
         const data = await res.json();
-        setPaper(data);
+        setPaper({ ...data, title: cleanPaperTitle(data.title) });
       } catch (err: any) {
         setError(err.message || "Failed to load paper");
       } finally {
@@ -292,7 +288,12 @@ export default function PaperDetailPage() {
           return;
         }
         const data = await res.json();
-        setRelated((data.items || []) as PaperDetail[]);
+        setRelated(
+          ((data.items || []) as PaperDetail[]).map((p) => ({
+            ...p,
+            title: cleanPaperTitle(p.title),
+          })),
+        );
       } catch {
         setRelated([]);
       } finally {
@@ -435,7 +436,7 @@ export default function PaperDetailPage() {
                     className="block rounded-md border border-gray-200 px-3 py-2 hover:bg-gray-50"
                   >
                     <div className="text-sm font-medium text-gray-900">
-                      <MathText>{stripOuterQuotes(p.title || "")}</MathText>
+                      <MathText>{cleanPaperTitle(p.title)}</MathText>
                     </div>
                     {(p.venue || p.year) && (
                       <div className="text-xs text-gray-600 mt-0.5">

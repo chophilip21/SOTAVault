@@ -955,17 +955,13 @@ export default function BenchmarkPage() {
               <div className="flex-1 min-w-0 flex flex-col justify-center min-h-14">
                 {isSearchMode ? (
                   <Link href={`/datasets/${benchmark.id}`}>
-                    <h2
-                      className={`text-lg font-bold text-gray-900 hover:text-green-600 transition leading-snug line-clamp-2 ${playfairDisplay.className}`}
-                    >
+                    <h2 className="text-lg font-semibold text-gray-900 hover:text-green-600 transition leading-snug line-clamp-2 font-sans">
                       <MathText>{capitalizeSeriesName(benchmark.name)}</MathText>
                     </h2>
                   </Link>
                 ) : (
                   <Link href={`/dataset-series/${benchmark.id}`}>
-                    <h2
-                      className={`text-lg font-bold text-gray-900 hover:text-green-600 transition leading-snug line-clamp-2 ${playfairDisplay.className}`}
-                    >
+                    <h2 className="text-lg font-semibold text-gray-900 hover:text-green-600 transition leading-snug line-clamp-2 font-sans">
                       <MathText>{capitalizeSeriesName(benchmark.name)}</MathText>
                     </h2>
                   </Link>

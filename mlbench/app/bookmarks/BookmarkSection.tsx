@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/authContext";
 import { PaperCoverArt } from "@/app/components/PaperCoverArt";
 import { LoadingSpinner } from "@/app/components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
+import { cleanPaperTitle } from "@/lib/paperTitle";
 
 interface Bookmark {
     bookmark_id: string;
@@ -335,7 +336,13 @@ export default function BookmarkSection({
                             {bookmarks.map((bookmark) => {
                                 const isDeleted = deletedIds.has(bookmark.resource_id);
                                 const detail = details[bookmark.resource_id];
-                                const displayName = stripWrappingQuotes(detail?.title || detail?.name || bookmark.title || bookmark.resource_id);
+                                const displayName =
+                                  resourceType === "paper"
+                                    ? cleanPaperTitle(detail?.title || bookmark.title) ||
+                                      bookmark.resource_id
+                                    : stripWrappingQuotes(
+                                        detail?.name || bookmark.title || bookmark.resource_id,
+                                      );
 
                                 // Render deleted resource card
                                 if (isDeleted) {

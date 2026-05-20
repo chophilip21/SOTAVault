@@ -9,6 +9,7 @@ import AuthModal from "./AuthModal";
 import UserAvatar from "./UserAvatar";
 import { useAuth } from "@/lib/authContext";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { cleanPaperTitle } from "@/lib/paperTitle";
 
 type FuzzyHit =
   | { type: "paper"; id: string; title?: string | null }
@@ -195,7 +196,7 @@ export default function Header() {
                                   className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
                                   onClick={() => navigateHit(h)}
                                 >
-                                  {stripWrappingQuotes((h as any).title || h.id)}
+                                  {cleanPaperTitle((h as any).title) || h.id}
                                 </button>
                               ))}
                             </div>

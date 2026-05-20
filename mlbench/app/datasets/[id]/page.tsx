@@ -14,6 +14,8 @@ import {
 import { formatLeaderboardModelVariant } from "@/lib/modelVariant";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
+import { inter } from "@/lib/fonts";
+import { cleanPaperTitle } from "@/lib/paperTitle";
 
 /** Matches GET /datasets/:id → metrics (same direction metadata as leaderboards). */
 type DatasetMetric = {
@@ -160,16 +162,6 @@ function barFillClass(direction: MetricDirection): string {
     : "bg-gradient-to-r from-green-400 to-green-600";
 }
 
-function stripWrappingQuotes(s: string): string {
-  const t = (s || "").trim();
-  if (t.length >= 2) {
-    if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-      return t.slice(1, -1).trim();
-    }
-  }
-  return t;
-}
-
 const DOMAIN_ICONS: Record<string, string> = {
   cv: "/icons/cv.png",
   nlp: "/icons/nlp.png",
@@ -190,10 +182,19 @@ const getDomainIcon = (domain?: string): string => {
   return DOMAIN_ICONS[domain] || "/icons/cv.png";
 };
 
-// Simple Code icon component using Font Awesome
 const CodeIcon = () => (
-  <span title="Code available" className="ml-1.5 opacity-70 hover:opacity-100 transition-opacity cursor-pointer">
-    <i className="fa-solid fa-file-code text-gray-900"></i>
+  <span title="Code available" className="ml-1.5 opacity-70 hover:opacity-100 transition-opacity">
+    <i className="fa-solid fa-file-code text-gray-900" aria-hidden="true" />
+  </span>
+);
+
+const LeaderboardGitHubIcon = () => (
+  <span
+    title="Code on GitHub"
+    className="ml-1.5 inline-flex shrink-0 text-gray-800 opacity-80 hover:opacity-100 transition-opacity"
+    aria-label="Code on GitHub"
+  >
+    <i className="fa-brands fa-github text-base" aria-hidden="true" />
   </span>
 );
 
@@ -289,7 +290,7 @@ export default function DatasetDetailPage() {
           for (const p of papersData.items || []) {
             if (!p?.id) continue;
             returned.add(p.id);
-            titles[p.id] = stripWrappingQuotes(p.title || "");
+            titles[p.id] = cleanPaperTitle(p.title);
           }
           for (const id of chunk) {
             if (!returned.has(id)) titles[id] = "";
@@ -361,8 +362,9 @@ export default function DatasetDetailPage() {
   const selectedLeaderboardEntries = useMemo(() => {
     if (!selectedLeaderboard) return [];
     const rangeMax = selectedLeaderboard.metric_range_max;
+    const direction = selectedLeaderboard.direction;
     return (selectedLeaderboard.entries || []).filter((e) =>
-      isPlausibleLeaderboardMetricValue(e.metric_value, rangeMax),
+      isPlausibleLeaderboardMetricValue(e.metric_value, rangeMax, direction),
     );
   }, [selectedLeaderboard]);
 
@@ -523,7 +525,7 @@ export default function DatasetDetailPage() {
           </div>
 
           <div className="flex-1">
-            <h1 className="text-4xl font-bold text-gray-900">
+            <h1 className={`text-4xl font-bold text-gray-900 tracking-tight ${inter.className}`}>
               <MathText>{dataset.name}</MathText>
             </h1>
             {dataset.full_name && dataset.full_name !== dataset.name && (
@@ -673,7 +675,7 @@ export default function DatasetDetailPage() {
                               rel="noopener noreferrer"
                               className="text-sm text-green-700 hover:underline"
                             >
-                              {p.title || p.id}
+                              {cleanPaperTitle(p.title) || p.id}
                             </a>
                             {hasCode && <CodeIcon />}
                           </div>
@@ -781,7 +783,7 @@ export default function DatasetDetailPage() {
                       ) : (
                         <div className="divide-y divide-gray-100">
                           {entries.map((e, idx) => {
-                            const paperTitle = stripWrappingQuotes(paperTitleById[e.paper_id] || "");
+                            const paperTitle = paperTitleById[e.paper_id] || "";
                             const paperLabel = paperTitle || "Untitled paper";
                             const modelVariant = formatLeaderboardModelVariant(e.model_variant);
                             const pct = barWidthPercent(direction, e.metric_value, stats, rangeMax);
@@ -808,7 +810,7 @@ export default function DatasetDetailPage() {
                                       >
                                         {paperLabel}
                                       </a>
-                                      {e.has_code && <CodeIcon />}
+                                      {e.has_code && <LeaderboardGitHubIcon />}
                                     </div>
                                     {modelVariant ? (
                                       <div

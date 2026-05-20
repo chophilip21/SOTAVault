@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { cleanPaperTitle } from "@/lib/paperTitle";
 
 type FuzzyHit =
   | { type: "paper"; id: string; title?: string | null }
@@ -165,7 +166,7 @@ export default function SearchPage() {
                         <ResultIcon kind="paper" />
                       </span>
                       <span className="min-w-0 truncate">
-                        {stripWrappingQuotes((h as any).title || h.id)}
+                        {cleanPaperTitle((h as any).title) || h.id}
                       </span>
                     </Link>
                   </div>

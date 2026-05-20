@@ -13,11 +13,17 @@ import AuthModal from "./components/AuthModal";
 import { useAuth } from "@/lib/authContext";
 import { LoadingSpinner } from "./components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
+import { cleanPaperTitle } from "@/lib/paperTitle";
 
 const ConferenceMap = dynamic(() => import("./components/ConferenceMap"), { ssr: false });
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
+function capitalizeSeriesName(name: string): string {
+  const s = (name || "").trim();
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 
 const annoucement_header = `Welcome to SotaVault `;
 const description = `
@@ -64,19 +70,17 @@ interface PapersResponse {
   has_more: boolean;
 }
 
-interface Dataset {
+interface DatasetSeries {
   id: string;
   name: string;
-  full_name?: string;
-  slug: string;
   description?: string;
   domain?: string;
-  paper_count?: number;
+  homepage?: string;
   created_at?: string;
 }
 
-interface DatasetsResponse {
-  items: Dataset[];
+interface DatasetSeriesListResponse {
+  items: DatasetSeries[];
   limit: number;
   next_cursor?: string | null;
   has_more: boolean;
@@ -274,7 +278,7 @@ const toISODate = (d: Date) => {
 
 export default function Home() {
   const [popularPapers, setPopularPapers] = useState<Paper[]>([]);
-  const [popularDatasets, setPopularDatasets] = useState<Dataset[]>([]);
+  const [popularDatasetSeries, setPopularDatasetSeries] = useState<DatasetSeries[]>([]);
   const [upcomingVenues, setUpcomingVenues] = useState<Venue[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -296,29 +300,19 @@ export default function Home() {
 
         // Sort by bookmark_count descending and take top 3
         const sortedPapers = [...(papersData.items || [])]
-          .slice(0, 3);
+          .slice(0, 3)
+          .map((p) => ({ ...p, title: cleanPaperTitle(p.title) }));
 
         setPopularPapers(sortedPapers);
 
-        // Fetch datasets (we'll fetch more and sort by paper_count)
-        const datasetsUrl = new URL(`${getBackendBaseUrl()}/datasets/`);
-        datasetsUrl.searchParams.set("limit", "50"); // Fetch more to get better selection
+        // Top dataset series by leaderboard_document_count_total (API sort order).
+        const seriesUrl = new URL(`${getBackendBaseUrl()}/dataset_series/`);
+        seriesUrl.searchParams.set("limit", "3");
 
-        const datasetsRes = await fetch(datasetsUrl.toString());
-        if (!datasetsRes.ok) throw new Error("Failed to load datasets");
-        const datasetsData: DatasetsResponse = await datasetsRes.json();
-
-        // Sort by paper_count descending and take ONLY top 3
-        const allDatasets = datasetsData.items || [];
-        const sortedDatasets = [...allDatasets]
-          .sort((a, b) => (b.paper_count || 0) - (a.paper_count || 0))
-          .slice(0, 3); // Explicitly limit to 3 datasets
-
-        // Ensure we only set exactly 3 datasets
-        if (sortedDatasets.length > 3) {
-          console.warn('Warning: More than 3 datasets in sortedDatasets');
-        }
-        setPopularDatasets(sortedDatasets.slice(0, 3));
+        const seriesRes = await fetch(seriesUrl.toString());
+        if (!seriesRes.ok) throw new Error("Failed to load dataset series");
+        const seriesData: DatasetSeriesListResponse = await seriesRes.json();
+        setPopularDatasetSeries((seriesData.items || []).slice(0, 3));
 
         // Fetch upcoming conferences
         const venuesUrl = new URL(`${getBackendBaseUrl()}/venues/`);
@@ -642,64 +636,57 @@ export default function Home() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {popularDatasets.slice(0, 3).map((dataset) => (
-            <ProtectedLink
-              key={dataset.id}
-              href={`/datasets/${dataset.id}`}
-              className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 group"
-              onLoginRequired={() => setIsAuthModalOpen(true)}
-            >
-              <div className="flex items-start gap-3 mb-3">
-                <div className="flex-shrink-0 w-12 h-12 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-                  <Image
-                    src={getDomainIcon(dataset.domain)}
-                    alt={`${dataset.domain || "dataset"} icon`}
-                    fill
-                    sizes="48px"
-                    className="object-contain p-2"
-                  />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-base font-semibold text-gray-900 group-hover:text-green-600 transition line-clamp-2">
-                    <MathText>{dataset.name}</MathText>
-                  </h3>
-                  {dataset.full_name && dataset.full_name !== dataset.name && (
-                    <p className="text-xs text-gray-600 mt-1 line-clamp-1">
-                      <MathText>{dataset.full_name}</MathText>
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {dataset.description && (
-                <p className="text-sm text-gray-700 mb-3 line-clamp-3">
-                  <MathText>{dataset.description}</MathText>
-                </p>
-              )}
-
-              <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                <div className="flex items-center gap-2">
-                  {dataset.domain && (
-                    <span className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
-                      {dataset.domain}
-                    </span>
-                  )}
-                  <div className="flex items-center gap-1 text-xs text-green-600">
-                    <span className="font-medium">{dataset.paper_count || 0}</span>
-                    <span>{dataset.paper_count === 1 ? 'paper' : 'papers'}</span>
+          {popularDatasetSeries.map((series) => (
+              <ProtectedLink
+                key={series.id}
+                href={`/dataset-series/${series.id}`}
+                className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 group"
+                onLoginRequired={() => setIsAuthModalOpen(true)}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0 w-14 h-14 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+                    <Image
+                      src={getDomainIcon(series.domain)}
+                      alt={`${series.domain || "dataset"} icon`}
+                      fill
+                      sizes="56px"
+                      className="object-contain p-2"
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0 flex flex-col justify-center min-h-14">
+                    <h3 className="text-lg font-semibold text-gray-900 group-hover:text-green-600 transition leading-snug line-clamp-2 font-sans">
+                      <MathText>{capitalizeSeriesName(series.name)}</MathText>
+                    </h3>
                   </div>
                 </div>
-                {dataset.created_at && (
-                  <span className="text-xs text-gray-400">
-                    {new Date(dataset.created_at).toLocaleDateString()}
-                  </span>
+
+                {series.description && (
+                  <p className="text-sm text-gray-700 mt-3 mb-3 line-clamp-3">
+                    <MathText>{series.description}</MathText>
+                  </p>
                 )}
-              </div>
-            </ProtectedLink>
+
+                {(series.domain || series.created_at) && (
+                  <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                    {series.domain ? (
+                      <span className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
+                        {series.domain}
+                      </span>
+                    ) : (
+                      <span />
+                    )}
+                    {series.created_at && (
+                      <span className="text-xs text-gray-400">
+                        {new Date(series.created_at).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </ProtectedLink>
           ))}
         </div>
 
-        {popularDatasets.length === 0 && (
+        {popularDatasetSeries.length === 0 && (
           <div className="text-gray-500 text-center py-8">No popular datasets found.</div>
         )}
       </div>

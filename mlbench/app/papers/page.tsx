@@ -13,6 +13,7 @@ import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse
 import { useAuth } from "@/lib/authContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { MathText } from "@/lib/mathText";
+import { cleanPaperTitle } from "@/lib/paperTitle";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -81,12 +82,6 @@ interface PapersResponse {
   limit: number;
   next_cursor?: string | null;
   has_more: boolean;
-}
-
-function stripOuterQuotes(s: string): string {
-  // Some ingestion sources include literal quotes around titles. Strip only outer quotes for display.
-  const t = (s || "").trim();
-  return t.replace(/^["'“”]+/, "").replace(/["'“”]+$/, "").trim();
 }
 
 interface Task {
@@ -1024,7 +1019,7 @@ export default function PapersPage() {
 
       <div className="space-y-5">
         {filteredPapers.map((paper) => {
-          const displayTitle = stripOuterQuotes(paper.title || "");
+          const displayTitle = cleanPaperTitle(paper.title);
           return (
             <div
               key={paper.id}

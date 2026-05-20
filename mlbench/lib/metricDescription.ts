@@ -40,20 +40,44 @@ export function cleanMetricDescription(desc: string): string {
 }
 
 /**
- * Drop values outside the unit scale [0, rangeMax] and percent scale [0, rangeMax×100].
- * e.g. rangeMax 1 accepts 0.42 and 81.2 but not 207.7.
+ * Return true when a leaderboard entry value is plausible given the metric's
+ * known ``rangeMax`` and ``direction``.
+ *
+ * Rules applied in order:
+ * 1. Non-finite numbers are always rejected.
+ * 2. When ``rangeMax`` is known and positive:
+ *    a. ``zero_centered`` direction: check |value| ≤ rangeMax *or* |value| ≤ rangeMax×100
+ *       (handles percentage ↔ ratio mismatch that slipped through ingestion).
+ *    b. All other directions: value must be ≥ 0 (benchmark scores are non-negative
+ *       in the bounded [0, rangeMax] space) and ≤ rangeMax *or* ≤ rangeMax×100.
+ * 3. When ``rangeMax`` is unknown (null / invalid):
+ *    Fall back to an absolute-magnitude sanity cap: |value| ≤ 1 000 000.
+ *    This catches obviously bogus values (e.g. 1e18) while leaving real metrics
+ *    like high-perplexity LM scores unconstrained.
  */
 export function isPlausibleLeaderboardMetricValue(
   value: number,
   rangeMax: number | null | undefined,
+  direction?: MetricDirection,
 ): boolean {
   if (!Number.isFinite(value)) return false;
-  if (rangeMax == null || !Number.isFinite(rangeMax) || rangeMax <= 0) {
-    return true;
+
+  if (rangeMax != null && Number.isFinite(rangeMax) && rangeMax > 0) {
+    const unitCap = rangeMax;
+    const percentCap = rangeMax * 100;
+
+    if (direction === "zero_centered") {
+      const abs = Math.abs(value);
+      return abs <= unitCap || abs <= percentCap;
+    }
+
+    // For all bounded [0, rangeMax] metrics, negative values are nonsensical.
+    if (value < 0) return false;
+    return value <= unitCap || value <= percentCap;
   }
-  const unitCap = rangeMax;
-  const percentCap = rangeMax * 100;
-  return value <= unitCap || value <= percentCap;
+
+  // No rangeMax available — accept anything within a generous absolute cap.
+  return Math.abs(value) <= 1_000_000;
 }
 
 export function formatMetricSubtitle(

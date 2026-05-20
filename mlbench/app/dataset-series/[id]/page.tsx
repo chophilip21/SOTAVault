@@ -7,6 +7,7 @@ import Link from "next/link";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
+import { inter } from "@/lib/fonts";
 
 interface DatasetSeries {
   id: string;
@@ -184,7 +185,7 @@ export default function DatasetSeriesDetailPage() {
           </div>
 
           <div className="flex-1">
-            <h1 className="text-4xl font-bold text-gray-900">
+            <h1 className={`text-4xl font-bold text-gray-900 tracking-tight ${inter.className}`}>
               <MathText>{series.name}</MathText>
             </h1>
 
