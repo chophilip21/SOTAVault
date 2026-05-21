@@ -167,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    // Finalize any pending redirect-based OAuth sign-in (used on crossOriginIsolated pages like /ai-chat).
+    // Finalize any pending redirect-based OAuth sign-in after redirect return.
     // This is best-effort: onAuthStateChanged will still update state when sign-in succeeds.
     getRedirectResult(auth).catch(() => {
       // ignore

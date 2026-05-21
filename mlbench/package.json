@@ -12,9 +12,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
-    "@langchain/core": "latest",
     "@maplibre/maplibre-gl-leaflet": "^0.1.3",
-    "@wllama/wllama": "^2.3.7",
     "firebase": "^12.6.0",
     "katex": "^0.16.28",
     "leaflet": "^1.9.4",
@@ -24,8 +22,7 @@
     "react-dom": "19.2.0",
     "react-katex": "^3.1.0",
     "react-leaflet": "^5.0.0",
-    "react-turnstile": "^1.1.4",
-    "zod": "latest"
+    "react-turnstile": "^1.1.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

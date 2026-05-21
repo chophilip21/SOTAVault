@@ -3,6 +3,33 @@
  * This ensures ports and URLs are not hardcoded
  */
 
+const DEFAULT_AI_SEARCH_MAX_COSINE_DISTANCE = 0.3;
+const DEFAULT_AI_SEARCH_RESULT_LIMIT = 10;
+
+function parseEnvFloat(
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (raw == null || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function parseEnvInt(
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (raw == null || raw.trim() === "") return fallback;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 export const config = {
   // Environment
   env: process.env.NEXT_PUBLIC_ENV || "production",
@@ -18,16 +45,26 @@ export const config = {
   // Backend API
   backendUrl: process.env.NEXT_PUBLIC_BACKEND_URL || "",
 
-  // ── Local model servers (started by `bash local.sh` via docker-compose.demo.yml) ──
-  // VLLM serves LFM2.5-1.2B-Instruct-AWQ on port 8000 (OpenAI-compatible).
-  // TEI  serves snowflake-arctic-embed-s      on port 8001 (HuggingFace TEI).
-  // The Next.js dev server proxies /api/vllm/* → localhost:8000
-  //                                /api/tei/*  → localhost:8001
-  vllmUrl: process.env.NEXT_PUBLIC_VLLM_URL || "http://localhost:8000",
-  teiUrl: process.env.NEXT_PUBLIC_TEI_URL || "http://localhost:8001",
-
-  // Embedding dimension (must match backend vector index dimension)
+  // Embedding dimension for POST /search/vector (must match backend index)
   embeddingDim: 256,
+
+  // AI Search — semantic vector RAG (see repo-root gcp.env: AI_SEARCH_*)
+  aiSearch: {
+    /** Max cosine distance to show (0–2; lower = stricter relevance). */
+    maxCosineDistance: parseEnvFloat(
+      process.env.NEXT_PUBLIC_AI_SEARCH_MAX_COSINE_DISTANCE,
+      DEFAULT_AI_SEARCH_MAX_COSINE_DISTANCE,
+      0,
+      2,
+    ),
+    /** Firestore find_nearest limit per query. */
+    resultLimit: parseEnvInt(
+      process.env.NEXT_PUBLIC_AI_SEARCH_RESULT_LIMIT,
+      DEFAULT_AI_SEARCH_RESULT_LIMIT,
+      1,
+      50,
+    ),
+  },
 };
 
 // Validate required config in local environment

@@ -55,21 +55,6 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
-  async rewrites() {
-    // Proxy /api/vllm/* → local VLLM server (port 8000)
-    // Proxy /api/tei/*  → local TEI server  (port 8001)
-    // This avoids CORS issues and keeps model endpoints server-side.
-    return [
-      {
-        source: "/api/vllm/:path*",
-        destination: "http://localhost:8000/:path*",
-      },
-      {
-        source: "/api/tei/:path*",
-        destination: "http://localhost:8001/:path*",
-      },
-    ];
-  },
   images: {
     remotePatterns: [
       {

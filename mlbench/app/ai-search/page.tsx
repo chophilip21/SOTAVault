@@ -6,8 +6,10 @@ import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { SearchResults } from "./components/SearchResults";
 import { useEmbeddingWorker } from "./useEmbeddingWorker";
+import { filterHitsByMaxDistance } from "@/lib/aiSearch/filterHits";
 import type { VectorSearchHit, VectorSearchResponse } from "@/lib/aiSearch/types";
-import { EMBEDDING_MODEL_ID, VECTOR_SEARCH_THRESHOLD } from "@/lib/embedding/constants";
+import { config } from "@/lib/config";
+import { EMBEDDING_MODEL_ID } from "@/lib/embedding/constants";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -17,7 +19,7 @@ const SAMPLE_QUERIES = [
   "object detection on COCO",
 ] as const;
 
-const VECTOR_SEARCH_LIMIT = 50;
+const { maxCosineDistance, resultLimit } = config.aiSearch;
 
 // ─── Model Cache Status Banner ──────────────────────────────────────────────
 
@@ -153,7 +155,7 @@ export default function AiSearchPage() {
         const res = await fetch(url.toString(), {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ embedding, limit: VECTOR_SEARCH_LIMIT }),
+          body: JSON.stringify({ embedding, limit: resultLimit }),
           cache: "no-store",
         });
 
@@ -168,12 +170,7 @@ export default function AiSearchPage() {
         }
 
         const data = (await res.json()) as VectorSearchResponse;
-        const allHits = data.items || [];
-        // Only keep hits that are within the similarity threshold
-        const relevantHits = allHits.filter(
-          (h) => h.distance == null || h.distance <= VECTOR_SEARCH_THRESHOLD,
-        );
-        setHits(relevantHits);
+        setHits(filterHitsByMaxDistance(data.items || [], maxCosineDistance));
       } catch (err) {
         setHits([]);
         const msg = err instanceof Error ? err.message : "";
@@ -221,8 +218,7 @@ export default function AiSearchPage() {
                   Semantic paper search
                 </h1>
                 <p className="text-sm text-gray-600 mt-2 max-w-2xl font-sans">
-                  Embeddings run entirely in your browser via Transformers.js — no VLLM or TEI required.
-                  Results are capped at {VECTOR_SEARCH_LIMIT}.
+                  Do you want to search a paper or a dataset? Try our semantic search engine.
                 </p>
               </div>
 

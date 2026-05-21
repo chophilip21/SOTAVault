@@ -9,10 +9,3 @@ export const EMBEDDING_NATIVE_DIM = 384;
  * with an instruction telling the model what to do.
  */
 export const EMBEDDING_QUERY_PREFIX = "Represent this sentence for searching relevant passages: ";
-
-/**
- * Recommended cosine distance threshold.
- * Firestore returns cosine distance (1 - similarity).
- * 0.38 distance (~0.62 similarity) is a reasonable cutoff for mdbr-leaf-ir at 256-dim.
- */
-export const VECTOR_SEARCH_THRESHOLD = 0.38;

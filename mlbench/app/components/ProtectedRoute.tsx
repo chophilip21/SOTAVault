@@ -18,7 +18,6 @@ const protectedRoutes = [
   "/bookmarks",
   "/datasets",
   "/ai-search",
-  "/ai-chat",
 ];
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
