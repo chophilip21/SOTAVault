@@ -28,7 +28,11 @@ const contentSecurityPolicy = [
   "frame-src 'self' https://*.firebaseapp.com https://*.google.com https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
   "img-src 'self' data: blob: https:",
-  "font-src 'self' data:",
+  [
+    "font-src 'self' data:",
+    "https://cdnjs.cloudflare.com",
+    "https://fonts.gstatic.com",
+  ].join(" "),
 ].join("; ");
 
 const nextConfig: NextConfig = {

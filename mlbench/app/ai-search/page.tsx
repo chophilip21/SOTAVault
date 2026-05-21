@@ -13,11 +13,30 @@ import { EMBEDDING_MODEL_ID } from "@/lib/embedding/constants";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
-const SAMPLE_QUERIES = [
-  "retrieval-augmented generation for code",
-  "diffusion models for image generation",
-  "object detection on COCO",
-] as const;
+type SearchMode = "paper" | "dataset";
+
+const SEARCH_MODES: {
+  id: SearchMode;
+  label: string;
+  gradient: string;
+  selectedRing: string;
+}[] = [
+  {
+    id: "paper",
+    label: "Paper",
+    gradient: "from-emerald-400/25 via-teal-400/15 to-sky-400/20",
+    selectedRing: "ring-emerald-400/70",
+  },
+  {
+    id: "dataset",
+    label: "Dataset",
+    gradient: "from-violet-400/25 via-fuchsia-400/15 to-rose-400/20",
+    selectedRing: "ring-violet-400/70",
+  },
+];
+
+const DATASET_UNAVAILABLE_MSG =
+  "This feature is not available. Please choose Paper.";
 
 const { maxCosineDistance, resultLimit } = config.aiSearch;
 
@@ -121,6 +140,7 @@ function ModelCacheGate({
 
 export default function AiSearchPage() {
   const [query, setQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<SearchMode>("paper");
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [hits, setHits] = useState<VectorSearchHit[]>([]);
@@ -145,9 +165,16 @@ export default function AiSearchPage() {
       const q = (text ?? query).trim();
       if (!q || !isModelReady) return;
 
+      setHasSearched(true);
+
+      if (searchMode === "dataset") {
+        setHits([]);
+        setSearchError(DATASET_UNAVAILABLE_MSG);
+        return;
+      }
+
       setSearching(true);
       setSearchError(null);
-      setHasSearched(true);
 
       try {
         const embedding = await embed(q);
@@ -185,7 +212,7 @@ export default function AiSearchPage() {
         setSearching(false);
       }
     },
-    [query, isModelReady, embed],
+    [query, searchMode, isModelReady, embed],
   );
 
   return (
@@ -233,33 +260,31 @@ export default function AiSearchPage() {
                 />
               </div>
 
-              {/* Sample queries — only rendered when model is ready */}
+              {/* Search mode — Paper (default) or Dataset */}
               {isModelReady && (
-                <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {SAMPLE_QUERIES.map((q, idx) => {
-                    const gradient =
-                      idx === 0
-                        ? "from-emerald-400/25 via-teal-400/15 to-sky-400/20"
-                        : idx === 1
-                          ? "from-violet-400/25 via-fuchsia-400/15 to-rose-400/20"
-                          : "from-amber-300/30 via-orange-400/15 to-rose-400/20";
+                <div className="mt-4 flex justify-center gap-3">
+                  {SEARCH_MODES.map((mode) => {
+                    const selected = searchMode === mode.id;
                     return (
                       <button
-                        key={q}
+                        key={mode.id}
                         type="button"
-                        disabled={!canSearch}
+                        aria-pressed={selected}
                         onClick={() => {
-                          setQuery(q);
-                          void runSearch(q);
+                          setSearchMode(mode.id);
+                          if (mode.id === "paper") {
+                            setSearchError(null);
+                          }
                         }}
                         className={[
-                          "text-left rounded-2xl border border-white/70 bg-gradient-to-br transition shadow-sm px-4 py-3 font-sans",
-                          gradient,
-                          !canSearch ? "opacity-60 cursor-not-allowed" : "hover:brightness-[1.02]",
+                          "rounded-2xl border border-white/70 bg-gradient-to-br transition shadow-sm px-8 py-3 font-sans min-w-[7.5rem] text-center",
+                          mode.gradient,
+                          selected
+                            ? `ring-2 ${mode.selectedRing} brightness-[1.03]`
+                            : "opacity-80 hover:opacity-100 hover:brightness-[1.02]",
                         ].join(" ")}
                       >
-                        <div className="text-sm font-semibold text-gray-900 line-clamp-2">{q}</div>
-                        <div className="text-xs text-gray-700/80 mt-1">Try this</div>
+                        <div className="text-sm font-semibold text-gray-900">{mode.label}</div>
                       </button>
                     );
                   })}
@@ -279,7 +304,16 @@ export default function AiSearchPage() {
               )}
 
               {!busy && searchError && (
-                <p className="text-sm text-red-700 text-center py-8">{searchError}</p>
+                <p
+                  className={[
+                    "text-sm text-center py-8 font-sans",
+                    searchError === DATASET_UNAVAILABLE_MSG
+                      ? "text-amber-800"
+                      : "text-red-700",
+                  ].join(" ")}
+                >
+                  {searchError}
+                </p>
               )}
 
               {!busy && !searchError && hasSearched && hits.length === 0 && (
@@ -300,7 +334,7 @@ export default function AiSearchPage() {
               {!busy && !hasSearched && isModelReady && (
                 <div className="flex items-center justify-center py-16 text-center">
                   <p className="text-sm text-gray-500 font-sans">
-                    Enter a query below or pick a sample to search.
+                    Choose Paper or Dataset, then enter a query below.
                   </p>
                 </div>
               )}
@@ -326,7 +360,9 @@ export default function AiSearchPage() {
                         ? "Checking model cache…"
                         : !modelCached
                           ? "Download the model above to enable search"
-                          : "Search papers by topic, method, or benchmark…"
+                          : searchMode === "paper"
+                            ? "Search papers by topic, method, or benchmark…"
+                            : "Search datasets by name or task…"
                   }
                   className="flex-1 h-12 px-4 rounded-2xl border border-white/70 bg-white/75 text-gray-900 text-[15px] focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-white placeholder:text-gray-500 disabled:bg-white/50 disabled:cursor-not-allowed"
                 />
