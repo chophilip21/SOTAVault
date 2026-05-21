@@ -16,3 +16,23 @@ export type VectorSearchResponse = {
   items: VectorSearchHit[];
   limit: number;
 };
+
+export type DatasetSeriesVectorSearchHit = {
+  series: {
+    id: string;
+    name: string;
+    description?: string | null;
+    homepage?: string | null;
+    domain?: string | null;
+    aliases?: string[];
+    leaderboard_document_count_total?: number;
+  };
+  distance?: number | null;
+};
+
+export type DatasetSeriesVectorSearchResponse = {
+  items: DatasetSeriesVectorSearchHit[];
+  limit: number;
+};
+
+export type AiSearchMode = "paper" | "dataset";

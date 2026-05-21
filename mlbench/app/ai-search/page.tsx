@@ -4,19 +4,23 @@ import { Playfair_Display } from "next/font/google";
 import { useCallback, useState } from "react";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { LoadingSpinner } from "../components/LoadingSpinner";
+import { DatasetSeriesSearchResults } from "./components/DatasetSeriesSearchResults";
 import { SearchResults } from "./components/SearchResults";
 import { useEmbeddingWorker } from "./useEmbeddingWorker";
 import { filterHitsByMaxDistance } from "@/lib/aiSearch/filterHits";
-import type { VectorSearchHit, VectorSearchResponse } from "@/lib/aiSearch/types";
+import type {
+  AiSearchMode,
+  DatasetSeriesVectorSearchResponse,
+  VectorSearchHit,
+  VectorSearchResponse,
+} from "@/lib/aiSearch/types";
 import { config } from "@/lib/config";
 import { EMBEDDING_MODEL_ID } from "@/lib/embedding/constants";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
-type SearchMode = "paper" | "dataset";
-
 const SEARCH_MODES: {
-  id: SearchMode;
+  id: AiSearchMode;
   label: string;
   gradient: string;
   selectedRing: string;
@@ -35,8 +39,10 @@ const SEARCH_MODES: {
   },
 ];
 
-const DATASET_UNAVAILABLE_MSG =
-  "This feature is not available. Please choose Paper.";
+const VECTOR_PATHS: Record<AiSearchMode, string> = {
+  paper: "/search/vector",
+  dataset: "/search/dataset_series/vector",
+};
 
 const { maxCosineDistance, resultLimit } = config.aiSearch;
 
@@ -55,7 +61,6 @@ function ModelCacheGate({
   onDownload: () => void;
   error: string | null;
 }) {
-  // Still initialising worker / checking cache
   if (!workerReady || modelCached === null) {
     return (
       <div className="flex flex-col items-center gap-3 py-12">
@@ -65,7 +70,6 @@ function ModelCacheGate({
     );
   }
 
-  // Model is already in the browser cache → green light
   if (modelCached) {
     return (
       <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl border border-emerald-200 bg-emerald-50/80 w-fit mx-auto">
@@ -80,7 +84,6 @@ function ModelCacheGate({
     );
   }
 
-  // Model is NOT cached — show download CTA
   return (
     <div className="flex flex-col items-center gap-4 py-8">
       <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-6 py-5 max-w-md w-full text-center">
@@ -140,10 +143,13 @@ function ModelCacheGate({
 
 export default function AiSearchPage() {
   const [query, setQuery] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("paper");
+  const [searchMode, setSearchMode] = useState<AiSearchMode>("paper");
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [hits, setHits] = useState<VectorSearchHit[]>([]);
+  const [paperHits, setPaperHits] = useState<VectorSearchHit[]>([]);
+  const [datasetHits, setDatasetHits] = useState<
+    DatasetSeriesVectorSearchResponse["items"]
+  >([]);
   const [hasSearched, setHasSearched] = useState(false);
 
   const {
@@ -159,26 +165,33 @@ export default function AiSearchPage() {
   const isModelReady = workerReady && modelCached === true;
   const busy = searching || modelLoading;
   const canSearch = query.trim().length > 0 && isModelReady && !busy;
+  const activeHits = searchMode === "paper" ? paperHits : datasetHits;
+
+  const clearResults = useCallback(() => {
+    setPaperHits([]);
+    setDatasetHits([]);
+    setSearchError(null);
+    setHasSearched(false);
+  }, []);
 
   const runSearch = useCallback(
     async (text?: string) => {
       const q = (text ?? query).trim();
       if (!q || !isModelReady) return;
 
-      setHasSearched(true);
-
-      if (searchMode === "dataset") {
-        setHits([]);
-        setSearchError(DATASET_UNAVAILABLE_MSG);
-        return;
-      }
-
       setSearching(true);
       setSearchError(null);
+      setHasSearched(true);
+      if (searchMode === "paper") {
+        setPaperHits([]);
+      } else {
+        setDatasetHits([]);
+      }
 
       try {
         const embedding = await embed(q);
-        const url = new URL(`${getBackendBaseUrl()}/search/vector`);
+        const path = VECTOR_PATHS[searchMode];
+        const url = new URL(`${getBackendBaseUrl()}${path}`);
         const res = await fetch(url.toString(), {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -187,19 +200,36 @@ export default function AiSearchPage() {
         });
 
         if (!res.ok) {
-          setHits([]);
+          if (searchMode === "paper") {
+            setPaperHits([]);
+          } else {
+            setDatasetHits([]);
+          }
           setSearchError(
             res.status === 401 || res.status === 403
               ? "Sign in is required to run semantic search."
-              : "Paper search failed. Check that the API is running and try again.",
+              : searchMode === "paper"
+                ? "Paper search failed. Check that the API is running and try again."
+                : "Dataset search failed. Check that the API is running and try again.",
           );
           return;
         }
 
-        const data = (await res.json()) as VectorSearchResponse;
-        setHits(filterHitsByMaxDistance(data.items || [], maxCosineDistance));
+        if (searchMode === "paper") {
+          const data = (await res.json()) as VectorSearchResponse;
+          setPaperHits(filterHitsByMaxDistance(data.items || [], maxCosineDistance));
+        } else {
+          const data = (await res.json()) as DatasetSeriesVectorSearchResponse;
+          setDatasetHits(
+            filterHitsByMaxDistance(data.items || [], maxCosineDistance),
+          );
+        }
       } catch (err) {
-        setHits([]);
+        if (searchMode === "paper") {
+          setPaperHits([]);
+        } else {
+          setDatasetHits([]);
+        }
         const msg = err instanceof Error ? err.message : "";
         setSearchError(
           msg.includes("Enter a search query")
@@ -221,7 +251,6 @@ export default function AiSearchPage() {
         <div className="flex-1 min-h-0 rounded-[28px] bg-gradient-to-br from-slate-50 via-rose-50 to-violet-100 p-4 sm:p-6 border border-white/60 shadow-[0_20px_60px_rgba(15,23,42,0.10)] flex flex-col">
           <div className="relative flex-1 min-h-0 rounded-[24px] bg-white/65 backdrop-blur-xl border border-white/70 shadow-sm overflow-hidden flex flex-col">
 
-            {/* ── Header ── */}
             <div className="flex-shrink-0 border-b border-white/60 px-5 sm:px-7 pt-5 sm:pt-7 pb-4">
               <div className="flex justify-center">
                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/70 border border-white/80 shadow-sm">
@@ -242,14 +271,13 @@ export default function AiSearchPage() {
 
               <div className="mt-5 flex flex-col items-center text-center">
                 <h1 className={`text-2xl sm:text-4xl font-bold text-gray-900 tracking-tight ${playfairDisplay.className}`}>
-                  Semantic paper search
+                  Semantic search
                 </h1>
                 <p className="text-sm text-gray-600 mt-2 max-w-2xl font-sans">
-                  Do you want to search a paper or a dataset? Try our semantic search engine.
+                  Search papers or dataset series with the same embedding model — results depend on which mode you select.
                 </p>
               </div>
 
-              {/* Cache gate */}
               <div className="mt-5">
                 <ModelCacheGate
                   modelCached={modelCached}
@@ -260,7 +288,6 @@ export default function AiSearchPage() {
                 />
               </div>
 
-              {/* Search mode — Paper (default) or Dataset */}
               {isModelReady && (
                 <div className="mt-4 flex justify-center gap-3">
                   {SEARCH_MODES.map((mode) => {
@@ -272,9 +299,7 @@ export default function AiSearchPage() {
                         aria-pressed={selected}
                         onClick={() => {
                           setSearchMode(mode.id);
-                          if (mode.id === "paper") {
-                            setSearchError(null);
-                          }
+                          clearResults();
                         }}
                         className={[
                           "rounded-2xl border border-white/70 bg-gradient-to-br transition shadow-sm px-8 py-3 font-sans min-w-[7.5rem] text-center",
@@ -292,42 +317,47 @@ export default function AiSearchPage() {
               )}
             </div>
 
-            {/* ── Results area ── */}
             <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-7 py-4">
               {busy && (
                 <div className="flex flex-col items-center justify-center py-16">
                   <LoadingSpinner size="md" />
                   <p className="mt-3 text-sm text-gray-600 font-sans">
-                    {modelLoading ? "Running embedding model…" : "Searching papers…"}
+                    {modelLoading
+                      ? "Running embedding model…"
+                      : searchMode === "paper"
+                        ? "Searching papers…"
+                        : "Searching dataset series…"}
                   </p>
                 </div>
               )}
 
               {!busy && searchError && (
-                <p
-                  className={[
-                    "text-sm text-center py-8 font-sans",
-                    searchError === DATASET_UNAVAILABLE_MSG
-                      ? "text-amber-800"
-                      : "text-red-700",
-                  ].join(" ")}
-                >
-                  {searchError}
-                </p>
+                <p className="text-sm text-red-700 text-center py-8 font-sans">{searchError}</p>
               )}
 
-              {!busy && !searchError && hasSearched && hits.length === 0 && (
+              {!busy && !searchError && hasSearched && activeHits.length === 0 && (
                 <p className="text-sm text-gray-500 text-center py-12 font-sans">
-                  No matching papers found. Try a more specific query.
+                  {searchMode === "paper"
+                    ? "No matching papers found. Try a more specific query."
+                    : "No matching dataset series found. Try a more specific query."}
                 </p>
               )}
 
-              {!busy && !searchError && hits.length > 0 && (
+              {!busy && !searchError && searchMode === "paper" && paperHits.length > 0 && (
                 <div className="space-y-4">
                   <p className="text-sm font-semibold text-gray-900 font-sans">
-                    {hits.length} result{hits.length === 1 ? "" : "s"}
+                    {paperHits.length} paper{paperHits.length === 1 ? "" : "s"}
                   </p>
-                  <SearchResults hits={hits} />
+                  <SearchResults hits={paperHits} />
+                </div>
+              )}
+
+              {!busy && !searchError && searchMode === "dataset" && datasetHits.length > 0 && (
+                <div className="space-y-4">
+                  <p className="text-sm font-semibold text-gray-900 font-sans">
+                    {datasetHits.length} dataset series
+                  </p>
+                  <DatasetSeriesSearchResults hits={datasetHits} />
                 </div>
               )}
 
@@ -340,7 +370,6 @@ export default function AiSearchPage() {
               )}
             </div>
 
-            {/* ── Search bar — disabled until model is cached ── */}
             <div className="flex-shrink-0 px-4 sm:px-7 py-4 border-t border-white/60 bg-white/50">
               <div className="flex gap-2 items-stretch font-sans">
                 <input
@@ -362,9 +391,14 @@ export default function AiSearchPage() {
                           ? "Download the model above to enable search"
                           : searchMode === "paper"
                             ? "Search papers by topic, method, or benchmark…"
-                            : "Search datasets by name or task…"
+                            : "Search dataset series by name or task…"
                   }
-                  className="flex-1 h-12 px-4 rounded-2xl border border-white/70 bg-white/75 text-gray-900 text-[15px] focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-white placeholder:text-gray-500 disabled:bg-white/50 disabled:cursor-not-allowed"
+                  className={[
+                    "flex-1 h-12 px-4 rounded-2xl border border-white/70 bg-white/75 text-gray-900 text-[15px] focus:outline-none focus:ring-2 focus:border-white placeholder:text-gray-500 disabled:bg-white/50 disabled:cursor-not-allowed",
+                    searchMode === "paper"
+                      ? "focus:ring-emerald-400/60"
+                      : "focus:ring-violet-400/60",
+                  ].join(" ")}
                 />
                 <button
                   type="button"
@@ -373,7 +407,9 @@ export default function AiSearchPage() {
                   className={[
                     "shrink-0 h-12 px-5 rounded-2xl text-sm font-semibold text-white shadow-sm transition-all",
                     canSearch
-                      ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+                      ? searchMode === "paper"
+                        ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+                        : "bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600"
                       : "bg-slate-400 opacity-60 cursor-not-allowed",
                   ].join(" ")}
                 >
