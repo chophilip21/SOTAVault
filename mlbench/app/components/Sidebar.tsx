@@ -53,19 +53,32 @@ const navItems = [
     )
   },
   {
-    name: "AI Chat",
-    href: "/ai-chat",
+    name: "AI Search",
+    href: "/ai-search",
     beta: true,
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M10.5 3.75a6.75 6.75 0 1 0 3.955 12.285l4.394 4.394a.75.75 0 0 0 1.06-1.06l-4.395-4.395A6.751 6.751 0 0 0 10.5 3.75Z"
+        />
       </svg>
-    )
+    ),
   },
+
 ];
 
 // Essential tabs that require login
-const protectedRoutes = ['/papers', '/benchmark', '/conference', '/bookmarks', '/datasets', '/ai-chat'];
+const protectedRoutes = [
+  "/papers",
+  "/benchmark",
+  "/conference",
+  "/bookmarks",
+  "/datasets",
+  "/ai-search",
+];
 
 interface SidebarProps {
   onLoginRequired: () => void;
@@ -246,32 +259,6 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                         </span>
                       </button>
                     ) : (
-                      item.href === "/ai-chat" ? (
-                      <a
-                        href={item.href}
-                        onClick={() => {
-                          if (window.innerWidth < 768) {
-                            onClose();
-                          }
-                        }}
-                        className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${isActive
-                          ? "bg-green-50 text-green-600 border-l-4 border-green-500"
-                          : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                          }`}
-                      >
-                        <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
-                          {item.icon}
-                        </span>
-                        <span className="flex items-center gap-2">
-                          {item.name}
-                          {item.beta && (
-                            <span className="text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
-                              BETA
-                            </span>
-                          )}
-                        </span>
-                      </a>
-                      ) : (
                       <Link
                         href={item.href}
                         onClick={() => {
@@ -297,7 +284,6 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                           )}
                         </span>
                       </Link>
-                      )
                     )}
                   </li>
                 );

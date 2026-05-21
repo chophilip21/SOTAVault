@@ -1,6 +1,60 @@
 import type { NextConfig } from "next";
 
+/** CSP for Firebase + Transformers.js (ORT wasm loads from jsDelivr; models from Hugging Face Hub). */
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  [
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
+    "https://cdn.jsdelivr.net",
+    "https://apis.google.com",
+    "https://*.firebaseapp.com",
+    "https://*.gstatic.com",
+    "https://*.google.com",
+    "https://challenges.cloudflare.com",
+  ].join(" "),
+  "worker-src 'self' blob:",
+  [
+    "connect-src 'self'",
+    "https://huggingface.co",
+    "https://*.huggingface.co",
+    "https://*.xethub.hf.co",
+    "https://cdn.jsdelivr.net",
+    "https://apis.google.com",
+    "https://*.googleapis.com",
+    "https://*.firebaseapp.com",
+    "https://*.gstatic.com",
+    "https://challenges.cloudflare.com",
+  ].join(" "),
+  "frame-src 'self' https://*.firebaseapp.com https://*.google.com https://challenges.cloudflare.com",
+  "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+].join("; ");
+
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["@huggingface/transformers"],
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve = config.resolve ?? {};
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        sharp$: false,
+        "onnxruntime-node$": false,
+      };
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        crypto: false,
+      };
+    }
+    config.experiments = {
+      ...config.experiments,
+      asyncWebAssembly: true,
+      layers: true,
+    };
+    return config;
+  },
   async rewrites() {
     // Proxy /api/vllm/* → local VLLM server (port 8000)
     // Proxy /api/tei/*  → local TEI server  (port 8001)
@@ -44,7 +98,7 @@ const nextConfig: NextConfig = {
             // Set a base CSP that includes unsafe-inline so Firebase Auth iframes can execute their inline handshake scripts.
             // In Next.js dev (Turbopack), if no CSP is provided, it sometimes enforces a strict nonce-based CSP that breaks Firebase.
             key: "Content-Security-Policy",
-            value: "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://*.firebaseapp.com https://*.gstatic.com https://*.google.com https://challenges.cloudflare.com; worker-src 'self' blob:; frame-src 'self' https://*.firebaseapp.com https://*.google.com https://challenges.cloudflare.com;",
+            value: contentSecurityPolicy,
           },
         ],
       },

@@ -11,7 +11,15 @@ interface ProtectedRouteProps {
 }
 
 // Routes that require authentication
-const protectedRoutes = ['/papers', '/benchmark', '/conference', '/bookmarks', '/datasets', '/ai-chat'];
+const protectedRoutes = [
+  "/papers",
+  "/benchmark",
+  "/conference",
+  "/bookmarks",
+  "/datasets",
+  "/ai-search",
+  "/ai-chat",
+];
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, loading } = useAuth();

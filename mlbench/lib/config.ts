@@ -27,7 +27,7 @@ export const config = {
   teiUrl: process.env.NEXT_PUBLIC_TEI_URL || "http://localhost:8001",
 
   // Embedding dimension (must match backend vector index dimension)
-  embeddingDim: 384,
+  embeddingDim: 256,
 };
 
 // Validate required config in local environment
