@@ -3,6 +3,7 @@
 import { Playfair_Display } from "next/font/google";
 import { useCallback, useState } from "react";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { useAuth } from "@/lib/authContext";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { DatasetSeriesSearchResults } from "./components/DatasetSeriesSearchResults";
 import { SearchResults } from "./components/SearchResults";
@@ -152,6 +153,8 @@ export default function AiSearchPage() {
   >([]);
   const [hasSearched, setHasSearched] = useState(false);
 
+  const { user } = useAuth();
+
   const {
     embed,
     workerReady,
@@ -192,9 +195,18 @@ export default function AiSearchPage() {
         const embedding = await embed(q);
         const path = VECTOR_PATHS[searchMode];
         const url = new URL(`${getBackendBaseUrl()}${path}`);
+
+        const headers: Record<string, string> = { "content-type": "application/json" };
+        try {
+          const token = user ? await user.getIdToken() : null;
+          if (token) headers["Authorization"] = `Bearer ${token}`;
+        } catch {
+          // Non-fatal — fall back to IP-based rate limiting on the backend.
+        }
+
         const res = await fetch(url.toString(), {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers,
           body: JSON.stringify({ embedding, limit: resultLimit }),
           cache: "no-store",
         });
@@ -205,6 +217,16 @@ export default function AiSearchPage() {
           } else {
             setDatasetHits([]);
           }
+
+          if (res.status === 429) {
+            const body = await res.json().catch(() => ({}));
+            setSearchError(
+              (body?.detail as { message?: string })?.message ??
+                "RAG search is an experimental feature with limited availability. Please wait until your quota refreshes.",
+            );
+            return;
+          }
+
           setSearchError(
             res.status === 401 || res.status === 403
               ? "Sign in is required to run semantic search."
