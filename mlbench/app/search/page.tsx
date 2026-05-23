@@ -92,7 +92,7 @@ export default function SearchPage() {
           const body = await res.text().catch(() => "");
           if (res.status === 404) {
             throw new Error(
-              "Search service is not available yet (backend returned 404). Try restarting the backend (api-down/api-up) or run local.sh --build once."
+              "Search service is not available yet (backend returned 404). Try restarting the backend or run scripts/local.sh again."
             );
           }
           throw new Error(`Search failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ""}`);

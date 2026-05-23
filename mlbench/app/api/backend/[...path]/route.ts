@@ -58,7 +58,7 @@ async function proxy(req: NextRequest) {
         url: url.toString(),
         detail,
         hint:
-          "Start the backend (e.g. `./local.sh`) or set INTERNAL_BACKEND_URL/BACKEND_URL/NEXT_PUBLIC_BACKEND_URL for the frontend.",
+          "Start the backend (e.g. `make launch-local` or `scripts/local.sh`) or set INTERNAL_BACKEND_URL/BACKEND_URL/NEXT_PUBLIC_BACKEND_URL for the frontend.",
       }),
       { status: 502, headers: { "content-type": "application/json", "cache-control": "no-store" } }
     );

@@ -70,9 +70,9 @@ export const config = {
 // Validate required config in local environment
 if (config.isLocal) {
   if (!config.firebase.apiKey || !config.firebase.projectId) {
-    console.warn("Warning: Firebase configuration may be missing. Check your repo-root .env (via ./local.sh) or your environment variables.");
+    console.warn("Warning: Firebase configuration may be missing. Check your repo-root .env (via scripts/local.sh) or your environment variables.");
   }
   if (!config.backendUrl) {
-    console.warn("Warning: Backend URL is not configured. Check your repo-root .env (via ./local.sh) or your environment variables.");
+    console.warn("Warning: Backend URL is not configured. Check your repo-root .env (via scripts/local.sh) or your environment variables.");
   }
 }
