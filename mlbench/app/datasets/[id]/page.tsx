@@ -508,15 +508,15 @@ export default function DatasetDetailPage() {
         </Link>
       )}
 
-      <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm">
-        <div className="flex items-start gap-6">
-          <div className="flex-shrink-0 w-32 h-32 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 group">
+      <div className="bg-white border border-gray-100 rounded-2xl p-4 md:p-8 shadow-sm">
+        <div className="flex flex-col items-center md:flex-row md:items-start gap-4 md:gap-6">
+          <div className="flex-shrink-0 w-24 h-24 md:w-32 md:h-32 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 group">
             <Image
               src={getDomainIcon(dataset.domain)}
               alt={`${dataset.domain || 'dataset'} icon`}
               fill
-              sizes="128px"
-              className="object-contain p-3"
+              sizes="(max-width: 768px) 96px, 128px"
+              className="object-contain p-2 md:p-3"
             />
             {/* Bookmark button overlay */}
             <button
@@ -534,17 +534,17 @@ export default function DatasetDetailPage() {
             </button>
           </div>
 
-          <div className="flex-1">
-            <h1 className={`text-4xl font-bold text-gray-900 tracking-tight ${inter.className}`}>
+          <div className="flex-1 min-w-0 w-full max-md:text-center md:text-left">
+            <h1 className={`text-2xl md:text-4xl font-bold text-gray-900 tracking-tight break-words ${inter.className}`}>
               <MathText>{dataset.name}</MathText>
             </h1>
             {dataset.full_name && dataset.full_name !== dataset.name && (
-              <p className="text-xl text-gray-600 mt-2">
+              <p className="text-base md:text-xl text-gray-600 mt-2 break-words">
                 <MathText>{dataset.full_name}</MathText>
               </p>
             )}
 
-            <div className="flex flex-wrap gap-2 mt-4">
+            <div className="flex flex-wrap gap-2 mt-4 max-md:justify-center md:justify-start">
               {dataset.domain && (
                 <span className="px-3 py-1 text-sm bg-gray-100 text-gray-800 rounded-full">
                   {dataset.domain}

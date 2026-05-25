@@ -73,12 +73,12 @@ function ModelCacheGate({
 
   if (modelCached) {
     return (
-      <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl border border-emerald-200 bg-emerald-50/80 w-fit mx-auto">
-        <span className="relative flex h-2.5 w-2.5">
+      <div className="flex items-center justify-center gap-2.5 px-3 sm:px-4 py-2.5 rounded-2xl border border-emerald-200 bg-emerald-50/80 w-full max-w-xl mx-auto">
+        <span className="relative flex h-2.5 w-2.5 shrink-0">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
         </span>
-        <span className="text-sm font-medium text-emerald-800 font-sans">
+        <span className="text-sm font-medium text-emerald-800 font-sans text-center leading-snug">
           Embedding model ready — running entirely in your browser
         </span>
       </div>
@@ -152,6 +152,7 @@ export default function AiSearchPage() {
     DatasetSeriesVectorSearchResponse["items"]
   >([]);
   const [hasSearched, setHasSearched] = useState(false);
+  const [queryInputFocused, setQueryInputFocused] = useState(false);
 
   const { user } = useAuth();
 
@@ -169,6 +170,8 @@ export default function AiSearchPage() {
   const busy = searching || modelLoading;
   const canSearch = query.trim().length > 0 && isModelReady && !busy;
   const activeHits = searchMode === "paper" ? paperHits : datasetHits;
+  const queryHasText = query.trim().length > 0;
+  const queryBorderActive = queryInputFocused || queryHasText;
 
   const clearResults = useCallback(() => {
     setPaperHits([]);
@@ -268,14 +271,14 @@ export default function AiSearchPage() {
   );
 
   return (
-    <div className="min-h-[calc(100vh-5rem)] h-[calc(100vh-5rem)] flex flex-col overflow-hidden px-4 sm:px-6 lg:px-8 py-6">
-      <div className="flex-1 min-h-0 mx-auto w-full max-w-6xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] flex flex-col">
-        <div className="flex-1 min-h-0 rounded-[28px] bg-gradient-to-br from-slate-50 via-rose-50 to-violet-100 p-4 sm:p-6 border border-white/60 shadow-[0_20px_60px_rgba(15,23,42,0.10)] flex flex-col">
-          <div className="relative flex-1 min-h-0 rounded-[24px] bg-white/65 backdrop-blur-xl border border-white/70 shadow-sm overflow-hidden flex flex-col">
+    <div className="min-h-[calc(100vh-5rem)] h-[calc(100vh-5rem)] flex flex-col overflow-hidden px-3 sm:px-6 lg:px-8 py-4 sm:py-6 min-w-0">
+      <div className="flex-1 min-h-0 mx-auto w-full max-w-6xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] flex flex-col min-w-0">
+        <div className="flex-1 min-h-0 rounded-[28px] bg-gradient-to-br from-slate-50 via-rose-50 to-violet-100 p-3 sm:p-6 border border-white/60 shadow-[0_20px_60px_rgba(15,23,42,0.10)] flex flex-col min-w-0">
+          <div className="relative flex-1 min-h-0 rounded-[24px] bg-white/65 backdrop-blur-xl border border-white/70 shadow-sm overflow-hidden flex flex-col min-w-0">
 
-            <div className="flex-shrink-0 border-b border-white/60 px-5 sm:px-7 pt-5 sm:pt-7 pb-4">
-              <div className="flex justify-center">
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/70 border border-white/80 shadow-sm">
+            <div className="flex-shrink-0 border-b border-white/60 px-4 sm:px-7 pt-4 sm:pt-7 pb-4 min-w-0">
+              <div className="flex justify-center max-w-full">
+                <div className="inline-flex max-w-full items-center gap-2 px-3 sm:px-4 py-2 rounded-2xl bg-white/70 border border-white/80 shadow-sm">
                   <div className="w-8 h-8 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm">
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <path
@@ -311,7 +314,7 @@ export default function AiSearchPage() {
               </div>
 
               {isModelReady && (
-                <div className="mt-4 flex justify-center gap-3">
+                <div className="mt-4 grid grid-cols-2 gap-2 w-full max-w-[17rem] mx-auto sm:flex sm:w-auto sm:justify-center sm:gap-3 sm:max-w-none">
                   {SEARCH_MODES.map((mode) => {
                     const selected = searchMode === mode.id;
                     return (
@@ -324,7 +327,7 @@ export default function AiSearchPage() {
                           clearResults();
                         }}
                         className={[
-                          "rounded-2xl border border-white/70 bg-gradient-to-br transition shadow-sm px-8 py-3 font-sans min-w-[7.5rem] text-center",
+                          "w-full sm:w-auto rounded-2xl border border-white/70 bg-gradient-to-br transition shadow-sm px-4 py-2.5 sm:px-5 font-sans text-center",
                           mode.gradient,
                           selected
                             ? `ring-2 ${mode.selectedRing} brightness-[1.03]`
@@ -392,11 +395,13 @@ export default function AiSearchPage() {
               )}
             </div>
 
-            <div className="flex-shrink-0 px-4 sm:px-7 py-4 border-t border-white/60 bg-white/50">
-              <div className="flex gap-2 items-stretch font-sans">
+            <div className="flex-shrink-0 px-4 sm:px-7 py-5 sm:py-4 border-t border-emerald-100 bg-white/95 shadow-[0_-8px_30px_rgba(16,185,129,0.12)] min-w-0">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-2 items-stretch font-sans min-w-0 max-w-3xl mx-auto w-full">
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onFocus={() => setQueryInputFocused(true)}
+                  onBlur={() => setQueryInputFocused(false)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -416,10 +421,11 @@ export default function AiSearchPage() {
                             : "Search dataset series by name or task…"
                   }
                   className={[
-                    "flex-1 h-12 px-4 rounded-2xl border border-white/70 bg-white/75 text-gray-900 text-[15px] focus:outline-none focus:ring-2 focus:border-white placeholder:text-gray-500 disabled:bg-white/50 disabled:cursor-not-allowed",
-                    searchMode === "paper"
-                      ? "focus:ring-emerald-400/60"
-                      : "focus:ring-violet-400/60",
+                    "w-full min-w-0 flex-1 min-h-[3.25rem] sm:min-h-0 sm:h-12 px-4 rounded-2xl border-2 bg-white text-gray-900 text-base sm:text-[15px] transition-colors focus:outline-none placeholder:text-gray-500 disabled:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200",
+                    queryBorderActive
+                      ? "border-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.18)]"
+                      : "border-emerald-200",
+                    queryInputFocused ? "ring-2 ring-emerald-500/45" : "",
                   ].join(" ")}
                 />
                 <button
@@ -427,7 +433,7 @@ export default function AiSearchPage() {
                   onClick={() => void runSearch()}
                   disabled={!canSearch}
                   className={[
-                    "shrink-0 h-12 px-5 rounded-2xl text-sm font-semibold text-white shadow-sm transition-all",
+                    "w-full sm:w-auto sm:shrink-0 h-12 px-5 rounded-2xl text-sm font-semibold text-white shadow-sm transition-all",
                     canSearch
                       ? searchMode === "paper"
                         ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"

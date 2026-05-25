@@ -9,6 +9,7 @@ import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
 import { inter } from "@/lib/fonts";
 import { cleanMetricDescription } from "@/lib/metricDescription";
+import { capitalizeSeriesName } from "@/lib/formatName";
 
 interface DatasetSeries {
   id: string;
@@ -187,7 +188,7 @@ export default function DatasetSeriesDetailPage() {
 
           <div className="flex-1">
             <h1 className={`text-4xl font-bold text-gray-900 tracking-tight ${inter.className}`}>
-              <MathText>{series.name}</MathText>
+              <MathText>{capitalizeSeriesName(series.name)}</MathText>
             </h1>
 
             <div className="flex flex-wrap gap-2 mt-4">
@@ -235,7 +236,9 @@ export default function DatasetSeriesDetailPage() {
                   ? "bg-gradient-to-br from-emerald-50 to-emerald-100 text-emerald-700 shadow-emerald-50"
                   : GRADIENTS[stableIndex];
 
-                const displayName = isBase ? `${dataset.name} Base` : dataset.name;
+                const displayName = capitalizeSeriesName(
+                  isBase ? `${dataset.name} Base` : dataset.name,
+                );
 
                 return (
                   <Link

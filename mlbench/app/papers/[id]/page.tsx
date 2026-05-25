@@ -330,8 +330,8 @@ export default function PaperDetailPage() {
 
       {!loading && !error && paper && (
         <div className="space-y-4">
-          <div className="flex items-start gap-4">
-            <div className="flex-shrink-0 w-24 h-24 relative rounded border border-gray-200 overflow-hidden bg-gray-50 group">
+          <div className="flex items-start gap-4 max-md:flex-col max-md:items-center">
+            <div className="flex-shrink-0 w-24 h-24 relative rounded border border-gray-200 overflow-hidden bg-gray-50 group max-md:w-20 max-md:h-20">
               <PaperCoverArt
                 seed={paper.arxiv_id || paper.id}
                 title={displayTitle}
@@ -355,12 +355,12 @@ export default function PaperDetailPage() {
                 </span>
               </button>
             </div>
-            <div className="flex-1 space-y-2">
-              <h1 className="text-2xl font-bold text-gray-900">
+            <div className="flex-1 space-y-2 max-md:w-full max-md:text-center">
+              <h1 className="text-2xl font-bold text-gray-900 max-md:text-xl max-md:break-words">
                 <MathText>{displayTitle}</MathText>
               </h1>
               {paper.authors && paper.authors.length > 0 && (
-                <p className="text-sm text-gray-700">
+                <p className="text-sm text-gray-700 max-md:break-words">
                   {paper.authors.join(", ")}
                 </p>
               )}
@@ -371,7 +371,7 @@ export default function PaperDetailPage() {
               )}
 
 
-              <div className="flex flex-wrap gap-1 mt-2">
+              <div className="flex flex-wrap gap-1 mt-2 max-md:justify-center">
                 {paper.domain && (
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100">
                     {paper.domain}
@@ -528,9 +528,7 @@ export default function PaperDetailPage() {
                       </div>
                     );
                   })
-                ) : (
-                  <span className="text-gray-500 text-sm italic">No official code available.</span>
-                )}
+                ) : null}
 
                 {paper.unofficial_code && paper.unofficial_code.length > 0 && (
                   <div className="mt-2">
@@ -641,9 +639,9 @@ export default function PaperDetailPage() {
 
                         return (
                           <div key={did} className="border border-gray-200 rounded-lg overflow-hidden">
-                            <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 font-medium text-gray-900 flex items-center justify-between">
+                            <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 font-medium text-gray-900 flex items-center justify-between max-md:flex-col max-md:items-start max-md:gap-1">
                               <Link href={`/datasets/${did}`}>
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-50 text-yellow-800 border border-yellow-200 hover:bg-yellow-100 transition-colors">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-50 text-yellow-800 border border-yellow-200 hover:bg-yellow-100 transition-colors max-md:break-words">
                                   {datasetName}
                                 </span>
                               </Link>

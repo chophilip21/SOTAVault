@@ -13,7 +13,7 @@ import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse
 import { useAuth } from "@/lib/authContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { MathText } from "@/lib/mathText";
-import { cleanPaperTitle } from "@/lib/paperTitle";
+import { cleanPaperTitle, formatPaperAuthorsWithYear } from "@/lib/paperTitle";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -763,13 +763,13 @@ export default function PapersPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <div className="bg-gradient-to-br from-green-50 to-blue-50 border border-green-200 rounded-2xl p-6 shadow-sm">
+      <div className="bg-gradient-to-br from-green-50 to-blue-50 border border-green-200 rounded-2xl p-6 shadow-sm max-md:p-4">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
-            <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3">
+            <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3 max-md:order-2">
               <div>
-                <h1 className={`text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>Papers</h1>
-                <p className="text-gray-600 text-base mt-3 break-words">
+                <h1 className={`text-5xl font-bold text-gray-900 max-md:text-3xl max-md:leading-tight ${playfairDisplay.className}`}>Papers</h1>
+                <p className="text-gray-600 text-base mt-3 break-words max-md:text-sm max-md:mt-2">
                   Discover the latest papers and groundbreaking research in machine learing.
                 </p>
               </div>
@@ -780,7 +780,7 @@ export default function PapersPage() {
                     placeholder="Search papers by title..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors ${searchQuery.trim().length > 0 ? "bg-white" : "bg-gray-100"
+                    className={`w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors max-md:py-2.5 max-md:text-base ${searchQuery.trim().length > 0 ? "bg-white" : "bg-gray-100"
                       }`}
                   />
                   <svg
@@ -797,8 +797,8 @@ export default function PapersPage() {
                     />
                   </svg>
                 </div>
-                <div className="flex gap-2 flex-wrap items-center">
-                  <div className="relative">
+                <div className="flex gap-2 flex-wrap items-center max-md:flex-col max-md:items-stretch max-md:w-full">
+                  <div className="relative max-md:w-full">
                     <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
@@ -807,7 +807,7 @@ export default function PapersPage() {
                     <select
                       value={selectedDomain}
                       onChange={(e) => setSelectedDomain(e.target.value)}
-                      className="w-48 px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                      className="w-48 max-md:w-full px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white max-md:py-2.5 max-md:text-base"
                     >
                       {DOMAIN_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -818,11 +818,11 @@ export default function PapersPage() {
                   </div>
 
                   {/* Custom searchable task dropdown */}
-                  <div ref={taskDropdownRef} className="relative min-w-[200px]">
+                  <div ref={taskDropdownRef} className="relative min-w-[200px] max-md:w-full max-md:min-w-0">
                     <button
                       onClick={() => setTaskSearchOpen(!taskSearchOpen)}
                       disabled={tasksLoading}
-                      className="w-48 px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white disabled:bg-gray-100 text-left flex items-center justify-between relative"
+                      className="w-48 max-md:w-full px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white disabled:bg-gray-100 text-left flex items-center justify-between relative max-md:py-2.5 max-md:text-base"
                     >
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
@@ -915,16 +915,16 @@ export default function PapersPage() {
                     )}
                   </div>
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 max-md:w-full max-md:space-x-2">
                     <button
                       onClick={handleApplyFilters}
-                      className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition"
+                      className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition max-md:flex-1 max-md:py-2.5"
                     >
                       Apply
                     </button>
                     <button
                       onClick={handleClearFilters}
-                      className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition"
+                      className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition max-md:flex-1 max-md:py-2.5"
                     >
                       Clear
                     </button>
@@ -941,13 +941,13 @@ export default function PapersPage() {
                 </div>
               </div>
             </div>
-            <div className="flex-1 flex items-center justify-center min-h-[280px]">
+            <div className="flex-1 flex items-center justify-center min-h-[280px] max-md:order-1 max-md:min-h-0 max-md:py-4 max-md:flex-none">
               <Image
                 src="/papers.png"
                 alt="Research papers illustration"
                 width={350}
                 height={350}
-                className="opacity-80 max-w-full h-auto"
+                className="opacity-80 max-w-full h-auto max-md:w-40 max-md:h-40"
               />
             </div>
           </div>
@@ -1020,13 +1020,14 @@ export default function PapersPage() {
       <div className="space-y-5">
         {filteredPapers.map((paper) => {
           const displayTitle = cleanPaperTitle(paper.title);
+          const authorsLine = formatPaperAuthorsWithYear(paper.authors, paper.year);
           return (
             <div
               key={paper.id}
-              className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-gray-200 transition-all duration-200"
+              className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-gray-200 transition-all duration-200 max-md:p-4"
             >
-              <div className="flex justify-between items-start gap-4">
-                <div className="flex-shrink-0 w-24 h-24 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+              <div className="flex justify-between items-start gap-4 max-md:flex-col max-md:items-center">
+                <div className="flex-shrink-0 w-24 h-24 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 max-md:w-20 max-md:h-20">
                   <PaperCoverArt
                     seed={paper.arxiv_id || paper.id}
                     title={displayTitle}
@@ -1036,21 +1037,21 @@ export default function PapersPage() {
                     ariaLabel={displayTitle ? `Paper cover: ${displayTitle}` : "Paper cover"}
                   />
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0 max-md:w-full max-md:text-center">
                   <Link href={`/papers/${paper.id}`}>
-                    <h2 className="text-lg font-semibold text-gray-900 hover:text-green-600 transition">
+                    <h2 className="text-lg font-semibold text-gray-900 hover:text-green-600 transition max-md:text-base max-md:break-words">
                       <MathText>{displayTitle}</MathText>
                     </h2>
                   </Link>
                   {/* Code badges + GitHub stats */}
-                  <div className="mt-2 space-y-1 text-xs">
+                  <div className="mt-2 space-y-1 text-xs max-md:flex max-md:flex-col max-md:items-center">
                     {paper.official_code && paper.official_code.length > 0 ? (
-                      <div className="space-y-1">
+                      <div className="space-y-1 max-md:flex max-md:flex-col max-md:items-center">
                         {paper.official_code.map((u) => {
                           const key = normalizeGithubRepo(u);
                           const meta = key ? githubMeta[key] : undefined;
                           return (
-                            <div key={u} className="flex flex-wrap items-center gap-2">
+                            <div key={u} className="flex flex-wrap items-center gap-2 max-md:justify-center">
                               <GithubRepoStats
                                 status={(meta?.status as any) || (key ? "pending" : "invalid")}
                                 stars={meta?.data?.stars}
@@ -1064,18 +1065,17 @@ export default function PapersPage() {
                         })}
                       </div>
                     ) : (
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 max-md:justify-center">
                         <GithubRepoStats status="ok" stars={0} forks={0} />
-                        <span className="text-gray-400">No official code available.</span>
                       </div>
                     )}
 
                     {paper.unofficial_code && paper.unofficial_code.length > 0 && (
-                      <div className="space-y-1">
+                      <div className="space-y-1 max-md:flex max-md:flex-col max-md:items-center">
                         <button
                           type="button"
                           onClick={() => toggleUnofficial(paper.id, paper.unofficial_code || [])}
-                          className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700"
+                          className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700 max-md:justify-center"
                         >
                           <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-gray-200 bg-gray-50 text-gray-500">
                             {showUnofficial[paper.id] ? "−" : "+"}
@@ -1086,12 +1086,12 @@ export default function PapersPage() {
                         </button>
 
                         {showUnofficial[paper.id] && (
-                          <div className="space-y-1 pl-7">
+                          <div className="space-y-1 pl-7 max-md:pl-0 max-md:flex max-md:flex-col max-md:items-center">
                             {paper.unofficial_code.map((u) => {
                               const key = normalizeGithubRepo(u);
                               const meta = key ? githubMeta[key] : undefined;
                               return (
-                                <div key={u} className="flex flex-wrap items-center gap-2">
+                                <div key={u} className="flex flex-wrap items-center gap-2 max-md:justify-center">
                                   <GithubRepoStats
                                     status={(meta?.status as any) || (key ? "pending" : "invalid")}
                                     stars={meta?.data?.stars}
@@ -1108,18 +1108,16 @@ export default function PapersPage() {
                       </div>
                     )}
                   </div>
-                  {paper.authors && paper.authors.length > 0 && (
-                    <p className="text-sm text-gray-600 mt-1">{paper.authors.join(", ")}</p>
+                  {authorsLine && (
+                    <p className="text-sm text-gray-600 mt-1 max-md:break-words">{authorsLine}</p>
                   )}
-                  {(paper.venue || paper.year) && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      {[paper.venue, paper.year].filter(Boolean).join(" · ")}
-                    </p>
+                  {paper.venue && (
+                    <p className="text-xs text-gray-500 mt-1 max-md:break-words">{paper.venue}</p>
                   )}
                 </div>
               </div>
               {paper.abstract && (
-                <p className="text-sm text-gray-700 mt-3 line-clamp-3">{paper.abstract}</p>
+                <p className="text-sm text-gray-700 mt-3 line-clamp-3 max-md:break-words">{paper.abstract}</p>
               )}
               {renderBubbles(paper)}
               <div className="mt-4 flex flex-col items-center gap-2">

@@ -27,3 +27,16 @@ export function stripWrappingQuotes(s: string): string {
 export function cleanPaperTitle(raw: string | null | undefined): string {
   return stripWrappingQuotes(stripHtmlTags(raw ?? ""));
 }
+
+/** Authors line with publication year, e.g. "Philip Cho, Jane Doe (2026)". */
+export function formatPaperAuthorsWithYear(
+  authors: string[] | null | undefined,
+  year: number | null | undefined,
+): string | null {
+  const names = (authors || []).filter(Boolean).join(", ");
+  const hasYear = year != null && !Number.isNaN(year);
+  if (names && hasYear) return `${names} (${year})`;
+  if (names) return names;
+  if (hasYear) return `(${year})`;
+  return null;
+}

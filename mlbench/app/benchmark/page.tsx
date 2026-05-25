@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Playfair_Display } from "next/font/google";
+import { Noto_Sans, Playfair_Display } from "next/font/google";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
@@ -11,14 +11,13 @@ import { useAuth } from "@/lib/authContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { MathText } from "@/lib/mathText";
 import { cleanMetricDescription } from "@/lib/metricDescription";
+import { capitalizeSeriesName } from "@/lib/formatName";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
-
-function capitalizeSeriesName(name: string): string {
-  const s = (name || "").trim();
-  if (!s) return s;
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
+const notoSans = Noto_Sans({
+  subsets: ["latin"],
+  weight: "600",
+});
 
 // Cache for tasks data
 let tasksCache: Task[] | null = null;
@@ -65,6 +64,12 @@ const DOMAIN_ICONS: Record<string, string> = {
 const getDomainIcon = (domain?: string): string => {
   if (!domain) return "/icons/cv.png";
   return DOMAIN_ICONS[domain] || "/icons/cv.png";
+};
+
+const getDomainLabel = (domain?: string): string | null => {
+  if (!domain) return null;
+  const match = DOMAIN_OPTIONS.find((o) => o.value === domain);
+  return match?.label ?? domain;
 };
 
 interface Benchmark {
@@ -937,7 +942,9 @@ export default function BenchmarkPage() {
 
       {/* Responsive grid: 1 col mobile, 2 tablet, 3 desktop */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {filteredBenchmarks.map((benchmark) => (
+        {filteredBenchmarks.map((benchmark) => {
+          const domainLabel = getDomainLabel(benchmark.domain);
+          return (
           <div
             key={benchmark.id}
             className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-green-200 transition-all duration-200 flex flex-col"
@@ -953,23 +960,23 @@ export default function BenchmarkPage() {
                   className="object-contain p-2"
                 />
               </div>
-              <div className="flex-1 min-w-0 flex flex-col justify-center min-h-14">
+              <div className="flex-1 min-w-0 flex flex-col justify-center min-h-14 gap-0.5">
                 {isSearchMode ? (
-                  <Link href={`/datasets/${benchmark.id}`}>
-                    <h2 className="text-lg font-semibold text-gray-900 hover:text-green-600 transition leading-snug line-clamp-2 font-sans">
+                  <Link href={`/datasets/${benchmark.id}`} className="block min-w-0">
+                    <h2 className={`text-xl font-semibold leading-tight text-gray-950 hover:text-green-600 transition line-clamp-1 ${notoSans.className}`}>
                       <MathText>{capitalizeSeriesName(benchmark.name)}</MathText>
                     </h2>
                   </Link>
                 ) : (
-                  <Link href={`/dataset-series/${benchmark.id}`}>
-                    <h2 className="text-lg font-semibold text-gray-900 hover:text-green-600 transition leading-snug line-clamp-2 font-sans">
+                  <Link href={`/dataset-series/${benchmark.id}`} className="block min-w-0">
+                    <h2 className={`text-xl font-semibold leading-tight text-gray-950 hover:text-green-600 transition line-clamp-1 ${notoSans.className}`}>
                       <MathText>{capitalizeSeriesName(benchmark.name)}</MathText>
                     </h2>
                   </Link>
                 )}
-                {benchmark.full_name && benchmark.full_name !== benchmark.name && (
-                  <p className="text-xs text-gray-500 mt-1 truncate">
-                    <MathText>{benchmark.full_name}</MathText>
+                {domainLabel && (
+                  <p className="text-sm font-normal text-gray-500 leading-snug line-clamp-1">
+                    {domainLabel}
                   </p>
                 )}
               </div>
@@ -1003,7 +1010,8 @@ export default function BenchmarkPage() {
               </button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {!isSearchMode && <Pager align="center" />}
