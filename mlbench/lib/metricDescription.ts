@@ -25,7 +25,6 @@ export function directionSummary(direction: MetricDirection): string {
   }
 }
 
-/** Clean metric text from DB: strip trailing source URLs and citation brackets like [2, 13]. */
 export function cleanMetricDescription(desc: string): string {
   let s = (desc || "").trim();
   if (!s) return s;
@@ -33,8 +32,12 @@ export function cleanMetricDescription(desc: string): string {
   const sourceRe = /\s*(?:source)\s*:?\s*https?:\/\/\S+\s*$/i;
   while (sourceRe.test(s)) s = s.replace(sourceRe, "").trim();
 
-  const citeRe = /\s*\[\s*\d+(?:\s*,\s*\d+)*\s*\]\s*$/;
-  while (citeRe.test(s)) s = s.replace(citeRe, "").trim();
+  // Strip citations like [2, 5] or [1] from anywhere in the string
+  const citeRe = /\s*\[\s*\d+(?:\s*,\s*\d+)*\s*\]/g;
+  s = s.replace(citeRe, "");
+
+  // Clean up any double spaces that might be left over (excluding newlines)
+  s = s.replace(/[ \t]{2,}/g, " ");
 
   return s.trim();
 }

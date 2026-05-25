@@ -10,6 +10,7 @@ import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { useAuth } from "@/lib/authContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { MathText } from "@/lib/mathText";
+import { cleanMetricDescription } from "@/lib/metricDescription";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
@@ -976,7 +977,9 @@ export default function BenchmarkPage() {
 
             {/* Description */}
             {benchmark.description && (
-              <p className="text-sm text-gray-700 mt-3 line-clamp-3">{benchmark.description}</p>
+              <p className="text-sm text-gray-700 mt-3 line-clamp-3">
+                <MathText>{cleanMetricDescription(benchmark.description)}</MathText>
+              </p>
             )}
 
             {/* Bubbles for modalities and tasks */}

@@ -21,6 +21,20 @@ export type JobTitle = "Student" | "Researcher" | "Software Engineer" | "Others"
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_CLOUDFLARE_SITE_KEY || "";
 
+async function verifyTurnstileWithBackend(token: string): Promise<void> {
+  const response = await fetch(`${getBackendBaseUrl()}/users/verify-turnstile`, {
+    method: "POST",
+    headers: {
+      "x-turnstile-token": token,
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: "Security verification failed." }));
+    throw new Error(errorData.detail || "Security verification failed. Please try again.");
+  }
+}
+
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -56,7 +70,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   // Turnstile State
   const [turnstileToken, setTurnstileToken] = useState("");
-  const [failedLoginAttempts, setFailedLoginAttempts] = useState(0);
   const [isTurnstileSolved, setIsTurnstileSolved] = useState(false);
 
   const [error, setError] = useState("");
@@ -86,9 +99,47 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     // Reset Turnstile for next time
     setTurnstileToken("");
     setIsTurnstileSolved(false);
-    // Note: We intentionally don't reset newFailedAttempts here in a simple way
-    // because we want to persist the "need captcha" state if they just closed the modal.
-    // But for UX, maybe we should reset if they successfully login.
+  };
+
+  const requireTurnstileForLogin = (): string | null => {
+    if (!TURNSTILE_SITE_KEY) {
+      return "Captcha configuration error: site key missing.";
+    }
+    if (!turnstileToken || !isTurnstileSolved) {
+      return "Please complete the security check.";
+    }
+    return null;
+  };
+
+  const handleTurnstileVerify = (token: string) => {
+    setTurnstileToken(token);
+    setIsTurnstileSolved(true);
+    setError("");
+  };
+
+  const handleTurnstileExpire = () => {
+    setTurnstileToken("");
+    setIsTurnstileSolved(false);
+  };
+
+  const renderTurnstile = () => {
+    if (!TURNSTILE_SITE_KEY) {
+      return (
+        <div className="text-red-500 text-sm border border-red-200 p-2 rounded bg-red-50">
+          Captcha Configuration Error: Site Key Missing
+        </div>
+      );
+    }
+
+    return (
+      <Turnstile
+        sitekey={TURNSTILE_SITE_KEY}
+        appearance="always"
+        theme="light"
+        onVerify={handleTurnstileVerify}
+        onExpire={handleTurnstileExpire}
+      />
+    );
   };
 
   const handleCleanupGoogleUser = async () => {
@@ -180,16 +231,21 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const handleGoogleLogin = async () => {
     setError("");
 
-    // If rate limited, require turnstile even for Google? 
-    // Usually Google login is safe, but let's effectively enforce it if attempts > 3
-    if (failedLoginAttempts >= 3 && !isTurnstileSolved) {
-      setError("Please complete the security check.");
-      return;
+    if (isLogin) {
+      const turnstileError = requireTurnstileForLogin();
+      if (turnstileError) {
+        setError(turnstileError);
+        return;
+      }
     }
 
     setLoading(true);
 
     try {
+      if (isLogin) {
+        await verifyTurnstileWithBackend(turnstileToken);
+      }
+
       const provider = new GoogleAuthProvider();
       // Force account selection prompt
       provider.setCustomParameters({
@@ -220,7 +276,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       if (userExists) {
         // User is already registered
         await refreshUserProfile();
-        setFailedLoginAttempts(0);
 
         if (!isLogin) {
           // User was trying to sign up but already exists
@@ -263,7 +318,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         return;
       }
       console.error("Google login error:", loginError);
-      setFailedLoginAttempts(prev => prev + 1);
       setError(getUserFriendlyAuthError(loginError, "login"));
       setLoading(false);
     }
@@ -273,14 +327,17 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     e.preventDefault();
     setError("");
 
-    if (failedLoginAttempts >= 3 && !isTurnstileSolved) {
-      setError("Please complete the security check.");
+    const turnstileError = requireTurnstileForLogin();
+    if (turnstileError) {
+      setError(turnstileError);
       return;
     }
 
     setLoading(true);
 
     try {
+      await verifyTurnstileWithBackend(turnstileToken);
+
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
 
       if (!userCredential.user.emailVerified) {
@@ -289,12 +346,10 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       }
 
       await refreshUserProfile();
-      setFailedLoginAttempts(0); // Reset on success
       onClose();
       setEmail("");
       setPassword("");
     } catch (loginError: any) {
-      setFailedLoginAttempts(prev => prev + 1);
       if (loginError.message === "Please verify your email address before logging in. Check your inbox.") {
         setError(loginError.message);
       } else {
@@ -435,9 +490,13 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         {/* LOGIN FORM */}
         {isLogin ? (
           <>
+            <div className="flex justify-center mb-4">
+              {renderTurnstile()}
+            </div>
+
             <button
               onClick={handleGoogleLogin}
-              disabled={loading || (failedLoginAttempts >= 3 && !isTurnstileSolved)}
+              disabled={loading || !isTurnstileSolved}
               className="w-full flex items-center justify-center gap-2 py-2 px-4 mb-4 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -482,29 +541,9 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 />
               </div>
 
-              {/* Turnstile for Login */}
-              {failedLoginAttempts >= 3 && (
-                <div className="flex justify-center my-2">
-                  <Turnstile
-                    sitekey={TURNSTILE_SITE_KEY}
-                    appearance="always"
-                    theme="light"
-                    onVerify={(token) => {
-                      setTurnstileToken(token);
-                      setIsTurnstileSolved(true);
-                      setError("");
-                    }}
-                    onExpire={() => {
-                      setTurnstileToken("");
-                      setIsTurnstileSolved(false);
-                    }}
-                  />
-                </div>
-              )}
-
               <button
                 type="submit"
-                disabled={loading || (failedLoginAttempts >= 3 && !isTurnstileSolved)}
+                disabled={loading || !isTurnstileSolved}
                 className="w-full py-2 px-4 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50"
               >
                 {loading ? "Please wait..." : "Login"}
@@ -721,26 +760,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
                   {/* Turnstile for Signup */}
                   <div className="flex justify-center mt-2">
-                    {TURNSTILE_SITE_KEY ? (
-                      <Turnstile
-                        sitekey={TURNSTILE_SITE_KEY}
-                        appearance="always"
-                        theme="light"
-                        onVerify={(token) => {
-                          setTurnstileToken(token);
-                          setIsTurnstileSolved(true);
-                          setError("");
-                        }}
-                        onExpire={() => {
-                          setTurnstileToken("");
-                          setIsTurnstileSolved(false);
-                        }}
-                      />
-                    ) : (
-                      <div className="text-red-500 text-sm border border-red-200 p-2 rounded bg-red-50">
-                        Captcha Configuration Error: Site Key Missing
-                      </div>
-                    )}
+                    {renderTurnstile()}
                   </div>
 
                 </div>
@@ -755,7 +775,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   </button>
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || !isTurnstileSolved}
                     className="flex-1 py-2 px-4 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:opacity-50"
                   >
                     {loading ? "Creating Account..." : "Sign Up"}

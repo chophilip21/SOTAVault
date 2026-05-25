@@ -48,7 +48,7 @@ export const config = {
   // Embedding dimension for POST /search/vector (must match backend index)
   embeddingDim: 256,
 
-  // AI Search — semantic vector RAG (see repo-root gcp.env: AI_SEARCH_*)
+  // AI Search — semantic vector RAG (see repo-root secret.env: AI_SEARCH_*)
   aiSearch: {
     /** Max cosine distance to show (0–2; lower = stricter relevance). */
     maxCosineDistance: parseEnvFloat(

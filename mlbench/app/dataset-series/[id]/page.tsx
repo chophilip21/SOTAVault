@@ -8,6 +8,7 @@ import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
 import { inter } from "@/lib/fonts";
+import { cleanMetricDescription } from "@/lib/metricDescription";
 
 interface DatasetSeries {
   id: string;
@@ -256,7 +257,7 @@ export default function DatasetSeriesDetailPage() {
           <div className="mt-6 pt-6 border-t border-gray-100">
             <h2 className="text-lg font-semibold text-gray-900 mb-2">Description</h2>
             <p className="text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
-              <MathText>{series.description}</MathText>
+              <MathText>{cleanMetricDescription(series.description)}</MathText>
             </p>
           </div>
         )}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { MathText } from "@/lib/mathText";
 import { sortDatasetHitsByDistance } from "@/lib/aiSearch/sortDatasetHits";
 import type { DatasetSeriesVectorSearchHit } from "@/lib/aiSearch/types";
+import { cleanMetricDescription } from "@/lib/metricDescription";
 
 export function DatasetSeriesSearchResults(props: {
   hits: DatasetSeriesVectorSearchHit[];
@@ -15,7 +16,7 @@ export function DatasetSeriesSearchResults(props: {
       {ranked.map((h, idx) => {
         const name = h.series.name?.trim() || "Untitled series";
         const rank = idx + 1;
-        const description = h.series.description?.trim();
+        const description = cleanMetricDescription(h.series.description || "").trim();
         return (
           <Link
             key={h.series.id}

@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/authContext";
 import { LoadingSpinner } from "./components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
 import { cleanPaperTitle } from "@/lib/paperTitle";
+import { cleanMetricDescription } from "@/lib/metricDescription";
 
 const ConferenceMap = dynamic(() => import("./components/ConferenceMap"), { ssr: false });
 
@@ -662,7 +663,7 @@ export default function Home() {
 
                 {series.description && (
                   <p className="text-sm text-gray-700 mt-3 mb-3 line-clamp-3">
-                    <MathText>{series.description}</MathText>
+                    <MathText>{cleanMetricDescription(series.description)}</MathText>
                   </p>
                 )}
 

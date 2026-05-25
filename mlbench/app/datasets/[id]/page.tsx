@@ -363,10 +363,20 @@ export default function DatasetDetailPage() {
     if (!selectedLeaderboard) return [];
     const rangeMax = selectedLeaderboard.metric_range_max;
     const direction = selectedLeaderboard.direction;
-    return (selectedLeaderboard.entries || []).filter((e) =>
-      isPlausibleLeaderboardMetricValue(e.metric_value, rangeMax, direction),
-    );
-  }, [selectedLeaderboard]);
+    return (selectedLeaderboard.entries || []).filter((e) => {
+      if (!isPlausibleLeaderboardMetricValue(e.metric_value, rangeMax, direction)) {
+        return false;
+      }
+      if (Object.keys(paperTitleById).length > 0) {
+        const title = paperTitleById[e.paper_id];
+        const paperLabel = (title || "").trim().toLowerCase();
+        if (!paperLabel || paperLabel === "untitled paper" || paperLabel === "untitled" || paperLabel.includes("survey")) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [selectedLeaderboard, paperTitleById]);
 
   const leaderboardTotalPages = Math.max(
     1,
@@ -821,7 +831,7 @@ export default function DatasetDetailPage() {
                                       </div>
                                     ) : null}
                                     <div
-                                      className="mt-2 h-2 w-full rounded bg-gray-200 overflow-hidden"
+                                      className={`mt-2 h-2 w-full rounded overflow-hidden ${direction === "lower" ? "bg-green-100" : "bg-gray-200"}`}
                                       title={
                                         rangeMax != null && rangeMax > 0
                                           ? `${formatMetricValue(e.metric_value)} / ${formatMetricValue(rangeMax)}`
