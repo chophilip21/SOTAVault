@@ -1,7 +1,7 @@
 // lib/firebase.ts
-import { initializeApp, getApps } from "firebase/app";
-import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
-import { getAuth, connectAuthEmulator } from "firebase/auth";
+import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
+import { getFirestore, type Firestore } from "firebase/firestore";
+import { getAuth, type Auth } from "firebase/auth";
 import { config } from "./config";
 
 const firebaseConfig = {
@@ -10,20 +10,22 @@ const firebaseConfig = {
   projectId: config.firebase.projectId,
 };
 
-// Initialize Firebase
-let app;
-if (!getApps().length) {
-  app = initializeApp(firebaseConfig);
+// Guard initialization: Next.js evaluates this module on the server during
+// static prerendering. Firebase throws auth/invalid-api-key when the key is
+// empty (e.g. build-time env vars not set). Auth/Firestore are only used
+// inside "use client" useEffect hooks, so null values are safe at SSR time.
+let app: FirebaseApp | undefined;
+let auth: Auth;
+let db: Firestore;
+
+if (config.firebase.apiKey && config.firebase.projectId) {
+  app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
 } else {
-  app = getApps()[0];
+  // Cast as the real types — these are only accessed inside useEffect (browser-only).
+  auth = null as unknown as Auth;
+  db = null as unknown as Firestore;
 }
 
-// Initialize Auth
-const auth = getAuth(app);
-
-
-
-const db = getFirestore(app);
-
-// Export app for potential use elsewhere
 export { db, auth, app };
