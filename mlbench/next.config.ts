@@ -37,6 +37,9 @@ const contentSecurityPolicy = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  // standalone output produces a self-contained server.js used by the Docker image.
+  // next dev is unaffected by this setting.
+  output: "standalone",
   serverExternalPackages: ["@huggingface/transformers"],
   webpack: (config, { isServer }) => {
     if (!isServer) {
