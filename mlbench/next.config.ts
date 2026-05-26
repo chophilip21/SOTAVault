@@ -82,6 +82,19 @@ const nextConfig: NextConfig = {
   ...(process.env.ALLOWED_DEV_ORIGINS
     ? { allowedDevOrigins: process.env.ALLOWED_DEV_ORIGINS.split(",") }
     : {}),
+  async rewrites() {
+    // Strip /api prefix and forward to the in-cluster FastAPI backend.
+    // Works identically in dev (INTERNAL_API_URL=http://localhost:8080) and
+    // in production (INTERNAL_API_URL=http://api:8080 set by the k8s Deployment).
+    const backendUrl = process.env.INTERNAL_API_URL || "http://localhost:8080";
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${backendUrl}/:path*`,
+      },
+    ];
+  },
+
   async headers() {
     return [
       {
