@@ -329,7 +329,7 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
               </li>
               <li>
                 <a
-                  href="https://github.com/chophilip21"
+                  href="https://github.com/chophilip21/MLBenchArchive-app"
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => {
