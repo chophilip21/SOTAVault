@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Playfair_Display } from "next/font/google";
+import { Noto_Sans, Playfair_Display } from "next/font/google";
 import dynamic from "next/dynamic";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
@@ -15,16 +15,16 @@ import { LoadingSpinner } from "./components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
 import { cleanPaperTitle } from "@/lib/paperTitle";
 import { cleanMetricDescription } from "@/lib/metricDescription";
+import { capitalizeSeriesName } from "@/lib/formatName";
+import { getDomainIcon, getDomainLabel } from "@/lib/domain";
 
 const ConferenceMap = dynamic(() => import("./components/ConferenceMap"), { ssr: false });
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
-
-function capitalizeSeriesName(name: string): string {
-  const s = (name || "").trim();
-  if (!s) return s;
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
+const notoSans = Noto_Sans({
+  subsets: ["latin"],
+  weight: "600",
+});
 
 const annoucement_header = `Welcome to SotaVault `;
 const description = `
@@ -33,24 +33,6 @@ Stay up-to-date with upcoming deadlines, explore venues worldwide, and access a 
 of impactful research from the ML community.
 `;
 
-
-const DOMAIN_ICONS: Record<string, string> = {
-  cv: "/icons/cv.png",
-  nlp: "/icons/nlp.png",
-  audio: "/icons/audio.png",
-  robots: "/icons/robotics.png",
-  time_series_tabular: "/icons/timeseries.png",
-  graph: "/icons/graph.png",
-  multimodal: "/icons/multi.png",
-  theory: "/icons/theory.png",
-  efficient: "/icons/efficiency.png",
-  other: "/icons/others.png",
-};
-
-const getDomainIcon = (domain?: string): string => {
-  if (!domain) return "/icons/cv.png";
-  return DOMAIN_ICONS[domain] || "/icons/cv.png";
-};
 
 interface Paper {
   id: string;
@@ -637,7 +619,9 @@ export default function Home() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {popularDatasetSeries.map((series) => (
+          {popularDatasetSeries.map((series) => {
+            const domainLabel = getDomainLabel(series.domain);
+            return (
               <ProtectedLink
                 key={series.id}
                 href={`/dataset-series/${series.id}`}
@@ -654,10 +638,17 @@ export default function Home() {
                       className="object-contain p-2"
                     />
                   </div>
-                  <div className="flex-1 min-w-0 flex flex-col justify-center min-h-14">
-                    <h3 className="text-lg font-semibold text-gray-900 group-hover:text-green-600 transition leading-snug line-clamp-2 font-sans">
+                  <div className="flex-1 min-w-0 flex flex-col justify-center min-h-14 gap-0.5">
+                    <h3
+                      className={`text-xl font-semibold leading-tight text-gray-950 group-hover:text-green-600 transition line-clamp-2 ${notoSans.className}`}
+                    >
                       <MathText>{capitalizeSeriesName(series.name)}</MathText>
                     </h3>
+                    {domainLabel && (
+                      <p className="text-sm font-normal text-gray-500 leading-snug line-clamp-1">
+                        {domainLabel}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -667,24 +658,16 @@ export default function Home() {
                   </p>
                 )}
 
-                {(series.domain || series.created_at) && (
-                  <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                    {series.domain ? (
-                      <span className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
-                        {series.domain}
-                      </span>
-                    ) : (
-                      <span />
-                    )}
-                    {series.created_at && (
-                      <span className="text-xs text-gray-400">
-                        {new Date(series.created_at).toLocaleDateString()}
-                      </span>
-                    )}
+                {series.created_at && (
+                  <div className="flex items-center justify-end pt-3 border-t border-gray-100">
+                    <span className="text-xs text-gray-400">
+                      {new Date(series.created_at).toLocaleDateString()}
+                    </span>
                   </div>
                 )}
               </ProtectedLink>
-          ))}
+            );
+          })}
         </div>
 
         {popularDatasetSeries.length === 0 && (
