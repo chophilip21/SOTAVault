@@ -134,16 +134,16 @@ export default function Header() {
             {/* Logo */}
             <div className="flex items-center pl-4 sm:pl-8 lg:pl-16">
               <Link href="/" className="flex items-center shrink-0">
-                {/* Mobile: cropped mark — native img + unoptimized SVG so iOS Safari stays sharp on Retina. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/sotavault-cropped.svg"
+                {/* Mobile: high-res PNG (706×731) scaled down for crisp Retina display */}
+                <Image
+                  src="/mobile-logo.png"
                   alt="SotaVault logo"
-                  width={240}
-                  height={248}
-                  className="object-contain h-[60px] w-[60px] sm:h-[80px] sm:w-[80px] md:hidden"
-                  decoding="async"
-                  fetchPriority="high"
+                  width={706}
+                  height={731}
+                  unoptimized
+                  priority
+                  sizes="80px"
+                  className="logo-mobile-crisp md:hidden object-contain h-[60px] w-[60px] sm:h-[80px] sm:w-[80px]"
                 />
                 {/* Desktop: full wordmark */}
                 <Image
@@ -304,7 +304,7 @@ export default function Header() {
               ) : (
                 <button
                   onClick={() => setIsAuthModalOpen(true)}
-                  className="px-4 py-2 text-sm font-semibold text-white bg-[rgba(0,122,58)] rounded-full hover:bg-[rgba(0,102,49)] transition-all animate-pulse-subtle shadow-sm shadow-[rgba(0,122,58,0.15)] hover:shadow-md hover:shadow-[rgba(0,122,58,0.25)] hover:scale-105"
+                  className="px-4 py-2 text-sm font-semibold text-white bg-[#007a3a] rounded-full hover:bg-[#006631] transition-colors max-md:shadow-none md:animate-pulse-subtle md:shadow-sm md:shadow-[rgba(0,122,58,0.15)] md:hover:bg-[#006631] md:hover:shadow-md md:hover:shadow-[rgba(0,122,58,0.25)] md:hover:scale-105 md:transition-all"
                 >
                   Login
                 </button>

@@ -76,3 +76,10 @@ body {
 .animate-pulse-subtle {
   animation: pulse-subtle 2s ease-in-out infinite;
 }
+
+/* Crisp downscaled logos on WebKit (mobile Safari) */
+@media (max-width: 767px) {
+  .logo-mobile-crisp {
+    image-rendering: -webkit-optimize-contrast;
+  }
+}

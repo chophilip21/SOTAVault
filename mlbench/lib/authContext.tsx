@@ -181,8 +181,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Complete Google OAuth after signInWithRedirect (full-page navigation, not popup).
-    void (async () => {
+    // Handle any pending signInWithRedirect result (mobile bfcache guard).
+    // getRedirectResult returns null quickly when there is no pending redirect, so
+    // calling it on every mount is cheap. The pageshow listener re-runs it if the
+    // browser restores the page from bfcache instead of doing a fresh load (the
+    // normal case on mobile Safari / Chrome when returning from an OAuth redirect).
+    const processRedirectResult = async () => {
       try {
         const result = await getRedirectResult(auth);
         if (!result?.user || !mounted) return;
@@ -203,7 +207,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error("Google redirect sign-in failed:", error);
         consumeGoogleAuthPending();
       }
-    })();
+    };
+
+    void processRedirectResult();
+
+    // bfcache restore: mobile browsers may thaw a frozen page instead of reloading.
+    // When that happens React effects don't re-run, so we listen for pageshow explicitly.
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) void processRedirectResult();
+    };
+    window.addEventListener("pageshow", onPageShow);
+
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
@@ -243,6 +257,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
       unsubscribe();
+      window.removeEventListener("pageshow", onPageShow);
     };
   }, []);
 

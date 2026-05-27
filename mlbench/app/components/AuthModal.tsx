@@ -5,7 +5,6 @@ import {
   deleteUser,
   GoogleAuthProvider,
   signInWithPopup,
-  signInWithRedirect,
   getAdditionalUserInfo,
   sendEmailVerification,
   signOut,
@@ -14,7 +13,6 @@ import { auth } from "@/lib/firebase";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { getUserFriendlyAuthError, getUserFriendlyRegistrationError } from "@/lib/authErrors";
 import { useAuth } from "@/lib/authContext";
-import { setGoogleAuthPending } from "@/lib/googleAuthRedirect";
 import Link from "next/link";
 import Turnstile from "react-turnstile";
 
@@ -262,65 +260,69 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   const handleGoogleLogin = async () => {
     setError("");
-
-    if (isLogin) {
-      const turnstileError = requireTurnstileForLogin();
-      if (turnstileError) {
-        setError(turnstileError);
-        return;
-      }
-    }
-
     setLoading(true);
 
     try {
-      if (isLogin) {
-        await verifyTurnstileWithBackend(turnstileToken);
-      }
-
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
 
-      // Mobile browsers block popups → use full-page redirect.
-      // Desktop browsers (local and prod) use popup — more reliable than redirect,
-      // which requires cross-origin iframe messaging that browsers increasingly block.
-      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      // Always use popup (desktop and mobile).
+      //
+      // signInWithRedirect is unreliable across all modern browsers:
+      //  - Desktop: cross-origin iframe sandboxing blocks the Firebase relay handshake
+      //  - Mobile: bfcache (Back/Forward cache) restores the frozen page instead of
+      //    reloading it, so the useEffect/getRedirectResult never re-runs on return
+      //
+      // signInWithPopup is called FIRST (synchronous with the button click = user gesture)
+      // so mobile popup blockers don't fire. Turnstile is verified AFTER the OAuth result
+      // arrives, which is safe because we already have the Turnstile token in state.
+      const userCredential = await signInWithPopup(auth, provider);
+      const user = userCredential.user;
 
-      if (isMobile) {
-        setGoogleAuthPending(isLogin ? "login" : "signup");
-        await signInWithRedirect(auth, provider);
-        // Page navigates away; no further code runs here.
-      } else {
-        const userCredential = await signInWithPopup(auth, provider);
-        const user = userCredential.user;
-
-        const token = await user.getIdToken();
-        const res = await fetch(`${getBackendBaseUrl()}/users/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (res.ok) {
-          if (!isLogin) {
-            alert("You are already registered with this email. Logging you in...");
-          }
-          await refreshUserProfile();
-          onClose();
-          resetSignupState();
-        } else {
-          const additionalInfo = getAdditionalUserInfo(userCredential);
-          setIsNewGoogleUser(additionalInfo?.isNewUser ?? false);
-          setGoogleUser(user);
-          if (user.displayName) {
-            const parts = user.displayName.split(" ");
-            if (parts.length > 0) setFirstName(parts[0]);
-            if (parts.length > 1) setLastName(parts.slice(1).join(" "));
-          }
-          if (user.email) { setEmail(user.email); setUsername(user.email.split("@")[0]); }
-          if (user.photoURL) setPhotoUrl(user.photoURL);
-          if (isLogin) setIsLogin(false);
+      // Verify Turnstile now (no longer on the user-gesture hot path).
+      if (isLogin) {
+        if (!turnstileToken || !isTurnstileSolved) {
+          await signOut(auth);
+          setError("Please complete the security check.");
           setLoading(false);
-          setSignupStage(2);
+          return;
         }
+        try {
+          await verifyTurnstileWithBackend(turnstileToken);
+        } catch {
+          await signOut(auth);
+          setError("Security verification failed. Please try again.");
+          setLoading(false);
+          return;
+        }
+      }
+
+      const token = await user.getIdToken();
+      const res = await fetch(`${getBackendBaseUrl()}/users/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        if (!isLogin) {
+          alert("You are already registered with this email. Logging you in...");
+        }
+        await refreshUserProfile();
+        onClose();
+        resetSignupState();
+      } else {
+        const additionalInfo = getAdditionalUserInfo(userCredential);
+        setIsNewGoogleUser(additionalInfo?.isNewUser ?? false);
+        setGoogleUser(user);
+        if (user.displayName) {
+          const parts = user.displayName.split(" ");
+          if (parts.length > 0) setFirstName(parts[0]);
+          if (parts.length > 1) setLastName(parts.slice(1).join(" "));
+        }
+        if (user.email) { setEmail(user.email); setUsername(user.email.split("@")[0]); }
+        if (user.photoURL) setPhotoUrl(user.photoURL);
+        if (isLogin) setIsLogin(false);
+        setLoading(false);
+        setSignupStage(2);
       }
     } catch (loginError: any) {
       if (
