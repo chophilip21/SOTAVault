@@ -3,20 +3,7 @@
  * This ensures ports and URLs are not hardcoded
  */
 
-const DEFAULT_AI_SEARCH_MAX_COSINE_DISTANCE = 0.3;
 const DEFAULT_AI_SEARCH_RESULT_LIMIT = 10;
-
-function parseEnvFloat(
-  raw: string | undefined,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  if (raw == null || raw.trim() === "") return fallback;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
-}
 
 function parseEnvInt(
   raw: string | undefined,
@@ -50,13 +37,6 @@ export const config = {
 
   // AI Search — semantic vector RAG (see repo-root secret.env: AI_SEARCH_*)
   aiSearch: {
-    /** Max cosine distance to show (0–2; lower = stricter relevance). */
-    maxCosineDistance: parseEnvFloat(
-      process.env.NEXT_PUBLIC_AI_SEARCH_MAX_COSINE_DISTANCE,
-      DEFAULT_AI_SEARCH_MAX_COSINE_DISTANCE,
-      0,
-      2,
-    ),
     /** Firestore find_nearest limit per query. */
     resultLimit: parseEnvInt(
       process.env.NEXT_PUBLIC_AI_SEARCH_RESULT_LIMIT,

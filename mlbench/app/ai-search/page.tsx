@@ -8,7 +8,6 @@ import { LoadingSpinner } from "../components/LoadingSpinner";
 import { DatasetSeriesSearchResults } from "./components/DatasetSeriesSearchResults";
 import { SearchResults } from "./components/SearchResults";
 import { useEmbeddingWorker } from "./useEmbeddingWorker";
-import { filterHitsByMaxDistance } from "@/lib/aiSearch/filterHits";
 import type {
   AiSearchMode,
   DatasetSeriesVectorSearchResponse,
@@ -45,7 +44,7 @@ const VECTOR_PATHS: Record<AiSearchMode, string> = {
   dataset: "/search/dataset_series/vector",
 };
 
-const { maxCosineDistance, resultLimit } = config.aiSearch;
+const { resultLimit } = config.aiSearch;
 
 // ─── Model Cache Status Banner ──────────────────────────────────────────────
 
@@ -242,12 +241,10 @@ export default function AiSearchPage() {
 
         if (searchMode === "paper") {
           const data = (await res.json()) as VectorSearchResponse;
-          setPaperHits(filterHitsByMaxDistance(data.items || [], maxCosineDistance));
+          setPaperHits(data.items || []);
         } else {
           const data = (await res.json()) as DatasetSeriesVectorSearchResponse;
-          setDatasetHits(
-            filterHitsByMaxDistance(data.items || [], maxCosineDistance),
-          );
+          setDatasetHits(data.items || []);
         }
       } catch (err) {
         if (searchMode === "paper") {
