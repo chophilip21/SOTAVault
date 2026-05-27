@@ -37,10 +37,17 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   useEffect(() => {
     if (!loading) {
       if (requiresAuth && !user) {
-        setShowAuthModal(true);
+        if (hasChecked) {
+          // User was authenticated and just logged out — go home instead of re-prompting.
+          router.push('/');
+        } else {
+          // First check: user arrived without being logged in.
+          setShowAuthModal(true);
+        }
       }
       setHasChecked(true);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, loading, requiresAuth]);
 
   const handleModalClose = () => {

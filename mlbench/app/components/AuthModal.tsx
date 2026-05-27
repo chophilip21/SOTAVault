@@ -15,7 +15,6 @@ import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { getUserFriendlyAuthError, getUserFriendlyRegistrationError } from "@/lib/authErrors";
 import { useAuth } from "@/lib/authContext";
 import { setGoogleAuthPending } from "@/lib/googleAuthRedirect";
-import { config } from "@/lib/config";
 import Link from "next/link";
 import Turnstile from "react-turnstile";
 
@@ -282,9 +281,16 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
 
-      if (config.isLocal) {
-        // On localhost, signInWithRedirect relies on cross-origin iframe messaging
-        // which modern browsers block (third-party cookie restrictions). Use popup instead.
+      // Mobile browsers block popups → use full-page redirect.
+      // Desktop browsers (local and prod) use popup — more reliable than redirect,
+      // which requires cross-origin iframe messaging that browsers increasingly block.
+      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+      if (isMobile) {
+        setGoogleAuthPending(isLogin ? "login" : "signup");
+        await signInWithRedirect(auth, provider);
+        // Page navigates away; no further code runs here.
+      } else {
         const userCredential = await signInWithPopup(auth, provider);
         const user = userCredential.user;
 
@@ -315,11 +321,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           setLoading(false);
           setSignupStage(2);
         }
-      } else {
-        // Production: full-page redirect — no popup, works on all mobile browsers.
-        setGoogleAuthPending(isLogin ? "login" : "signup");
-        await signInWithRedirect(auth, provider);
-        // Page navigates away; no further code runs here.
       }
     } catch (loginError: any) {
       if (
