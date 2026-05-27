@@ -34,3 +34,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+mlbench/firebase.json
+mlbench/.firebaserc
+*.log
+instructions.md
+dev.sh
+mlc-llm
+tvm
+jetson-containers
+# SQLite job queue artifacts
+backend/src/mlbench/jobs/.jobs.db
+backend/src/mlbench/jobs/.jobs.db-shm
+backend/src/mlbench/jobs/.jobs.db-wal
+mlbench/.cert
+mlbench/app/README.md
+*.sh

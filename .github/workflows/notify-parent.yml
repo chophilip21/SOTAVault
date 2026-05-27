@@ -1,0 +1,20 @@
+name: Signal Worker Engine
+
+on:
+  push:
+    branches: [ main, dev, feature/* ]
+    paths-ignore:
+    - 'README.md'
+    - 'docs/**'
+
+jobs:
+  ping-parent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Remote Repository Dispatch
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PARENT_REPO_TOKEN }}
+          repository: chophilip21/mlbenchworker
+          event-type: frontend-updated
+          client-payload: '{"branch": "${{ github.ref_name }}", "sha": "${{ github.sha }}"}'
