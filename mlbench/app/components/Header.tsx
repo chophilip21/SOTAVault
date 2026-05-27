@@ -127,14 +127,27 @@ export default function Header() {
           <div className="flex items-center justify-between h-20">
             {/* Logo */}
             <div className="flex items-center pl-4 sm:pl-8 lg:pl-16">
-              <Link href="/" className="flex items-center">
+              <Link href="/" className="flex items-center shrink-0">
+                {/* Mobile: cropped mark — native img + unoptimized SVG so iOS Safari stays sharp on Retina. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/sotavault-cropped.svg"
+                  alt="SotaVault logo"
+                  width={240}
+                  height={248}
+                  className="object-contain h-[60px] w-[60px] sm:h-[80px] sm:w-[80px] md:hidden"
+                  decoding="async"
+                  fetchPriority="high"
+                />
+                {/* Desktop: full wordmark */}
                 <Image
                   src="/sotavault.svg"
-                  alt="sotavault Logo"
-                  width={120}
-                  height={120}
-                  className="object-contain h-[60px] w-[60px] sm:h-[80px] sm:w-[80px] md:h-[100px] md:w-[100px] lg:h-[120px] lg:w-[120px]"
+                  alt="SotaVault logo"
+                  width={1209}
+                  height={364}
+                  unoptimized
                   priority
+                  className="hidden md:block object-contain max-h-10 w-auto h-auto"
                 />
               </Link>
             </div>
@@ -285,7 +298,7 @@ export default function Header() {
               ) : (
                 <button
                   onClick={() => setIsAuthModalOpen(true)}
-                  className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-full hover:bg-emerald-700 transition-all animate-pulse-subtle shadow-sm shadow-emerald-500/10 hover:shadow-md hover:shadow-emerald-600/14 hover:scale-105"
+                  className="px-4 py-2 text-sm font-semibold text-white bg-[rgba(0,122,58)] rounded-full hover:bg-[rgba(0,102,49)] transition-all animate-pulse-subtle shadow-sm shadow-[rgba(0,122,58,0.15)] hover:shadow-md hover:shadow-[rgba(0,122,58,0.25)] hover:scale-105"
                 >
                   Login
                 </button>

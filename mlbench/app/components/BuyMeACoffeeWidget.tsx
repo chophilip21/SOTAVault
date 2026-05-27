@@ -10,7 +10,7 @@ export default function BuyMeACoffeeWidget() {
       href="https://www.buymeacoffee.com/mltree"
       target="_blank"
       rel="noopener noreferrer"
-      className="fixed z-50"
+      className={`fixed z-50 origin-bottom-right max-md:scale-75 transition-all duration-300 ease-out ${isHovered ? "md:-translate-y-0.5" : ""}`}
       style={{
         bottom: '18px',
         right: '18px',
@@ -28,8 +28,6 @@ export default function BuyMeACoffeeWidget() {
         boxShadow: isHovered 
           ? '0 8px 24px rgba(134, 239, 172, 0.4)' 
           : '0 4px 12px rgba(0, 0, 0, 0.1)',
-        transition: 'all 0.3s ease',
-        transform: isHovered ? 'translateY(-2px)' : 'translateY(0)',
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}

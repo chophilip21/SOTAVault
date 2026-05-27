@@ -163,7 +163,7 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
       {/* Toggle Button - Always visible at the edge, positioned based on sidebar state */}
       <button
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className={`fixed z-[45] border-2 rounded-full p-2.5 transition-all duration-300 ease-in-out top-20 md:top-1/2 md:-translate-y-1/2 flex ${isOpen
+        className={`fixed z-[45] border-2 rounded-full p-2.5 transition-all duration-300 ease-in-out top-1/2 -translate-y-1/2 flex ${isOpen
           ? 'bg-white border-gray-300 shadow-md hover:bg-gray-50'
           : 'bg-green-500 border-green-600 shadow-lg shadow-green-500/50 hover:bg-green-600 hover:shadow-xl hover:shadow-green-600/60 hover:scale-110'
           }`}
@@ -199,11 +199,11 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
       >
         <div className="flex flex-col h-full min-h-0">
           {/* Sidebar Header - Only on mobile */}
-          <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-gray-200 md:hidden">
-            <h2 className="text-lg font-semibold text-gray-900">Navigation</h2>
+          <div className="relative flex-shrink-0 flex items-center justify-center p-4 border-b border-gray-200 md:hidden">
+            <h2 className="text-lg font-semibold text-gray-900 text-center w-full">Navigation</h2>
             <button
               onClick={onClose}
-              className="p-2 rounded-md hover:bg-gray-100 transition-colors"
+              className="absolute right-4 p-2 rounded-md hover:bg-gray-100 transition-colors"
               aria-label="Close sidebar"
             >
               <svg
@@ -241,15 +241,15 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                             onClose();
                           }
                         }}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${isActive
-                          ? "bg-green-50 text-green-600 border-l-4 border-green-500"
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors max-md:justify-center ${isActive
+                          ? "bg-green-50 text-green-600 border-l-4 border-green-500 max-md:border-l-0"
                           : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                           }`}
                       >
                         <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
                           {item.icon}
                         </span>
-                        <span className="flex items-center gap-2">
+                        <span className="flex items-center justify-center gap-2 max-md:justify-center">
                           {item.name}
                           {item.beta && (
                             <span className="text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
@@ -267,15 +267,15 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                             onClose();
                           }
                         }}
-                        className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${isActive
-                          ? "bg-green-50 text-green-600 border-l-4 border-green-500"
+                        className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors max-md:justify-center ${isActive
+                          ? "bg-green-50 text-green-600 border-l-4 border-green-500 max-md:border-l-0"
                           : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                           }`}
                       >
                         <span className={`flex-shrink-0 ${isActive ? "text-green-600" : "text-gray-600"}`}>
                           {item.icon}
                         </span>
-                        <span className="flex items-center gap-2">
+                        <span className="flex items-center justify-center gap-2 max-md:justify-center">
                           {item.name}
                           {item.beta && (
                             <span className="text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
@@ -291,10 +291,10 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
             </ul>
 
             {/* Divider */}
-            <div className="border-t border-gray-200 my-4 flex-shrink-0"></div>
+            <div className="border-t border-gray-200 my-4 flex-shrink-0 max-md:mx-auto max-md:w-4/5"></div>
 
             {/* Second-tier Navigation - always visible at bottom */}
-            <ul className="space-y-1 flex-shrink-0 pb-6">
+            <ul className="space-y-1 flex-shrink-0 pb-6 max-md:text-center">
               <li>
                 <Link
                   href="/terms"
@@ -303,7 +303,7 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                       onClose();
                     }
                   }}
-                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${pathname === "/terms"
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors max-md:justify-center ${pathname === "/terms"
                     ? "bg-gray-50 text-gray-900"
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                     }`}
@@ -319,7 +319,7 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                       onClose();
                     }
                   }}
-                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${pathname === "/privacy"
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors max-md:justify-center ${pathname === "/privacy"
                     ? "bg-gray-50 text-gray-900"
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                     }`}
@@ -337,7 +337,7 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                       onClose();
                     }
                   }}
-                  className="flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  className="flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900 max-md:justify-center"
                 >
                   <span>Github</span>
                 </a>
@@ -350,7 +350,7 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
                       onClose();
                     }
                   }}
-                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${pathname === "/acknowledgement"
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-medium transition-colors max-md:justify-center ${pathname === "/acknowledgement"
                     ? "bg-gray-50 text-gray-900"
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                     }`}

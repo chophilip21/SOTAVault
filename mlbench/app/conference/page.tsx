@@ -301,15 +301,15 @@ export default function ConferencePage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <div className="bg-gradient-to-br from-green-50 to-blue-50 border border-green-200 rounded-2xl p-6 shadow-sm">
+      <div className="bg-gradient-to-br from-green-50 to-blue-50 border border-green-200 rounded-2xl p-6 shadow-sm max-md:p-4">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
-            <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3">
-              <div>
-                <h1 className={`text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>
+          <div className="flex flex-col md:flex-row gap-4 md:gap-8 max-md:gap-1 items-center">
+            <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3 max-md:order-2 max-md:gap-2">
+              <div className="max-md:text-center">
+                <h1 className={`text-5xl font-bold text-gray-900 max-md:text-3xl max-md:leading-tight ${playfairDisplay.className}`}>
                   Conferences
                 </h1>
-                <p className="text-gray-600 text-base mt-3 break-words">
+                <p className="text-gray-600 text-base mt-3 break-words max-md:text-sm max-md:mt-2">
                   Explore conferences, workshops, and other ML/AI venues around the world.
                 </p>
               </div>
@@ -321,7 +321,7 @@ export default function ConferencePage() {
                     placeholder="Search conferences..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors ${searchQuery.trim().length > 0 ? "bg-white" : "bg-gray-100"
+                    className={`w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors max-md:py-2.5 max-md:text-base ${searchQuery.trim().length > 0 ? "bg-white" : "bg-gray-100"
                       }`}
                   />
                   <svg
@@ -339,11 +339,11 @@ export default function ConferencePage() {
                   </svg>
                 </div>
 
-                <div className="flex gap-2 flex-wrap items-center">
-                  <div ref={categoryDropdownRef} className="relative min-w-[220px]">
+                <div className="flex gap-2 flex-wrap items-center max-md:flex-col max-md:items-stretch max-md:w-full">
+                  <div ref={categoryDropdownRef} className="relative min-w-[220px] max-md:w-full max-md:min-w-0">
                     <button
                       onClick={() => setCategoryDropdownOpen((v) => !v)}
-                      className="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-left flex items-center justify-between"
+                      className="w-48 max-md:w-full px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-left flex items-center justify-between max-md:py-2.5 max-md:text-base"
                       aria-label="Select categories"
                     >
                       <span className="truncate">Category: {getCategoryLabel()}</span>
@@ -392,7 +392,7 @@ export default function ConferencePage() {
                     )}
                   </div>
 
-                  <label className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-700 select-none">
+                  <label className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-700 select-none max-md:w-full max-md:justify-center max-md:py-2.5">
                     <input
                       type="checkbox"
                       checked={selectedUpcomingOnly}
@@ -402,16 +402,16 @@ export default function ConferencePage() {
                     Upcoming only
                   </label>
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 max-md:w-full max-md:space-x-2">
                     <button
                       onClick={handleApplyFilters}
-                      className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition"
+                      className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition max-md:flex-1 max-md:py-2.5"
                     >
                       Apply
                     </button>
                     <button
                       onClick={handleClearFilters}
-                      className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition"
+                      className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition max-md:flex-1 max-md:py-2.5"
                     >
                       Clear
                     </button>
@@ -420,13 +420,13 @@ export default function ConferencePage() {
               </div>
             </div>
 
-            <div className="flex-1 flex items-center justify-center min-h-[280px]">
+            <div className="flex-1 flex items-center justify-center min-h-[280px] max-md:order-1 max-md:min-h-0 max-md:py-0 max-md:flex-none">
               <Image
                 src="/podium.png"
                 alt="Conferences illustration"
                 width={350}
                 height={350}
-                className="opacity-80 max-w-full h-auto"
+                className="opacity-80 max-w-full h-auto max-md:max-h-40 max-md:w-auto"
               />
             </div>
           </div>

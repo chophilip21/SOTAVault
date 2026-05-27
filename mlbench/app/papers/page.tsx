@@ -569,7 +569,7 @@ export default function PapersPage() {
       <button
         onClick={handlePrev}
         disabled={prevCursors.length <= 1 || loading}
-        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-gray-200 text-gray-700 disabled:opacity-50 enabled:hover:bg-gray-50 enabled:hover:border-gray-300"
+        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-gray-200 bg-white text-gray-700 enabled:hover:bg-gray-50 enabled:hover:border-gray-300 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 disabled:cursor-not-allowed"
       >
         Previous
       </button>
@@ -584,7 +584,7 @@ export default function PapersPage() {
       <button
         onClick={handleNext}
         disabled={!hasMore || loading}
-        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-transparent bg-green-500 text-white disabled:opacity-50 enabled:hover:bg-green-600"
+        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-transparent bg-green-500 text-white enabled:hover:bg-green-600 disabled:bg-gray-200 disabled:border-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
       >
         Next
       </button>
@@ -765,9 +765,9 @@ export default function PapersPage() {
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       <div className="bg-gradient-to-br from-green-50 to-blue-50 border border-green-200 rounded-2xl p-6 shadow-sm max-md:p-4">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
-            <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3 max-md:order-2">
-              <div>
+          <div className="flex flex-col md:flex-row gap-4 md:gap-8 max-md:gap-1 items-center">
+            <div className="flex-none w-full md:w-auto md:max-w-xl flex flex-col gap-3 max-md:order-2 max-md:gap-2">
+              <div className="max-md:text-center">
                 <h1 className={`text-5xl font-bold text-gray-900 max-md:text-3xl max-md:leading-tight ${playfairDisplay.className}`}>Papers</h1>
                 <p className="text-gray-600 text-base mt-3 break-words max-md:text-sm max-md:mt-2">
                   Discover the latest papers and groundbreaking research in machine learing.
@@ -941,7 +941,7 @@ export default function PapersPage() {
                 </div>
               </div>
             </div>
-            <div className="flex-1 flex items-center justify-center min-h-[280px] max-md:order-1 max-md:min-h-0 max-md:py-4 max-md:flex-none">
+            <div className="flex-1 flex items-center justify-center min-h-[280px] max-md:order-1 max-md:min-h-0 max-md:py-0 max-md:flex-none">
               <Image
                 src="/papers.png"
                 alt="Research papers illustration"

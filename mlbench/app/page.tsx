@@ -640,7 +640,7 @@ export default function Home() {
                   </div>
                   <div className="flex-1 min-w-0 flex flex-col justify-center min-h-14 gap-0.5">
                     <h3
-                      className={`text-xl font-semibold leading-tight text-gray-950 group-hover:text-green-600 transition line-clamp-2 ${notoSans.className}`}
+                      className="text-base font-semibold text-gray-900 group-hover:text-green-600 transition line-clamp-2"
                     >
                       <MathText>{capitalizeSeriesName(series.name)}</MathText>
                     </h3>

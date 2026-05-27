@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Noto_Sans, Playfair_Display } from "next/font/google";
+import { Playfair_Display } from "next/font/google";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
@@ -14,10 +14,6 @@ import { cleanMetricDescription } from "@/lib/metricDescription";
 import { capitalizeSeriesName } from "@/lib/formatName";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
-const notoSans = Noto_Sans({
-  subsets: ["latin"],
-  weight: "600",
-});
 
 // Cache for tasks data
 let tasksCache: Task[] | null = null;
@@ -574,7 +570,7 @@ export default function BenchmarkPage() {
       <button
         onClick={handlePrev}
         disabled={prevCursors.length <= 1 || loading}
-        className="px-4 py-2 text-sm rounded border border-gray-200 text-gray-700 disabled:opacity-50 enabled:hover:bg-gray-50 enabled:hover:border-gray-300"
+        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-gray-200 bg-white text-gray-700 enabled:hover:bg-gray-50 enabled:hover:border-gray-300 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 disabled:cursor-not-allowed"
       >
         Previous
       </button>
@@ -589,7 +585,7 @@ export default function BenchmarkPage() {
       <button
         onClick={handleNext}
         disabled={!hasMore || loading}
-        className="px-4 py-2 text-sm rounded bg-green-500 text-white disabled:opacity-50 enabled:hover:bg-green-600"
+        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-transparent bg-green-500 text-white enabled:hover:bg-green-600 disabled:bg-gray-200 disabled:border-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
       >
         Next
       </button>
@@ -703,13 +699,13 @@ export default function BenchmarkPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <div className="bg-gradient-to-br from-green-50 to-blue-50 border border-green-200 rounded-2xl p-6 shadow-sm">
+      <div className="bg-gradient-to-br from-green-50 to-blue-50 border border-green-200 rounded-2xl p-6 shadow-sm max-md:p-4">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
-            <div className="flex-none w-full md:w-auto md:max-w-4xl flex flex-col gap-3">
-              <div>
-                <h1 className={`text-5xl font-bold text-gray-900 ${playfairDisplay.className}`}>Benchmarks</h1>
-                <p className="text-gray-600 text-base mt-2 break-words">
+          <div className="flex flex-col md:flex-row gap-4 md:gap-8 max-md:gap-1 items-center">
+            <div className="flex-none w-full md:w-auto md:max-w-4xl flex flex-col gap-3 max-md:order-2 max-md:gap-2">
+              <div className="max-md:text-center">
+                <h1 className={`text-5xl font-bold text-gray-900 max-md:text-3xl max-md:leading-tight ${playfairDisplay.className}`}>Benchmarks</h1>
+                <p className="text-gray-600 text-base mt-2 break-words max-md:text-sm max-md:mt-2">
                   Discover the latest benchmarks and datasets in machine learning and AI.
                 </p>
               </div>
@@ -720,7 +716,7 @@ export default function BenchmarkPage() {
                     placeholder="Search benchmarks..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors ${searchQuery.trim().length > 0 ? "bg-white" : "bg-gray-100"
+                    className={`w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors max-md:py-2.5 max-md:text-base ${searchQuery.trim().length > 0 ? "bg-white" : "bg-gray-100"
                       }`}
                   />
                   <svg
@@ -737,8 +733,8 @@ export default function BenchmarkPage() {
                     />
                   </svg>
                 </div>
-                <div className="flex gap-2 flex-wrap items-center">
-                  <div className="relative">
+                <div className="flex gap-2 flex-wrap items-center max-md:flex-col max-md:items-stretch max-md:w-full">
+                  <div className="relative max-md:w-full">
                     <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
@@ -747,7 +743,7 @@ export default function BenchmarkPage() {
                     <select
                       value={selectedDomain}
                       onChange={(e) => setSelectedDomain(e.target.value)}
-                      className="px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                      className="w-48 max-md:w-full px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white max-md:py-2.5 max-md:text-base"
                     >
                       {DOMAIN_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -758,11 +754,11 @@ export default function BenchmarkPage() {
                   </div>
 
                   {/* Custom searchable task dropdown */}
-                  <div ref={taskDropdownRef} className="relative min-w-[200px]">
+                  <div ref={taskDropdownRef} className="relative min-w-[200px] max-md:w-full max-md:min-w-0">
                     <button
                       onClick={() => setTaskSearchOpen(!taskSearchOpen)}
                       disabled={tasksLoading}
-                      className="w-full px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white disabled:bg-gray-100 text-left flex items-center justify-between relative"
+                      className="w-48 max-md:w-full px-4 py-2 pl-11 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white disabled:bg-gray-100 text-left flex items-center justify-between relative max-md:py-2.5 max-md:text-base"
                     >
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
@@ -839,16 +835,16 @@ export default function BenchmarkPage() {
                     )}
                   </div>
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 max-md:w-full max-md:space-x-2">
                     <button
                       onClick={handleApplyFilters}
-                      className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition"
+                      className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition max-md:flex-1 max-md:py-2.5"
                     >
                       Apply
                     </button>
                     <button
                       onClick={handleClearFilters}
-                      className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition"
+                      className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition max-md:flex-1 max-md:py-2.5"
                     >
                       Clear
                     </button>
@@ -868,13 +864,13 @@ export default function BenchmarkPage() {
                 </div>
               </div>
             </div>
-            <div className="flex-1 flex items-center justify-center min-h-[280px]">
+            <div className="flex-1 flex items-center justify-center min-h-[280px] max-md:order-1 max-md:min-h-0 max-md:py-0 max-md:flex-none">
               <Image
                 src="/benchmark.png"
                 alt="Benchmarks illustration"
                 width={350}
                 height={350}
-                className="opacity-80 max-w-full h-auto"
+                className="opacity-80 max-w-full h-auto max-md:max-h-40 max-md:w-auto"
               />
             </div>
           </div>
@@ -963,13 +959,13 @@ export default function BenchmarkPage() {
               <div className="flex-1 min-w-0 flex flex-col justify-center min-h-14 gap-0.5">
                 {isSearchMode ? (
                   <Link href={`/datasets/${benchmark.id}`} className="block min-w-0">
-                    <h2 className={`text-xl font-semibold leading-tight text-gray-950 hover:text-green-600 transition line-clamp-1 ${notoSans.className}`}>
+                    <h2 className="text-xl font-semibold leading-tight text-gray-950 hover:text-green-600 transition line-clamp-1">
                       <MathText>{capitalizeSeriesName(benchmark.name)}</MathText>
                     </h2>
                   </Link>
                 ) : (
                   <Link href={`/dataset-series/${benchmark.id}`} className="block min-w-0">
-                    <h2 className={`text-xl font-semibold leading-tight text-gray-950 hover:text-green-600 transition line-clamp-1 ${notoSans.className}`}>
+                    <h2 className="text-xl font-semibold leading-tight text-gray-950 hover:text-green-600 transition line-clamp-1">
                       <MathText>{capitalizeSeriesName(benchmark.name)}</MathText>
                     </h2>
                   </Link>
