@@ -39,7 +39,7 @@ export default function Header() {
   const [suggestions, setSuggestions] = useState<FuzzySearchResponse | null>(null);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const { user, userProfile, loading, logout } = useAuth();
+  const { user, userProfile, loading, logout, pendingGoogleSignup } = useAuth();
   const router = useRouter();
   const boxRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -47,6 +47,12 @@ export default function Header() {
 
   const MIN_CHARS = 3;
   const DEBOUNCE_MS = 350;
+
+  useEffect(() => {
+    if (pendingGoogleSignup) {
+      setIsAuthModalOpen(true);
+    }
+  }, [pendingGoogleSignup]);
 
   const submitSearch = () => {
     const q = query.trim();

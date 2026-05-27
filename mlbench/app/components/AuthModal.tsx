@@ -6,14 +6,16 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
+  getAdditionalUserInfo,
   sendEmailVerification,
   signOut,
-  getAdditionalUserInfo
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { getUserFriendlyAuthError, getUserFriendlyRegistrationError } from "@/lib/authErrors";
 import { useAuth } from "@/lib/authContext";
+import { setGoogleAuthPending } from "@/lib/googleAuthRedirect";
+import { config } from "@/lib/config";
 import Link from "next/link";
 import Turnstile from "react-turnstile";
 
@@ -74,7 +76,38 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { refreshUserProfile } = useAuth();
+  const { refreshUserProfile, pendingGoogleSignup, clearPendingGoogleSignup } = useAuth();
+
+  const populateGoogleSignupFromCurrentUser = (isNewUser: boolean) => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    setGoogleUser(user);
+    setIsNewGoogleUser(isNewUser);
+    setIsLogin(false);
+    setSignupStage(2);
+
+    if (user.displayName) {
+      const parts = user.displayName.split(" ");
+      if (parts.length > 0) setFirstName(parts[0]);
+      if (parts.length > 1) setLastName(parts.slice(1).join(" "));
+    }
+    if (user.email) {
+      setEmail(user.email);
+      setUsername(user.email.split("@")[0]);
+    }
+    if (user.photoURL) setPhotoUrl(user.photoURL);
+  };
+
+  // Resume signup after Google redirect when backend profile does not exist yet.
+  useEffect(() => {
+    if (!pendingGoogleSignup || !isOpen) return;
+    populateGoogleSignupFromCurrentUser(pendingGoogleSignup.isNewUser);
+    if (pendingGoogleSignup.intent === "login") {
+      setError("Complete your profile to finish signing in with Google.");
+    }
+    clearPendingGoogleSignup();
+  }, [pendingGoogleSignup, isOpen, clearPendingGoogleSignup]);
 
   // Reset function
   const resetSignupState = () => {
@@ -247,68 +280,47 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       }
 
       const provider = new GoogleAuthProvider();
-      // Force account selection prompt
-      provider.setCustomParameters({
-        prompt: 'select_account'
-      });
+      provider.setCustomParameters({ prompt: "select_account" });
 
-      // When the app is cross-origin isolated (COOP: same-origin + COEP), popup flows can break
-      // because the popup can't reliably communicate with the opener. Use redirect instead.
-      const isolated = typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
-      if (isolated) {
-        await signInWithRedirect(auth, provider);
-        return;
-      }
+      if (config.isLocal) {
+        // On localhost, signInWithRedirect relies on cross-origin iframe messaging
+        // which modern browsers block (third-party cookie restrictions). Use popup instead.
+        const userCredential = await signInWithPopup(auth, provider);
+        const user = userCredential.user;
 
-      const userCredential = await signInWithPopup(auth, provider);
-      const user = userCredential.user;
+        const token = await user.getIdToken();
+        const res = await fetch(`${getBackendBaseUrl()}/users/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
-      // Check if user profile exists in backend
-      const token = await user.getIdToken();
-      const res = await fetch(`${getBackendBaseUrl()}/users/me`, {
-        headers: {
-          "Authorization": `Bearer ${token}`
+        if (res.ok) {
+          if (!isLogin) {
+            alert("You are already registered with this email. Logging you in...");
+          }
+          await refreshUserProfile();
+          onClose();
+          resetSignupState();
+        } else {
+          const additionalInfo = getAdditionalUserInfo(userCredential);
+          setIsNewGoogleUser(additionalInfo?.isNewUser ?? false);
+          setGoogleUser(user);
+          if (user.displayName) {
+            const parts = user.displayName.split(" ");
+            if (parts.length > 0) setFirstName(parts[0]);
+            if (parts.length > 1) setLastName(parts.slice(1).join(" "));
+          }
+          if (user.email) { setEmail(user.email); setUsername(user.email.split("@")[0]); }
+          if (user.photoURL) setPhotoUrl(user.photoURL);
+          if (isLogin) setIsLogin(false);
+          setLoading(false);
+          setSignupStage(2);
         }
-      });
-
-      const userExists = res.ok;
-
-      if (userExists) {
-        // User is already registered
-        await refreshUserProfile();
-
-        if (!isLogin) {
-          // User was trying to sign up but already exists
-          alert("You are already registered with this email. Logging you in...");
-        }
-
-        onClose();
-        resetSignupState();
       } else {
-        // User needs registration
-        if (isLogin) {
-          // User tried to login but has no profile -> Redirect to Signup
-          setIsLogin(false);
-        }
-
-        // Capture if this is a new Firebase user for cleanup purposes
-        const additionalInfo = getAdditionalUserInfo(userCredential);
-        setIsNewGoogleUser(additionalInfo?.isNewUser ?? false);
-
-        setGoogleUser(user);
-        if (user.displayName) {
-          const parts = user.displayName.split(" ");
-          if (parts.length > 0) setFirstName(parts[0]);
-          if (parts.length > 1) setLastName(parts.slice(1).join(" "));
-        }
-        if (user.email) setEmail(user.email);
-        if (user.photoURL) setPhotoUrl(user.photoURL);
-        if (user.email) setUsername(user.email.split("@")[0]);
-
-        setLoading(false);
-        setSignupStage(2);
+        // Production: full-page redirect — no popup, works on all mobile browsers.
+        setGoogleAuthPending(isLogin ? "login" : "signup");
+        await signInWithRedirect(auth, provider);
+        // Page navigates away; no further code runs here.
       }
-
     } catch (loginError: any) {
       if (
         loginError.code === "auth/popup-closed-by-user" ||

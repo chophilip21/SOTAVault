@@ -1026,7 +1026,7 @@ export default function PapersPage() {
               key={paper.id}
               className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-gray-200 transition-all duration-200 max-md:p-4"
             >
-              <div className="flex justify-between items-start gap-4 max-md:flex-col max-md:items-center">
+              <div className="flex justify-between items-start gap-4">
                 <div className="flex-shrink-0 w-24 h-24 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 max-md:w-20 max-md:h-20">
                   <PaperCoverArt
                     seed={paper.arxiv_id || paper.id}
@@ -1037,21 +1037,21 @@ export default function PapersPage() {
                     ariaLabel={displayTitle ? `Paper cover: ${displayTitle}` : "Paper cover"}
                   />
                 </div>
-                <div className="flex-1 min-w-0 max-md:w-full max-md:text-center">
+                <div className="flex-1 min-w-0">
                   <Link href={`/papers/${paper.id}`}>
                     <h2 className="text-lg font-semibold text-gray-900 hover:text-green-600 transition max-md:text-base max-md:break-words">
                       <MathText>{displayTitle}</MathText>
                     </h2>
                   </Link>
                   {/* Code badges + GitHub stats */}
-                  <div className="mt-2 space-y-1 text-xs max-md:flex max-md:flex-col max-md:items-center">
+                  <div className="mt-2 space-y-1 text-xs">
                     {paper.official_code && paper.official_code.length > 0 ? (
-                      <div className="space-y-1 max-md:flex max-md:flex-col max-md:items-center">
+                      <div className="space-y-1">
                         {paper.official_code.map((u) => {
                           const key = normalizeGithubRepo(u);
                           const meta = key ? githubMeta[key] : undefined;
                           return (
-                            <div key={u} className="flex flex-wrap items-center gap-2 max-md:justify-center">
+                            <div key={u} className="flex flex-wrap items-center gap-2">
                               <GithubRepoStats
                                 status={(meta?.status as any) || (key ? "pending" : "invalid")}
                                 stars={meta?.data?.stars}
@@ -1065,17 +1065,17 @@ export default function PapersPage() {
                         })}
                       </div>
                     ) : (
-                      <div className="flex flex-wrap items-center gap-2 max-md:justify-center">
+                      <div className="flex flex-wrap items-center gap-2">
                         <GithubRepoStats status="ok" stars={0} forks={0} />
                       </div>
                     )}
 
                     {paper.unofficial_code && paper.unofficial_code.length > 0 && (
-                      <div className="space-y-1 max-md:flex max-md:flex-col max-md:items-center">
+                      <div className="space-y-1">
                         <button
                           type="button"
                           onClick={() => toggleUnofficial(paper.id, paper.unofficial_code || [])}
-                          className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700 max-md:justify-center"
+                          className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700"
                         >
                           <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-gray-200 bg-gray-50 text-gray-500">
                             {showUnofficial[paper.id] ? "−" : "+"}
@@ -1086,12 +1086,12 @@ export default function PapersPage() {
                         </button>
 
                         {showUnofficial[paper.id] && (
-                          <div className="space-y-1 pl-7 max-md:pl-0 max-md:flex max-md:flex-col max-md:items-center">
+                          <div className="space-y-1 pl-7">
                             {paper.unofficial_code.map((u) => {
                               const key = normalizeGithubRepo(u);
                               const meta = key ? githubMeta[key] : undefined;
                               return (
-                                <div key={u} className="flex flex-wrap items-center gap-2 max-md:justify-center">
+                                <div key={u} className="flex flex-wrap items-center gap-2">
                                   <GithubRepoStats
                                     status={(meta?.status as any) || (key ? "pending" : "invalid")}
                                     stars={meta?.data?.stars}

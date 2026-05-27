@@ -1,10 +1,11 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { getRedirectResult, onAuthStateChanged, signOut, User } from "firebase/auth";
+import { getRedirectResult, getAdditionalUserInfo, onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { consumeGoogleAuthPending, type GoogleAuthIntent } from "@/lib/googleAuthRedirect";
 
 interface UserProfile {
   uid: string;
@@ -18,10 +19,18 @@ interface UserProfile {
   job_title: string | null;
 }
 
+interface PendingGoogleSignup {
+  isNewUser: boolean;
+  intent: GoogleAuthIntent;
+}
+
 interface AuthContextType {
   user: User | null;
   userProfile: UserProfile | null;
   loading: boolean;
+  /** Set after Google redirect when Firebase auth succeeded but backend profile is missing. */
+  pendingGoogleSignup: PendingGoogleSignup | null;
+  clearPendingGoogleSignup: () => void;
   logout: () => Promise<void>;
   refreshUserProfile: () => Promise<void>;
   updateUserProfileOptimistic: (profile: UserProfile) => void;
@@ -37,6 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pendingGoogleSignup, setPendingGoogleSignup] = useState<PendingGoogleSignup | null>(null);
+
+  const clearPendingGoogleSignup = () => setPendingGoogleSignup(null);
 
   // Load cached user profile
   const loadCachedProfile = (uid: string): UserProfile | null => {
@@ -167,11 +179,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    // Finalize any pending redirect-based OAuth sign-in after redirect return.
-    // This is best-effort: onAuthStateChanged will still update state when sign-in succeeds.
-    getRedirectResult(auth).catch(() => {
-      // ignore
-    });
+    let mounted = true;
+
+    // Complete Google OAuth after signInWithRedirect (full-page navigation, not popup).
+    void (async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (!result?.user || !mounted) return;
+
+        const pending = consumeGoogleAuthPending();
+        const intent = pending?.intent ?? "login";
+        const isNewUser = getAdditionalUserInfo(result)?.isNewUser ?? false;
+
+        const token = await result.user.getIdToken();
+        const res = await fetch(`${getBackendBaseUrl()}/users/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok && mounted) {
+          setPendingGoogleSignup({ isNewUser, intent });
+        }
+      } catch (error) {
+        console.error("Google redirect sign-in failed:", error);
+        consumeGoogleAuthPending();
+      }
+    })();
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
@@ -208,7 +240,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, []);
 
   const logout = async () => {
@@ -275,7 +310,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, logout, refreshUserProfile, updateUserProfileOptimistic }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        userProfile,
+        loading,
+        pendingGoogleSignup,
+        clearPendingGoogleSignup,
+        logout,
+        refreshUserProfile,
+        updateUserProfileOptimistic,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

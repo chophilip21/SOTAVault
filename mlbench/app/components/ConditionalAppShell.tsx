@@ -8,6 +8,7 @@ import MainContent from "./MainContent";
 import { AuthProviderWrapper } from "./AuthProviderWrapper";
 import ProtectedRoute from "./ProtectedRoute";
 import BuyMeACoffeeWidget from "./BuyMeACoffeeWidget";
+import { ToastProvider, toast } from "@/lib/toast";
 
 function ensureFontAwesomeCdnLink() {
   if (typeof document === "undefined") return;
@@ -25,10 +26,32 @@ function ensureFontAwesomeCdnLink() {
   document.head.appendChild(link);
 }
 
-export default function ConditionalAppShell({ children }: { children: React.ReactNode }) {
+/**
+ * Next.js compiles Server Actions into unique hashed IDs per build. When a new
+ * deployment rolls out while a user has an old tab open, their browser sends the
+ * old hash to the new pods → "Failed to find Server Action" error. Intercept that
+ * and tell the user to refresh rather than crashing silently.
+ */
+function useServerActionMismatchDetector() {
   useEffect(() => {
-    ensureFontAwesomeCdnLink();
+    const onUnhandled = (e: PromiseRejectionEvent) => {
+      const msg: string = e?.reason?.message ?? String(e?.reason ?? "");
+      if (msg.includes("Failed to find Server Action")) {
+        e.preventDefault();
+        toast.warn(
+          "This page is out of date after a recent update.",
+          { label: "Refresh", onClick: () => window.location.reload() },
+        );
+      }
+    };
+    window.addEventListener("unhandledrejection", onUnhandled);
+    return () => window.removeEventListener("unhandledrejection", onUnhandled);
   }, []);
+}
+
+function AppShellInner({ children }: { children: React.ReactNode }) {
+  useEffect(() => { ensureFontAwesomeCdnLink(); }, []);
+  useServerActionMismatchDetector();
 
   return (
     <AuthProviderWrapper>
@@ -40,5 +63,13 @@ export default function ConditionalAppShell({ children }: { children: React.Reac
       </SidebarProvider>
       <BuyMeACoffeeWidget />
     </AuthProviderWrapper>
+  );
+}
+
+export default function ConditionalAppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <ToastProvider>
+      <AppShellInner>{children}</AppShellInner>
+    </ToastProvider>
   );
 }
