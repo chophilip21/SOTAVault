@@ -496,6 +496,8 @@ export default function DatasetDetailPage() {
     );
   }
 
+  const isBookmarked = Boolean(datasetId && bookmarkedIds[datasetId]);
+
   return (
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {dataset.series_id ? (
@@ -510,7 +512,7 @@ export default function DatasetDetailPage() {
 
       <div className="bg-white border border-gray-100 rounded-2xl p-4 md:p-8 shadow-sm">
         <div className="flex flex-col items-center md:flex-row md:items-start gap-4 md:gap-6">
-          <div className="flex-shrink-0 w-24 h-24 md:w-32 md:h-32 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 group">
+          <div className="flex-shrink-0 w-24 h-24 md:w-32 md:h-32 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
             <Image
               src={getDomainIcon(dataset.domain)}
               alt={`${dataset.domain || 'dataset'} icon`}
@@ -518,33 +520,36 @@ export default function DatasetDetailPage() {
               sizes="(max-width: 768px) 96px, 128px"
               className="object-contain p-2 md:p-3"
             />
-            {/* Bookmark button overlay */}
-            <button
-              onClick={() => datasetId && toggleBookmark(datasetId, dataset.name)}
-              className={`absolute top-2 right-2 p-2 rounded-full border transition-all shadow-sm ${datasetId && bookmarkedIds[datasetId]
-                ? "border-green-300 bg-green-50 text-green-800 opacity-100"
-                : "border-white bg-white/90 text-gray-600 opacity-0 group-hover:opacity-100"
-                }`}
-              title={datasetId && bookmarkedIds[datasetId] ? "Remove bookmark" : "Add bookmark"}
-              aria-label={datasetId && bookmarkedIds[datasetId] ? "Remove bookmark" : "Add bookmark"}
-            >
-              <span aria-hidden="true" className="text-lg leading-none">
-                {datasetId && bookmarkedIds[datasetId] ? "🔖" : "📑"}
-              </span>
-            </button>
           </div>
 
           <div className="flex-1 min-w-0 w-full max-md:text-center md:text-left">
-            <h1 className={`text-2xl md:text-4xl font-bold text-gray-900 tracking-tight break-words ${inter.className}`}>
-              <MathText>{dataset.name}</MathText>
-            </h1>
-            {dataset.full_name && dataset.full_name !== dataset.name && (
-              <p className="text-base md:text-xl text-gray-600 mt-2 break-words">
-                <MathText>{dataset.full_name}</MathText>
-              </p>
-            )}
+            <div className="flex flex-col max-md:items-center md:flex-row md:items-start md:justify-between gap-3 md:gap-4">
+              <div className="min-w-0 flex-1">
+                <h1 className={`text-2xl md:text-4xl font-bold text-gray-900 tracking-tight break-words ${inter.className}`}>
+                  <MathText>{dataset.name}</MathText>
+                </h1>
+                {dataset.full_name && dataset.full_name !== dataset.name && (
+                  <p className="text-base md:text-xl text-gray-600 mt-2 break-words">
+                    <MathText>{dataset.full_name}</MathText>
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => datasetId && toggleBookmark(datasetId, dataset.name)}
+                className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border-2 transition-all text-xs sm:text-sm font-semibold shrink-0 shadow-sm ${isBookmarked
+                  ? "border-green-600 bg-green-600 text-white hover:bg-green-700 hover:border-green-700 shadow-green-600/25"
+                  : "border-[#007a3a] bg-[#007a3a] text-white hover:bg-[#006631] hover:border-[#006631] shadow-[rgba(0,122,58,0.25)]"
+                  }`}
+                title={isBookmarked ? "Remove bookmark" : "Bookmark this dataset"}
+                aria-pressed={isBookmarked}
+              >
+                <span aria-hidden="true">{isBookmarked ? "🔖" : "📑"}</span>
+                <span>{isBookmarked ? "Bookmarked" : "Bookmark"}</span>
+              </button>
+            </div>
 
-            <div className="flex flex-wrap gap-2 mt-4 max-md:justify-center md:justify-start">
+            <div className="flex flex-wrap gap-2 mt-4 max-md:justify-center md:justify-start w-full">
               {dataset.domain && (
                 <span className="px-3 py-1 text-sm bg-gray-100 text-gray-800 rounded-full">
                   {dataset.domain}

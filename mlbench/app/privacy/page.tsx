@@ -16,10 +16,10 @@ export default function PrivacyPage() {
             </p>
             <div className="space-y-4 text-gray-700 leading-relaxed">
               <p>
-                <strong>Account Identification (Required):</strong> Email address and account password (securely encrypted). We use your email to securely identify you, manage active sessions, and monitor resource usage metrics across sensitive computing pipelines.
+                <strong>Account Identification (Required):</strong> Email address, your name (first and last name provided at registration), username, and account password (securely encrypted). We use your email and name to identify your account, manage active sessions, and monitor resource usage metrics across sensitive computing pipelines.
               </p>
               <p>
-                <strong>Optional Profile Data (Optional):</strong> Your name and institutional/professional affiliation. These fields are completely voluntary; you do not need to fill them out to use the platform.
+                <strong>Optional Profile Data (Optional):</strong> Job title and institutional/professional affiliation. These fields are completely voluntary; you do not need to fill them out to use the platform.
               </p>
               <p>
                 <strong>Automated System Logs:</strong> Standard network logs, including your IP address and access timestamps, are collected strictly to maintain infrastructure security, analyze database errors, and prevent malicious web scraping.
@@ -37,14 +37,14 @@ export default function PrivacyPage() {
           <section className="mb-8">
             <h2 className="text-2xl font-semibold text-gray-900 mb-4">3. Data Storage, Retention, and Security</h2>
             <p className="text-gray-700 leading-relaxed">
-              Your personal account info is hosted using secure Google Cloud Platform (GCP) infrastructure. We employ industry-standard access management and encryption controls to keep your email safe. We do not sell, trade, or share your data with any third-party commercial entities.
+              Your personal account info (including your email and name) is hosted using secure Google Cloud Platform (GCP) infrastructure. We employ industry-standard access management and encryption controls to keep your account data safe. We do not sell, trade, or share your data with any third-party commercial entities.
             </p>
           </section>
 
           <section className="mb-8">
             <h2 className="text-2xl font-semibold text-gray-900 mb-4">4. User Rights: Modification and Absolute Deletion</h2>
             <p className="text-gray-700 leading-relaxed">
-              You retain complete control over your profile data. From your account&apos;s Settings tab, you have the right to modify your optional details or completely delete your account at any time. Upon clicking &ldquo;Delete Account&rdquo;, all of your personal identifier records, emails, and linked metadata will be instantly and permanently purged from our active databases and downstream system backup states.
+              You retain complete control over your profile data. From your account&apos;s Settings tab, you have the right to modify your profile details or completely delete your account at any time. Upon clicking &ldquo;Delete Account&rdquo;, all of your personal identifier records, including your name, email, and linked metadata, will be instantly and permanently purged from our active databases and downstream system backup states.
             </p>
           </section>
 

@@ -10,13 +10,13 @@ import { getBackendBaseUrl } from "@/lib/backendUrl";
 import ProtectedLink from "./components/ProtectedLink";
 import { PaperCoverArt } from "./components/PaperCoverArt";
 import AuthModal from "./components/AuthModal";
-import { useAuth } from "@/lib/authContext";
 import { LoadingSpinner } from "./components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
 import { cleanPaperTitle } from "@/lib/paperTitle";
 import { cleanMetricDescription } from "@/lib/metricDescription";
 import { capitalizeSeriesName } from "@/lib/formatName";
 import { getDomainIcon, getDomainLabel } from "@/lib/domain";
+import { useBookmarks } from "@/hooks/useBookmarks";
 
 const ConferenceMap = dynamic(() => import("./components/ConferenceMap"), { ssr: false });
 
@@ -266,7 +266,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const { user } = useAuth();
+  const { bookmarkedIds: bookmarkedPaperIds, toggleBookmark: togglePaperBookmark } = useBookmarks("paper");
+  const { bookmarkedIds: bookmarkedSeriesIds, toggleBookmark: toggleSeriesBookmark } = useBookmarks("dataset_series");
 
   useEffect(() => {
     const fetchData = async () => {
@@ -543,58 +544,76 @@ export default function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {popularPapers.map((paper) => (
-            <ProtectedLink
+            <div
               key={paper.id}
-              href={`/papers/${paper.id}`}
-              className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 group"
-              onLoginRequired={() => setIsAuthModalOpen(true)}
+              className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 flex flex-col"
             >
-              <div className="flex items-start gap-3 mb-3">
-                <div className="flex-shrink-0 w-12 h-12 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-                  <PaperCoverArt
-                    seed={paper.arxiv_id || paper.id}
-                    title={paper.title}
-                    authors={paper.authors}
-                    year={paper.year}
-                    className="absolute inset-0"
-                    ariaLabel={paper.title ? `Paper cover: ${paper.title}` : "Paper cover"}
-                  />
+              <ProtectedLink
+                href={`/papers/${paper.id}`}
+                className="block p-5 pb-0 flex-1 group"
+                onLoginRequired={() => setIsAuthModalOpen(true)}
+              >
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="flex-shrink-0 w-12 h-12 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+                    <PaperCoverArt
+                      seed={paper.arxiv_id || paper.id}
+                      title={paper.title}
+                      authors={paper.authors}
+                      year={paper.year}
+                      className="absolute inset-0"
+                      ariaLabel={paper.title ? `Paper cover: ${paper.title}` : "Paper cover"}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base font-semibold text-gray-900 group-hover:text-green-600 transition line-clamp-2">
+                      {paper.title}
+                    </h3>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-base font-semibold text-gray-900 group-hover:text-green-600 transition line-clamp-2">
-                    {paper.title}
-                  </h3>
-                </div>
-              </div>
 
-              {paper.authors && paper.authors.length > 0 && (
-                <p className="text-xs text-gray-600 mb-2 line-clamp-1">
-                  {paper.authors.slice(0, 3).join(", ")}
-                  {paper.authors.length > 3 && " et al."}
-                </p>
-              )}
+                {paper.authors && paper.authors.length > 0 && (
+                  <p className="text-xs text-gray-600 mb-2 line-clamp-1">
+                    {paper.authors.slice(0, 3).join(", ")}
+                    {paper.authors.length > 3 && " et al."}
+                  </p>
+                )}
 
-              {(paper.venue || paper.year) && (
-                <p className="text-xs text-gray-500 mb-3">
-                  {[paper.venue, paper.year].filter(Boolean).join(" · ")}
-                </p>
-              )}
+                {(paper.venue || paper.year) && (
+                  <p className="text-xs text-gray-500 mb-3">
+                    {[paper.venue, paper.year].filter(Boolean).join(" · ")}
+                  </p>
+                )}
 
-              {paper.abstract && (
-                <p className="text-sm text-gray-700 mb-3 line-clamp-3">
-                  {paper.abstract}
-                </p>
-              )}
-
-              <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                {paper.abstract && (
+                  <p className="text-sm text-gray-700 mb-3 line-clamp-3">
+                    {paper.abstract}
+                  </p>
+                )}
 
                 {paper.created_at && (
-                  <span className="text-xs text-gray-400">
-                    {new Date(paper.created_at).toLocaleDateString()}
-                  </span>
+                  <div className="flex items-center justify-end pt-3 border-t border-gray-100">
+                    <span className="text-xs text-gray-400">
+                      {new Date(paper.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
                 )}
+              </ProtectedLink>
+
+              <div className="px-5 pb-5 pt-3 flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={() => togglePaperBookmark(paper.id, paper.title)}
+                  className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full border transition-all text-xs ${bookmarkedPaperIds[paper.id]
+                    ? "border-green-300 bg-green-50 text-green-800"
+                    : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
+                    }`}
+                  title={bookmarkedPaperIds[paper.id] ? "Remove bookmark" : "Bookmark this paper"}
+                >
+                  <span aria-hidden="true">{bookmarkedPaperIds[paper.id] ? "🔖" : "📑"}</span>
+                  <span>{bookmarkedPaperIds[paper.id] ? "Bookmarked" : "Bookmark"}</span>
+                </button>
               </div>
-            </ProtectedLink>
+            </div>
           ))}
         </div>
 
@@ -622,50 +641,67 @@ export default function Home() {
           {popularDatasetSeries.map((series) => {
             const domainLabel = getDomainLabel(series.domain);
             return (
-              <ProtectedLink
+              <div
                 key={series.id}
-                href={`/dataset-series/${series.id}`}
-                className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 group"
-                onLoginRequired={() => setIsAuthModalOpen(true)}
+                className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 flex flex-col"
               >
-                <div className="flex items-center gap-3">
-                  <div className="flex-shrink-0 w-14 h-14 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-                    <Image
-                      src={getDomainIcon(series.domain)}
-                      alt={`${series.domain || "dataset"} icon`}
-                      fill
-                      sizes="56px"
-                      className="object-contain p-2"
-                    />
+                <ProtectedLink
+                  href={`/dataset-series/${series.id}`}
+                  className="block p-5 pb-0 flex-1 group"
+                  onLoginRequired={() => setIsAuthModalOpen(true)}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex-shrink-0 w-14 h-14 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+                      <Image
+                        src={getDomainIcon(series.domain)}
+                        alt={`${series.domain || "dataset"} icon`}
+                        fill
+                        sizes="56px"
+                        className="object-contain p-2"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0 flex flex-col justify-center min-h-14 gap-0.5">
+                      <h3 className="text-base font-semibold text-gray-900 group-hover:text-green-600 transition line-clamp-2">
+                        <MathText>{capitalizeSeriesName(series.name)}</MathText>
+                      </h3>
+                      {domainLabel && (
+                        <p className="text-sm font-normal text-gray-500 leading-snug line-clamp-1">
+                          {domainLabel}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0 flex flex-col justify-center min-h-14 gap-0.5">
-                    <h3
-                      className="text-base font-semibold text-gray-900 group-hover:text-green-600 transition line-clamp-2"
-                    >
-                      <MathText>{capitalizeSeriesName(series.name)}</MathText>
-                    </h3>
-                    {domainLabel && (
-                      <p className="text-sm font-normal text-gray-500 leading-snug line-clamp-1">
-                        {domainLabel}
-                      </p>
-                    )}
-                  </div>
+
+                  {series.description && (
+                    <p className="text-sm text-gray-700 mt-3 mb-3 line-clamp-3">
+                      <MathText>{cleanMetricDescription(series.description)}</MathText>
+                    </p>
+                  )}
+
+                  {series.created_at && (
+                    <div className="flex items-center justify-end pt-3 border-t border-gray-100">
+                      <span className="text-xs text-gray-400">
+                        {new Date(series.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                  )}
+                </ProtectedLink>
+
+                <div className="px-5 pb-5 pt-3 flex flex-col items-center">
+                  <button
+                    type="button"
+                    onClick={() => toggleSeriesBookmark(series.id, series.name)}
+                    className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full border transition-all text-xs ${bookmarkedSeriesIds[series.id]
+                      ? "border-green-300 bg-green-50 text-green-800"
+                      : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
+                      }`}
+                    title={bookmarkedSeriesIds[series.id] ? "Remove bookmark" : "Bookmark this dataset"}
+                  >
+                    <span aria-hidden="true">{bookmarkedSeriesIds[series.id] ? "🔖" : "📑"}</span>
+                    <span>{bookmarkedSeriesIds[series.id] ? "Bookmarked" : "Bookmark"}</span>
+                  </button>
                 </div>
-
-                {series.description && (
-                  <p className="text-sm text-gray-700 mt-3 mb-3 line-clamp-3">
-                    <MathText>{cleanMetricDescription(series.description)}</MathText>
-                  </p>
-                )}
-
-                {series.created_at && (
-                  <div className="flex items-center justify-end pt-3 border-t border-gray-100">
-                    <span className="text-xs text-gray-400">
-                      {new Date(series.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                )}
-              </ProtectedLink>
+              </div>
             );
           })}
         </div>

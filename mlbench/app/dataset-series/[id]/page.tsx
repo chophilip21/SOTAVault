@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { useBookmarks } from "@/hooks/useBookmarks";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { MathText } from "@/lib/mathText";
 import { inter } from "@/lib/fonts";
@@ -109,6 +110,8 @@ export default function DatasetSeriesDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [datasetsLoading, setDatasetsLoading] = useState(false);
 
+  const { bookmarkedIds, toggleBookmark } = useBookmarks("dataset_series");
+
   useEffect(() => {
     const fetchSeriesAndDatasets = async () => {
       setLoading(true);
@@ -187,9 +190,23 @@ export default function DatasetSeriesDetailPage() {
           </div>
 
           <div className="flex-1">
-            <h1 className={`text-4xl font-bold text-gray-900 tracking-tight ${inter.className}`}>
-              <MathText>{capitalizeSeriesName(series.name)}</MathText>
-            </h1>
+            <div className="flex items-start justify-between gap-4">
+              <h1 className={`text-4xl font-bold text-gray-900 tracking-tight ${inter.className}`}>
+                <MathText>{capitalizeSeriesName(series.name)}</MathText>
+              </h1>
+              <button
+                onClick={() => toggleBookmark(seriesId, series.name)}
+                className={`flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all text-xs mt-1 ${
+                  bookmarkedIds[seriesId]
+                    ? "border-teal-300 bg-teal-50 text-teal-800"
+                    : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
+                }`}
+                title={bookmarkedIds[seriesId] ? "Remove bookmark" : "Bookmark this series"}
+              >
+                <span aria-hidden="true">{bookmarkedIds[seriesId] ? "🔖" : "📑"}</span>
+                <span>{bookmarkedIds[seriesId] ? "Bookmarked" : "Bookmark Series"}</span>
+              </button>
+            </div>
 
             <div className="flex flex-wrap gap-2 mt-4">
               {series.domain && (

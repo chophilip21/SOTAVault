@@ -55,8 +55,8 @@ const getDomainIcon = (domain?: string): string => {
 
 interface BookmarkSectionProps {
     title: string;
-    resourceType: "paper" | "dataset" | "venue";
-    colorTheme: "blue" | "green" | "purple";
+    resourceType: "paper" | "dataset" | "dataset_series" | "venue";
+    colorTheme: "blue" | "green" | "teal" | "purple";
     defaultOpen?: boolean;
 }
 
@@ -70,7 +70,7 @@ function stripWrappingQuotes(s: string): string {
     return t;
 }
 
-function getIcon(type: "paper" | "dataset" | "venue", className: string) {
+function getIcon(type: "paper" | "dataset" | "dataset_series" | "venue", className: string) {
     if (type === "paper") {
         return (
             <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -78,8 +78,16 @@ function getIcon(type: "paper" | "dataset" | "venue", className: string) {
             </svg>
         );
     }
+    if (type === "dataset_series") {
+        // Layers / collection icon — parent series
+        return (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+        );
+    }
     if (type === "dataset") {
-        // Benchmark icon
+        // Benchmark / variant icon — child
         return (
             <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -87,7 +95,6 @@ function getIcon(type: "paper" | "dataset" | "venue", className: string) {
         );
     }
     if (type === "venue") {
-        // Conference icon
         return (
             <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -163,6 +170,36 @@ export default function BookmarkSection({
     const fetchDetails = async (ids: string[]) => {
         if (ids.length === 0) return;
         try {
+            if (resourceType === "dataset_series") {
+                // No bulk endpoint for dataset_series — fetch individually in parallel.
+                const results = await Promise.allSettled(
+                    ids.map(id =>
+                        fetch(`${getBackendBaseUrl()}/dataset_series/${id}`).then(r =>
+                            r.ok ? r.json() : Promise.reject(r.status),
+                        ),
+                    ),
+                );
+                const fetched: ResourceDetail[] = [];
+                const missing: string[] = [];
+                results.forEach((r, i) => {
+                    if (r.status === "fulfilled") fetched.push(r.value as ResourceDetail);
+                    else missing.push(ids[i]);
+                });
+                if (missing.length > 0) {
+                    setDeletedIds(prev => {
+                        const next = new Set(prev);
+                        missing.forEach(id => next.add(id));
+                        return next;
+                    });
+                }
+                setDetails(prev => {
+                    const next = { ...prev };
+                    fetched.forEach(item => { next[item.id] = item; });
+                    return next;
+                });
+                return;
+            }
+
             let endpoint = "";
             if (resourceType === "paper") endpoint = "/papers/bulk";
             else if (resourceType === "dataset") endpoint = "/datasets/bulk";
@@ -177,7 +214,6 @@ export default function BookmarkSection({
                 const items = data.items || [];
                 const returnedIds = new Set(items.map((item: ResourceDetail) => item.id));
 
-                // Track IDs that were requested but not returned (deleted resources)
                 const nowDeleted = ids.filter(id => !returnedIds.has(id));
                 if (nowDeleted.length > 0) {
                     setDeletedIds(prev => {
@@ -276,6 +312,13 @@ export default function BookmarkSection({
             hover: "hover:bg-green-100",
             icon: "text-green-600 bg-green-100",
         },
+        teal: {
+            border: "border-teal-200",
+            bg: "bg-teal-50",
+            text: "text-teal-800",
+            hover: "hover:bg-teal-100",
+            icon: "text-teal-600 bg-teal-100",
+        },
         purple: {
             border: "border-purple-200",
             bg: "bg-purple-50",
@@ -287,6 +330,7 @@ export default function BookmarkSection({
 
     const getLink = (id: string) => {
         if (resourceType === "paper") return `/papers/${id}`;
+        if (resourceType === "dataset_series") return `/dataset-series/${id}`;
         if (resourceType === "dataset") return `/datasets/${id}`;
         return `/conference?q=${id}`;
     };
@@ -344,9 +388,23 @@ export default function BookmarkSection({
                                         detail?.name || bookmark.title || bookmark.resource_id,
                                       );
 
+                                // Small pill indicating parent/child relationship for dataset types
+                                const relationBadge =
+                                    resourceType === "dataset_series" ? (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-teal-100 text-teal-700 border border-teal-200">
+                                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                                            Parent Series
+                                        </span>
+                                    ) : resourceType === "dataset" ? (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-200">
+                                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                            Variant
+                                        </span>
+                                    ) : null;
+
                                 // Render deleted resource card
                                 if (isDeleted) {
-                                    const resourceLabel = resourceType === "paper" ? "paper" : resourceType === "dataset" ? "dataset" : "venue";
+                                    const resourceLabel = resourceType === "paper" ? "paper" : resourceType === "dataset_series" ? "dataset series" : resourceType === "dataset" ? "dataset" : "venue";
                                     return (
                                         <div
                                             key={bookmark.bookmark_id}
@@ -428,7 +486,7 @@ export default function BookmarkSection({
                                                         <LoadingSpinner size="sm" />
                                                     </div>
                                                 )
-                                            ) : resourceType === "dataset" ? (
+                                            ) : resourceType === "dataset" || resourceType === "dataset_series" ? (
                                                 <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-2">
                                                     {detail ? (
                                                         <div className="relative w-full h-full">
@@ -457,33 +515,32 @@ export default function BookmarkSection({
 
                                         {/* Content */}
                                         <div className="flex-1 min-w-0">
-                                            <Link
-                                                href={getLink(bookmark.resource_id)}
-                                                target="_blank"
-                                                className="block group-hover:text-green-700 transition-colors"
-                                            >
-                                                <h4 className="text-sm font-medium text-gray-900 truncate" title={displayName}>
-                                                    <MathText>{displayName}</MathText>
-                                                </h4>
-                                                {/* Authors (if any) or Loading state */}
-                                                {detail ? (
-                                                    <>
-                                                        {detail?.authors && detail.authors.length > 0 && (
-                                                            <p className="text-xs text-gray-600 mt-1 truncate">
-                                                                {detail.authors[0]} et al.
-                                                            </p>
-                                                        )}
-                                                        {/* Added Date (Correctly separated) */}
-                                                        <p className="text-[10px] text-gray-400 mt-1 truncate">
-                                                            Added on {formatDate(bookmark.added_at)}
+                                        <Link
+                                            href={getLink(bookmark.resource_id)}
+                                            target="_blank"
+                                            className="block group-hover:text-green-700 transition-colors"
+                                        >
+                                            <h4 className="text-sm font-medium text-gray-900 truncate" title={displayName}>
+                                                <MathText>{displayName}</MathText>
+                                            </h4>
+                                            {detail ? (
+                                                <>
+                                                    {detail?.authors && detail.authors.length > 0 && (
+                                                        <p className="text-xs text-gray-600 mt-1 truncate">
+                                                            {detail.authors[0]} et al.
                                                         </p>
-                                                    </>
-                                                ) : (
-                                                    <p className="text-xs text-gray-400 mt-1 animate-pulse">
-                                                        Loading details...
+                                                    )}
+                                                    <p className="text-[10px] text-gray-400 mt-1 truncate">
+                                                        Added on {formatDate(bookmark.added_at)}
                                                     </p>
-                                                )}
-                                            </Link>
+                                                </>
+                                            ) : (
+                                                <p className="text-xs text-gray-400 mt-1 animate-pulse">
+                                                    Loading details...
+                                                </p>
+                                            )}
+                                            {relationBadge && <span className="mt-1.5 inline-block">{relationBadge}</span>}
+                                        </Link>
                                         </div>
 
                                         {/* Actions */}

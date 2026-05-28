@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/lib/authContext";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 
-export function useBookmarks(resourceType: "paper" | "dataset" | "venue" = "paper") {
+export function useBookmarks(resourceType: "paper" | "dataset" | "dataset_series" | "venue" = "paper") {
     const { user } = useAuth();
     const [bookmarkedIds, setBookmarkedIds] = useState<Record<string, boolean>>({});
 

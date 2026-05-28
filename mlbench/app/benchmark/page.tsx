@@ -169,7 +169,7 @@ export default function BenchmarkPage() {
   const skipNextSearchEffectRef = useRef(false);
   const persistTimerRef = useRef<number | null>(null);
 
-  const { bookmarkedIds, toggleBookmark } = useBookmarks("dataset");
+  const { bookmarkedIds, toggleBookmark } = useBookmarks("dataset_series");
 
   const fetchPage = async (cursor: string | null, task?: string, domain?: string) => {
     setLoading(true);
@@ -994,7 +994,7 @@ export default function BenchmarkPage() {
             <div className="mt-auto pt-3 space-y-2 flex flex-col items-center">
 
               <button
-                onClick={() => toggleBookmark(benchmark.id)}
+                onClick={() => toggleBookmark(benchmark.id, benchmark.name)}
                 className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full border transition-all text-xs ${bookmarkedIds[benchmark.id]
                   ? "border-green-300 bg-green-50 text-green-800"
                   : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"

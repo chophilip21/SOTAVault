@@ -8,7 +8,7 @@ export default function BookmarksTab() {
             <div>
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">Your Bookmarks</h2>
                 <p className="text-gray-500 text-sm mb-6">
-                    Manage your saved papers, datasets, and conferences.
+                    Manage your saved papers, dataset series, dataset variants, and conferences.
                 </p>
             </div>
 
@@ -20,7 +20,14 @@ export default function BookmarksTab() {
             />
 
             <BookmarkSection
-                title="Datasets"
+                title="Dataset Series"
+                resourceType="dataset_series"
+                colorTheme="teal"
+                defaultOpen={true}
+            />
+
+            <BookmarkSection
+                title="Dataset Variants"
                 resourceType="dataset"
                 colorTheme="green"
                 defaultOpen={true}
