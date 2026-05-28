@@ -17,10 +17,8 @@ import { cleanPaperTitle, formatPaperAuthorsWithYear } from "@/lib/paperTitle";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
-// Cache for tasks data
-let tasksCache: Task[] | null = null;
-let tasksCacheTime: number | null = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+// Small cache for preset task objects (resolved once via bulk endpoint).
+let presetTasksCache: Task[] | null = null;
 
 // Persist Papers tab state so navigating to a paper and back doesn't reset filters/page.
 const PAPERS_STATE_KEY = "mlbench:papers_state:v1";
@@ -41,10 +39,16 @@ function hasMeaningfulPapersState(s: any): boolean {
 }
 
 const PRESET_TASKS = [
+  "image-classification",
+  "object-detection",
   "face-detection",
-  "learning-theory",
+  "natural-language-understanding",
+  "text-classification",
+  "question-answering",
+  "machine-translation",
+  "speech-recognition",
   "3d-action-recognition",
-  "quantization"
+  "quantization",
 ];
 
 const DOMAIN_OPTIONS = [
@@ -124,13 +128,17 @@ export default function PapersPage() {
   const [appliedDomain, setAppliedDomain] = useState("");
   const [appliedTasks, setAppliedTasks] = useState<string[]>([]);
 
+  // tasks = results shown in the dropdown (search results or presets)
   const [tasks, setTasks] = useState<Task[]>([]);
+  // presetTasks = the small fixed set of quick-select tasks (loaded once)
+  const [presetTasks, setPresetTasks] = useState<Task[]>([]);
   const [bulkTasksById, setBulkTasksById] = useState<Record<string, Task>>({});
   const [tasksLoading, setTasksLoading] = useState(false);
   const requestedTaskIdsRef = useRef<Set<string>>(new Set());
   const missingTaskIdsRef = useRef<Set<string>>(new Set());
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
+  const taskSearchDebounceRef = useRef<number | null>(null);
   const taskDropdownRef = useRef<HTMLDivElement>(null);
   const skipNextSearchEffectRef = useRef(false);
   const skipNextSortEffectRef = useRef(false);
@@ -184,36 +192,53 @@ export default function PapersPage() {
     }
   };
 
-  const fetchTasks = async () => {
-    // Check cache first
-    const now = Date.now();
-    if (tasksCache && tasksCacheTime && (now - tasksCacheTime) < CACHE_DURATION) {
-      setTasks(tasksCache);
+  /** Load the small set of preset quick-select tasks once via the bulk endpoint. */
+  const fetchPresetTasks = async () => {
+    if (presetTasksCache) {
+      setPresetTasks(presetTasksCache);
+      return;
+    }
+    try {
+      const url = new URL(`${getBackendBaseUrl()}/tasks/bulk`);
+      PRESET_TASKS.forEach((id) => url.searchParams.append("ids", id));
+      const res = await fetch(url.toString());
+      if (!res.ok) return;
+      const data: TasksResponse = await res.json();
+      presetTasksCache = data.items || [];
+      setPresetTasks(presetTasksCache);
+    } catch {
+      // non-critical
+    }
+  };
+
+  /** Debounced Meilisearch task search used by the task filter dropdown. */
+  const searchTasks = (q: string) => {
+    if (taskSearchDebounceRef.current) window.clearTimeout(taskSearchDebounceRef.current);
+
+    const trimmed = q.trim();
+    if (trimmed.length < 2) {
+      setTasks([]);
+      setTasksLoading(false);
       return;
     }
 
     setTasksLoading(true);
-    try {
-      const url = new URL(`${getBackendBaseUrl()}/tasks/`);
-      url.searchParams.set("limit", "100");
-
-      const res = await fetch(url.toString());
-      if (!res.ok) throw new Error("Failed to load tasks");
-      const data: TasksResponse = await res.json();
-
-      const taskList = data.items || [];
-      // Deduplicate tasks by ID
-      const uniqueTasks = Array.from(new Map(taskList.map(t => [t.id, t])).values());
-      setTasks(uniqueTasks);
-
-      // Update cache
-      tasksCache = taskList;
-      tasksCacheTime = Date.now();
-    } catch (err: any) {
-      console.error("Failed to load tasks:", err);
-    } finally {
-      setTasksLoading(false);
-    }
+    taskSearchDebounceRef.current = window.setTimeout(async () => {
+      try {
+        const url = new URL(`${getBackendBaseUrl()}/search/tasks_meili`);
+        url.searchParams.set("q", trimmed);
+        url.searchParams.set("limit", "50");
+        const res = await fetch(url.toString());
+        if (!res.ok) throw new Error("tasks search failed");
+        const data: { query: string; hits: Array<{ id: string; name: string }> } = await res.json();
+        // Map Meilisearch hits to the Task interface
+        setTasks((data.hits || []).map((h) => ({ id: h.id, name: h.name, slug: h.id })));
+      } catch {
+        setTasks([]);
+      } finally {
+        setTasksLoading(false);
+      }
+    }, 300);
   };
 
   const fetchTasksBulk = async (taskIds: string[]) => {
@@ -222,7 +247,7 @@ export default function PapersPage() {
 
     const localKnown = new Set<string>();
     for (const t of tasks) localKnown.add(t.id);
-    if (tasksCache) for (const t of tasksCache) localKnown.add(t.id);
+    for (const t of presetTasks) localKnown.add(t.id);
     for (const id of Object.keys(bulkTasksById)) localKnown.add(id);
 
     const missing = unique.filter((id) => !localKnown.has(id) && !requestedTaskIdsRef.current.has(id));
@@ -273,14 +298,12 @@ export default function PapersPage() {
         const parsed = JSON.parse(raw) as any;
         const ts = Number(parsed?.ts || 0);
         if (ts && (Date.now() - ts) < PAPERS_STATE_TTL_MS && hasMeaningfulPapersState(parsed)) {
-          // Restore list/search state
           setPapers(Array.isArray(parsed?.papers) ? parsed.papers : []);
           setNextCursor(typeof parsed?.nextCursor === "string" ? parsed.nextCursor : null);
           setPrevCursors(Array.isArray(parsed?.prevCursors) ? parsed.prevCursors : [null]);
           setCurrentCursor(typeof parsed?.currentCursor === "string" ? parsed.currentCursor : null);
           setHasMore(Boolean(parsed?.hasMore));
 
-          // Restore filters/sort
           if (parsed?.sortDir === "asc" || parsed?.sortDir === "desc") {
             setSortDir(parsed.sortDir);
             skipNextSortEffectRef.current = true;
@@ -298,10 +321,7 @@ export default function PapersPage() {
             skipNextSearchEffectRef.current = true;
           }
 
-
-
-          // Still load the task list for dropdown (cached client-side).
-          fetchTasks();
+          fetchPresetTasks();
           return;
         }
       }
@@ -310,10 +330,19 @@ export default function PapersPage() {
     }
 
     fetchPage(null);
-    fetchTasks();
+    fetchPresetTasks();
     setPrevCursors([null]);
     setCurrentCursor(null);
   }, []);
+
+  // Drive the task dropdown search from taskSearchQuery changes.
+  useEffect(() => {
+    searchTasks(taskSearchQuery);
+    return () => {
+      if (taskSearchDebounceRef.current) window.clearTimeout(taskSearchDebounceRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskSearchQuery]);
 
   useEffect(() => {
     if (skipNextSortEffectRef.current) {
@@ -450,23 +479,10 @@ export default function PapersPage() {
     return `${selectedTasks.length} tasks`;
   };
 
-  const getFilteredTasks = () => {
-    if (!taskSearchQuery.trim()) {
-      // Show preset tasks at the top, then alphabetically sorted others
-      const presetTaskObjects = tasks.filter(t => PRESET_TASKS.includes(t.id));
-      const otherTasks = tasks
-        .filter(t => !PRESET_TASKS.includes(t.id))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      return [...presetTaskObjects, ...otherTasks];
-    }
-
-    const query = taskSearchQuery.toLowerCase();
-    return tasks
-      .filter(task =>
-        task.name.toLowerCase().replace(/-/g, " ").includes(query) ||
-        task.id.toLowerCase().includes(query)
-      )
-      .sort((a, b) => a.name.localeCompare(b.name));
+  /** Tasks shown in the scrollable list area of the dropdown. */
+  const getFilteredTasks = (): Task[] => {
+    if (!taskSearchQuery.trim()) return [];
+    return tasks; // already sorted by slug from the backend
   };
 
   const handleNext = () => {
@@ -569,12 +585,12 @@ export default function PapersPage() {
       <button
         onClick={handlePrev}
         disabled={prevCursors.length <= 1 || loading}
-        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-gray-200 bg-white text-gray-700 enabled:hover:bg-gray-50 enabled:hover:border-gray-300 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 disabled:cursor-not-allowed"
+        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded-lg border border-gray-200 bg-white text-gray-700 enabled:hover:bg-gray-50 enabled:hover:border-gray-300 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 disabled:cursor-not-allowed"
       >
         Previous
       </button>
       <div
-        className="inline-flex items-center justify-center w-9 h-9 rounded bg-cyan-500/80 text-white text-sm font-medium tabular-nums leading-none select-none"
+        className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-cyan-500/80 text-white text-sm font-medium tabular-nums leading-none select-none"
         aria-label={`Current page ${currentPage}`}
         title={`Page ${currentPage}`}
         role="status"
@@ -584,7 +600,7 @@ export default function PapersPage() {
       <button
         onClick={handleNext}
         disabled={!hasMore || loading}
-        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-transparent bg-green-500 text-white enabled:hover:bg-green-600 disabled:bg-gray-200 disabled:border-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded-lg border border-transparent bg-green-500 text-white enabled:hover:bg-green-600 disabled:bg-gray-200 disabled:border-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
       >
         Next
       </button>
@@ -634,11 +650,9 @@ export default function PapersPage() {
 
   const taskById: Record<string, Task> = (() => {
     const out: Record<string, Task> = { ...bulkTasksById };
+    // Merge preset tasks and current search results so display names resolve.
+    for (const t of presetTasks) out[t.id] = t;
     for (const t of tasks) out[t.id] = t;
-    // also merge cached tasks (if present) so we don't depend on state timing
-    if (tasksCache) {
-      for (const t of tasksCache) out[t.id] = t;
-    }
     return out;
   })();
 
@@ -845,7 +859,7 @@ export default function PapersPage() {
                         <div className="p-2 border-b border-gray-200">
                           <input
                             type="text"
-                            placeholder="Search tasks..."
+                            placeholder="Search tasks…"
                             value={taskSearchQuery}
                             onChange={(e) => setTaskSearchQuery(e.target.value)}
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -864,53 +878,58 @@ export default function PapersPage() {
                           </button>
                         </div>
 
-                        {!taskSearchQuery && (
-                          <div className="p-2 border-b border-gray-200">
-                            <p className="text-xs text-gray-500 mb-2">Quick select:</p>
-                            <div className="flex flex-wrap gap-1">
-                              {PRESET_TASKS.map((taskId) => {
-                                const task = tasks.find(t => t.id === taskId);
-                                if (!task) return null;
-                                const active = selectedTasks.includes(taskId);
-                                return (
-                                  <button
-                                    key={taskId}
-                                    onClick={() => toggleTask(taskId)}
-                                    className={`px-3 py-1 text-xs rounded-full transition ${active ? "bg-green-100 text-green-800" : "bg-green-50 text-green-700 hover:bg-green-100"
-                                      }`}
-                                  >
+                        {!taskSearchQuery.trim() ? (
+                          <div className="p-3">
+                            {presetTasks.length > 0 && (
+                              <>
+                                <p className="text-xs text-gray-500 mb-2">Quick select:</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {presetTasks.map((task) => {
+                                    const active = selectedTasks.includes(task.id);
+                                    return (
+                                      <button
+                                        key={task.id}
+                                        onClick={() => toggleTask(task.id)}
+                                        className={`inline-flex w-fit max-w-[9.5rem] items-start justify-start px-3 py-1 text-xs text-left leading-tight whitespace-normal break-words rounded-full transition ${active ? "bg-green-100 text-green-800" : "bg-green-50 text-green-700 hover:bg-green-100"}`}
+                                      >
+                                        {formatTaskName(task.name)}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            )}
+                            <p className="text-xs text-gray-400 mt-3">Type to search all tasks…</p>
+                          </div>
+                        ) : (
+                          <div className="overflow-y-auto max-h-64">
+                            {tasksLoading && (
+                              <div className="px-3 py-2 text-sm text-gray-400">Searching…</div>
+                            )}
+                            {!tasksLoading && getFilteredTasks().map((task) => {
+                              const checked = selectedTasks.includes(task.id);
+                              return (
+                                <label
+                                  key={task.id}
+                                  className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleTask(task.id)}
+                                    className="h-4 w-4 shrink-0 accent-green-600"
+                                  />
+                                  <span className={checked ? "text-green-700" : "text-gray-800"}>
                                     {formatTaskName(task.name)}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                                  </span>
+                                </label>
+                              );
+                            })}
+                            {!tasksLoading && getFilteredTasks().length === 0 && (
+                              <div className="px-3 py-2 text-sm text-gray-500">No tasks found</div>
+                            )}
                           </div>
                         )}
-
-                        <div className="overflow-y-auto max-h-64">
-                          {getFilteredTasks().map((task) => {
-                            const checked = selectedTasks.includes(task.id);
-                            return (
-                              <label
-                                key={task.id}
-                                className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition cursor-pointer"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() => toggleTask(task.id)}
-                                  className="h-4 w-4 shrink-0 accent-green-600"
-                                />
-                                <span className={`${checked ? "text-green-700" : "text-gray-800"}`}>
-                                  {formatTaskName(task.name)}
-                                </span>
-                              </label>
-                            );
-                          })}
-                          {getFilteredTasks().length === 0 && (
-                            <div className="px-3 py-2 text-sm text-gray-500">No tasks found</div>
-                          )}
-                        </div>
                       </div>
                     )}
                   </div>

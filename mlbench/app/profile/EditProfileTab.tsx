@@ -2,10 +2,7 @@
 
 import { useState } from "react";
 import { useAuth } from "@/lib/authContext";
-import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
-import { updatePassword } from "firebase/auth";
-import { auth } from "@/lib/firebase";
 
 interface UserProfileData {
   uid: string;
@@ -38,12 +35,6 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
   const [bio, setBio] = useState(profileData.bio || "");
   const [jobTitle, setJobTitle] = useState(profileData.job_title || "");
   const [photoUrl, setPhotoUrl] = useState(profileData.photo_url || "");
-
-  // Password fields
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPasswordFields, setShowPasswordFields] = useState(false);
 
   const handleUpdateProfile = async () => {
     if (!user || !profileData) return;
@@ -116,61 +107,6 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
         updateUserProfileOptimistic(optimisticUserProfile);
       }
 
-      // Handle password update (not optimistic - requires server confirmation)
-      if (showPasswordFields && newPassword) {
-        if (newPassword !== confirmPassword) {
-          // Revert optimistic updates
-          setDisplayName(previousDisplayName);
-          setFirstName(previousFirstName);
-          setLastName(previousLastName);
-          setAffiliation(previousAffiliation);
-          setBio(previousBio);
-          setJobTitle(previousJobTitle);
-          setPhotoUrl(previousPhotoUrl);
-          setError("New password and confirmation do not match");
-          setSaving(false);
-          return;
-        }
-        if (newPassword.length < 6) {
-          // Revert optimistic updates
-          setDisplayName(previousDisplayName);
-          setFirstName(previousFirstName);
-          setLastName(previousLastName);
-          setAffiliation(previousAffiliation);
-          setBio(previousBio);
-          setJobTitle(previousJobTitle);
-          setPhotoUrl(previousPhotoUrl);
-          setError("Password must be at least 6 characters");
-          setSaving(false);
-          return;
-        }
-
-        // Update password using Firebase Auth
-        if (auth.currentUser) {
-          try {
-            await updatePassword(auth.currentUser, newPassword);
-            setCurrentPassword("");
-            setNewPassword("");
-            setConfirmPassword("");
-            setShowPasswordFields(false);
-          } catch (passwordError: any) {
-            // Revert optimistic updates
-            setDisplayName(previousDisplayName);
-            setFirstName(previousFirstName);
-            setLastName(previousLastName);
-            setAffiliation(previousAffiliation);
-            setBio(previousBio);
-            setJobTitle(previousJobTitle);
-            setPhotoUrl(previousPhotoUrl);
-            // Firebase Auth requires recent authentication for password changes
-            if (passwordError.code === "auth/requires-recent-login") {
-              throw new Error("Please log out and log back in before changing your password");
-            }
-            throw passwordError;
-          }
-        }
-      }
-
       // Send PATCH request to server
       if (Object.keys(updateData).length > 0) {
         const response = await fetch(`${getBackendBaseUrl()}/users/me`, {
@@ -207,7 +143,7 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
         await refreshUserProfile();
         onProfileUpdate();
         setSuccess("Profile updated successfully!");
-      } else if (!showPasswordFields || !newPassword) {
+      } else {
         setSuccess("No changes to save");
       }
     } catch (err: any) {
@@ -392,79 +328,6 @@ export default function EditProfileTab({ profileData, onProfileUpdate }: EditPro
               <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
             </div>
           </div>
-        </div>
-
-        {/* Password Section */}
-        <div className="border-t border-gray-200 pt-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Password</h3>
-            <button
-              type="button"
-              onClick={() => {
-                setShowPasswordFields(!showPasswordFields);
-                if (showPasswordFields) {
-                  setCurrentPassword("");
-                  setNewPassword("");
-                  setConfirmPassword("");
-                }
-              }}
-              className="text-sm text-green-600 hover:text-green-700 font-medium"
-            >
-              {showPasswordFields ? "Cancel" : "Change Password"}
-            </button>
-          </div>
-
-          {showPasswordFields && (
-            <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Current Password
-                </label>
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  placeholder="Enter current password"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  New Password
-                </label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  placeholder="Enter new password (min. 6 characters)"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Confirm New Password
-                </label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  placeholder="Confirm new password"
-                />
-              </div>
-            </div>
-          )}
-
-          {!showPasswordFields && (
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <input
-                type="password"
-                value="••••••••"
-                disabled
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-500 cursor-not-allowed"
-              />
-            </div>
-          )}
         </div>
       </div>
 

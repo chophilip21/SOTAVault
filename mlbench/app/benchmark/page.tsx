@@ -15,10 +15,8 @@ import { capitalizeSeriesName } from "@/lib/formatName";
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 
-// Cache for tasks data
-let tasksCache: Task[] | null = null;
-let tasksCacheTime: number | null = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+// Small cache for preset task objects (resolved once via bulk endpoint).
+let presetTasksCache: Task[] | null = null;
 
 // Persist Benchmark tab state so navigating to a dataset and back doesn't reset filters/page.
 const BENCHMARK_STATE_KEY = "mlbench:benchmark_state:v3";
@@ -38,10 +36,16 @@ function hasMeaningfulBenchmarkState(s: any): boolean {
 }
 
 const PRESET_TASKS = [
+  "image-classification",
+  "object-detection",
   "face-detection",
-  "learning-theory",
+  "natural-language-understanding",
+  "text-classification",
+  "question-answering",
+  "machine-translation",
+  "speech-recognition",
   "3d-action-recognition",
-  "quantization"
+  "quantization",
 ];
 
 const DOMAIN_ICONS: Record<string, string> = {
@@ -155,14 +159,17 @@ export default function BenchmarkPage() {
   const [appliedDomain, setAppliedDomain] = useState("");
   const [appliedTask, setAppliedTask] = useState("");
 
+  // tasks = current search results shown in the dropdown
   const [tasks, setTasks] = useState<Task[]>([]);
+  // presetTasks = small fixed quick-select set, loaded once via bulk
+  const [presetTasks, setPresetTasks] = useState<Task[]>([]);
   const [bulkTasksById, setBulkTasksById] = useState<Record<string, Task>>({});
   const [tasksLoading, setTasksLoading] = useState(false);
   const requestedTaskIdsRef = useRef<Set<string>>(new Set());
   const missingTaskIdsRef = useRef<Set<string>>(new Set());
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
-
+  const taskSearchDebounceRef = useRef<number | null>(null);
 
   const taskDropdownRef = useRef<HTMLDivElement>(null);
   const restoredRef = useRef(false);
@@ -215,34 +222,52 @@ export default function BenchmarkPage() {
     }
   };
 
-  const fetchTasks = async () => {
-    // Check cache first
-    const now = Date.now();
-    if (tasksCache && tasksCacheTime && (now - tasksCacheTime) < CACHE_DURATION) {
-      setTasks(tasksCache);
+  /** Load the small set of preset quick-select tasks once via the bulk endpoint. */
+  const fetchPresetTasks = async () => {
+    if (presetTasksCache) {
+      setPresetTasks(presetTasksCache);
+      return;
+    }
+    try {
+      const url = new URL(`${getBackendBaseUrl()}/tasks/bulk`);
+      PRESET_TASKS.forEach((id) => url.searchParams.append("ids", id));
+      const res = await fetch(url.toString());
+      if (!res.ok) return;
+      const data: TasksResponse = await res.json();
+      presetTasksCache = data.items || [];
+      setPresetTasks(presetTasksCache);
+    } catch {
+      // non-critical
+    }
+  };
+
+  /** Debounced Meilisearch task search used by the task filter dropdown. */
+  const searchTasks = (q: string) => {
+    if (taskSearchDebounceRef.current) window.clearTimeout(taskSearchDebounceRef.current);
+
+    const trimmed = q.trim();
+    if (trimmed.length < 2) {
+      setTasks([]);
+      setTasksLoading(false);
       return;
     }
 
     setTasksLoading(true);
-    try {
-      const url = new URL(`${getBackendBaseUrl()}/tasks/`);
-      url.searchParams.set("limit", "100");
-
-      const res = await fetch(url.toString());
-      if (!res.ok) throw new Error("Failed to load tasks");
-      const data: TasksResponse = await res.json();
-
-      const taskList = data.items || [];
-      setTasks(taskList);
-
-      // Update cache
-      tasksCache = taskList;
-      tasksCacheTime = Date.now();
-    } catch (err: any) {
-      console.error("Failed to load tasks:", err);
-    } finally {
-      setTasksLoading(false);
-    }
+    taskSearchDebounceRef.current = window.setTimeout(async () => {
+      try {
+        const url = new URL(`${getBackendBaseUrl()}/search/tasks_meili`);
+        url.searchParams.set("q", trimmed);
+        url.searchParams.set("limit", "50");
+        const res = await fetch(url.toString());
+        if (!res.ok) throw new Error("tasks search failed");
+        const data: { query: string; hits: Array<{ id: string; name: string }> } = await res.json();
+        setTasks((data.hits || []).map((h) => ({ id: h.id, name: h.name, slug: h.id })));
+      } catch {
+        setTasks([]);
+      } finally {
+        setTasksLoading(false);
+      }
+    }, 300);
   };
 
   const fetchTasksBulk = async (taskIds: string[]) => {
@@ -251,7 +276,7 @@ export default function BenchmarkPage() {
 
     const localKnown = new Set<string>();
     for (const t of tasks) localKnown.add(t.id);
-    if (tasksCache) for (const t of tasksCache) localKnown.add(t.id);
+    for (const t of presetTasks) localKnown.add(t.id);
     for (const id of Object.keys(bulkTasksById)) localKnown.add(id);
 
     const missing = unique.filter((id) => !localKnown.has(id) && !requestedTaskIdsRef.current.has(id));
@@ -326,8 +351,7 @@ export default function BenchmarkPage() {
 
 
 
-          // Still load the task list for the dropdown (cached client-side).
-          fetchTasks();
+          fetchPresetTasks();
           return;
         }
       }
@@ -336,10 +360,19 @@ export default function BenchmarkPage() {
     }
 
     fetchPage(null);
-    fetchTasks();
+    fetchPresetTasks();
     setPrevCursors([null]);
     setCurrentCursor(null);
   }, []);
+
+  // Drive the task dropdown search from taskSearchQuery changes.
+  useEffect(() => {
+    searchTasks(taskSearchQuery);
+    return () => {
+      if (taskSearchDebounceRef.current) window.clearTimeout(taskSearchDebounceRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskSearchQuery]);
 
   // Persist state for Back/forward nav. Keep it conservative: only store what we need to restore UX.
   useEffect(() => {
@@ -517,27 +550,18 @@ export default function BenchmarkPage() {
 
   const getSelectedTaskName = () => {
     if (!selectedTask) return "All Tasks";
-    const task = tasks.find(t => t.id === selectedTask);
+    // Look in all known task sources
+    const task =
+      bulkTasksById[selectedTask] ||
+      presetTasks.find((t) => t.id === selectedTask) ||
+      tasks.find((t) => t.id === selectedTask);
     return task ? formatTaskName(task.name) : "All Tasks";
   };
 
-  const getFilteredTasks = () => {
-    if (!taskSearchQuery.trim()) {
-      // Show preset tasks at the top, then alphabetically sorted others
-      const presetTaskObjects = tasks.filter(t => PRESET_TASKS.includes(t.id));
-      const otherTasks = tasks
-        .filter(t => !PRESET_TASKS.includes(t.id))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      return [...presetTaskObjects, ...otherTasks];
-    }
-
-    const query = taskSearchQuery.toLowerCase();
-    return tasks
-      .filter(task =>
-        task.name.toLowerCase().replace(/-/g, " ").includes(query) ||
-        task.id.toLowerCase().includes(query)
-      )
-      .sort((a, b) => a.name.localeCompare(b.name));
+  /** Tasks shown in the scrollable list of the dropdown. */
+  const getFilteredTasks = (): Task[] => {
+    if (!taskSearchQuery.trim()) return [];
+    return tasks; // already sorted by slug from the backend
   };
 
   const handleNext = () => {
@@ -570,12 +594,12 @@ export default function BenchmarkPage() {
       <button
         onClick={handlePrev}
         disabled={prevCursors.length <= 1 || loading}
-        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-gray-200 bg-white text-gray-700 enabled:hover:bg-gray-50 enabled:hover:border-gray-300 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 disabled:cursor-not-allowed"
+        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded-lg border border-gray-200 bg-white text-gray-700 enabled:hover:bg-gray-50 enabled:hover:border-gray-300 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 disabled:cursor-not-allowed"
       >
         Previous
       </button>
       <div
-        className="inline-flex items-center justify-center w-9 h-9 rounded bg-cyan-500/80 text-white font-serif font-thin select-none"
+        className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-cyan-500/80 text-white font-serif font-thin select-none"
         aria-label={`Current page ${currentPage}`}
         title={`Page ${currentPage}`}
         role="status"
@@ -585,7 +609,7 @@ export default function BenchmarkPage() {
       <button
         onClick={handleNext}
         disabled={!hasMore || loading}
-        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded border border-transparent bg-green-500 text-white enabled:hover:bg-green-600 disabled:bg-gray-200 disabled:border-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+        className="inline-flex h-9 items-center justify-center px-4 text-sm font-medium leading-none rounded-lg border border-transparent bg-green-500 text-white enabled:hover:bg-green-600 disabled:bg-gray-200 disabled:border-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
       >
         Next
       </button>
@@ -628,11 +652,8 @@ export default function BenchmarkPage() {
 
   const taskById: Record<string, Task> = (() => {
     const out: Record<string, Task> = { ...bulkTasksById };
+    for (const t of presetTasks) out[t.id] = t;
     for (const t of tasks) out[t.id] = t;
-    // also merge cached tasks (if present) so we don't depend on state timing
-    if (tasksCache) {
-      for (const t of tasksCache) out[t.id] = t;
-    }
     return out;
   })();
 
@@ -781,7 +802,7 @@ export default function BenchmarkPage() {
                         <div className="p-2 border-b border-gray-200">
                           <input
                             type="text"
-                            placeholder="Search tasks..."
+                            placeholder="Search tasks…"
                             value={taskSearchQuery}
                             onChange={(e) => setTaskSearchQuery(e.target.value)}
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -789,48 +810,57 @@ export default function BenchmarkPage() {
                           />
                         </div>
 
-                        {!taskSearchQuery && (
-                          <div className="p-2 border-b border-gray-200">
-                            <p className="text-xs text-gray-500 mb-2">Quick select:</p>
-                            <div className="flex flex-wrap gap-1">
-                              {PRESET_TASKS.map((taskId) => {
-                                const task = tasks.find(t => t.id === taskId);
-                                if (!task) return null;
-                                return (
-                                  <button
-                                    key={taskId}
-                                    onClick={() => handleTaskSelect(taskId)}
-                                    className="px-3 py-1 text-xs bg-green-50 text-green-700 rounded-full hover:bg-green-100 transition"
-                                  >
-                                    {formatTaskName(task.name)}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                        {!taskSearchQuery.trim() ? (
+                          <div className="p-3">
+                            <button
+                              onClick={() => handleTaskSelect("")}
+                              className="w-full px-3 py-2 mb-1 text-sm text-left rounded hover:bg-gray-50 transition"
+                            >
+                              All Tasks
+                            </button>
+                            {presetTasks.length > 0 && (
+                              <>
+                                <p className="text-xs text-gray-500 mb-2">Quick select:</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {presetTasks.map((task) => (
+                                    <button
+                                      key={task.id}
+                                      onClick={() => handleTaskSelect(task.id)}
+                                      className="inline-flex w-fit max-w-[9.5rem] items-start justify-start px-3 py-1 text-xs text-left leading-tight whitespace-normal break-words bg-green-50 text-green-700 rounded-full hover:bg-green-100 transition"
+                                    >
+                                      {formatTaskName(task.name)}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                            <p className="text-xs text-gray-400 mt-3">Type to search all tasks…</p>
+                          </div>
+                        ) : (
+                          <div className="overflow-y-auto max-h-64">
+                            <button
+                              onClick={() => handleTaskSelect("")}
+                              className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 transition"
+                            >
+                              All Tasks
+                            </button>
+                            {tasksLoading && (
+                              <div className="px-3 py-2 text-sm text-gray-400">Searching…</div>
+                            )}
+                            {!tasksLoading && getFilteredTasks().map((task) => (
+                              <button
+                                key={task.id}
+                                onClick={() => handleTaskSelect(task.id)}
+                                className={`w-full px-3 py-2 text-sm text-left whitespace-normal break-words hover:bg-gray-50 transition ${selectedTask === task.id ? "bg-green-50 text-green-700" : ""}`}
+                              >
+                                {formatTaskName(task.name)}
+                              </button>
+                            ))}
+                            {!tasksLoading && getFilteredTasks().length === 0 && (
+                              <div className="px-3 py-2 text-sm text-gray-500">No tasks found</div>
+                            )}
                           </div>
                         )}
-
-                        <div className="overflow-y-auto max-h-64">
-                          <button
-                            onClick={() => handleTaskSelect("")}
-                            className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 transition"
-                          >
-                            All Tasks
-                          </button>
-                          {getFilteredTasks().map((task) => (
-                            <button
-                              key={task.id}
-                              onClick={() => handleTaskSelect(task.id)}
-                              className={`w-full px-3 py-2 text-sm text-left hover:bg-gray-50 transition ${selectedTask === task.id ? 'bg-green-50 text-green-700' : ''
-                                }`}
-                            >
-                              {formatTaskName(task.name)}
-                            </button>
-                          ))}
-                          {getFilteredTasks().length === 0 && (
-                            <div className="px-3 py-2 text-sm text-gray-500">No tasks found</div>
-                          )}
-                        </div>
                       </div>
                     )}
                   </div>

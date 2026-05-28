@@ -1,12 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   deleteUser,
   GoogleAuthProvider,
   signInWithPopup,
   getAdditionalUserInfo,
-  sendEmailVerification,
   signOut,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -205,25 +202,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   };
 
   // Validation Helpers
-  const validateStage1 = (): string | null => {
-    if (!email.trim()) return "Email is required";
-    if (!password) return "Password is required";
-    if (password.length < 6) return "Password must be at least 6 characters";
-    if (password !== confirmPassword) return "Passwords do not match";
-    return null;
-  };
-
-  const handleStage1Next = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    const err = validateStage1();
-    if (err) {
-      setError(err);
-      return;
-    }
-    setSignupStage(2);
-  };
-
   const validateStage2 = (): string | null => {
     if (!firstName.trim()) return "First name is required";
     if (!lastName.trim()) return "Last name is required";
@@ -338,43 +316,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     }
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-
-    const turnstileError = requireTurnstileForLogin();
-    if (turnstileError) {
-      setError(turnstileError);
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      await verifyTurnstileWithBackend(turnstileToken);
-
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-
-      if (!userCredential.user.emailVerified) {
-        await signOut(auth);
-        throw new Error("Please verify your email address before logging in. Check your inbox.");
-      }
-
-      await refreshUserProfile();
-      onClose();
-      setEmail("");
-      setPassword("");
-    } catch (loginError: any) {
-      if (loginError.message === "Please verify your email address before logging in. Check your inbox.") {
-        setError(loginError.message);
-      } else {
-        setError(getUserFriendlyAuthError(loginError, "login"));
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // --- Signup Logic ---
 
   const handleSignupSubmit = async (e: React.FormEvent) => {
@@ -388,16 +329,11 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     }
 
     setLoading(true);
-    let firebaseUser: any = googleUser;
+    const firebaseUser: any = googleUser;
+    if (!firebaseUser) return; // should never happen (Google-only signup)
 
     try {
-      // 1. Create Firebase Auth user
-      if (!firebaseUser) {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        firebaseUser = userCredential.user;
-      }
-
-      // 2. Get token
+      // 1. Get token
       const token = await firebaseUser.getIdToken();
 
       // 3. Prepare data
@@ -427,29 +363,14 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         throw new Error(errorData.message || "Registration failed");
       }
 
-      // 5. Success Handling
-      if (!googleUser) {
-        await sendEmailVerification(firebaseUser);
-        await signOut(auth);
-        alert("Account created! We've sent you a verification email. Please verify your email before logging in.");
-        setIsLogin(true);
-      } else {
-        await refreshUserProfile();
-        alert("Account created successfully!");
-        onClose();
-      }
+      // 5. Success Handling (Google-only path)
+      await refreshUserProfile();
+      alert("Account created successfully!");
+      onClose();
 
       resetSignupState();
 
     } catch (error: any) {
-      if (firebaseUser && !googleUser) {
-        try {
-          await deleteUser(firebaseUser);
-          console.log("Cleaned up Firebase after failure");
-        } catch (cleanupError) {
-          console.error("Cleanup failed:", cleanupError);
-        }
-      }
       setError(getUserFriendlyRegistrationError(error, !!firebaseUser));
     } finally {
       setLoading(false);
@@ -489,7 +410,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
             {isLogin
               ? "Login to access your workspace."
               : signupStage === 1
-                ? "Start with your email or use Google."
+                ? "Sign up with Google to get started."
                 : signupStage === 2
                   ? `Tell us about ${firstName || "yourself"}.`
                   : "Final step: Review and consent."}
@@ -523,47 +444,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               <span>Continue with Google</span>
             </button>
 
-            <div className="relative mb-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">Or continue with email</span>
-              </div>
-            </div>
-
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="your@email.com"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="••••••••"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading || !isTurnstileSolved}
-                className="w-full py-2 px-4 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50"
-              >
-                {loading ? "Please wait..." : "Login"}
-              </button>
-            </form>
           </>
         ) : (
           /* SIGNUP FLOW */
@@ -591,62 +471,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   <span>Sign up with Google</span>
                 </button>
 
-                <div className="relative mb-6">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-300"></div>
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-2 bg-white text-gray-500">Or sign up with email</span>
-                  </div>
-                </div>
-
-                <form onSubmit={handleStage1Next} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Email <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                      placeholder="your@email.com"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Password <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                      placeholder="••••••••"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Confirm Password <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                      placeholder="••••••••"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full py-2 px-4 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600"
-                  >
-                    Next: Profile
-                  </button>
-                </form>
               </>
             )}
 
