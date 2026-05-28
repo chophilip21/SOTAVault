@@ -298,16 +298,39 @@ export default function Home() {
         const seriesData: DatasetSeriesListResponse = await seriesRes.json();
         setPopularDatasetSeries((seriesData.items || []).slice(0, 3));
 
-        // Fetch upcoming conferences
+        // Fetch upcoming conferences and their series metadata
         const venuesUrl = new URL(`${getBackendBaseUrl()}/venues/`);
         venuesUrl.searchParams.set("limit", "500");
         venuesUrl.searchParams.set("min_date", toISODate(new Date())); // Only upcoming conferences
 
-        const venuesRes = await fetch(venuesUrl.toString());
+        const conferenceSeriesUrl = `${getBackendBaseUrl()}/venues/series`;
+        const [venuesRes, confSeriesRes] = await Promise.all([
+          fetch(venuesUrl.toString()),
+          fetch(conferenceSeriesUrl, { cache: process.env.NODE_ENV === "development" ? "reload" : "force-cache" })
+        ]);
+
         if (!venuesRes.ok) throw new Error("Failed to load venues");
         const venuesData: VenuesResponse = await venuesRes.json();
 
-        setUpcomingVenues(venuesData.items || []);
+        let seriesMap: Record<string, any> = {};
+        if (confSeriesRes.ok) {
+          const seriesData = await confSeriesRes.json();
+          for (const s of seriesData.items || []) {
+            seriesMap[s.id] = s;
+          }
+        }
+
+        const venuesWithNames = (venuesData.items || []).map((v: any) => {
+          const series = seriesMap[v.series_id];
+          return {
+            ...v,
+            name: series?.name || v.series_id || "",
+            short_name: series?.name || "",
+            acronym: series?.name || "",
+          };
+        });
+
+        setUpcomingVenues(venuesWithNames);
       } catch (err: any) {
         setError(err.message || "Failed to load data");
       } finally {
