@@ -525,6 +525,30 @@ export default function BenchmarkPage() {
     };
   }, [searchQuery]);
 
+  const resetMobileZoom = () => {
+    const viewportMeta = document.querySelector('meta[name="viewport"]');
+    if (viewportMeta) {
+      const originalContent = viewportMeta.getAttribute("content");
+      viewportMeta.setAttribute(
+        "content",
+        "width=device-width, initial-scale=1, maximum-scale=1"
+      );
+      setTimeout(() => {
+        if (originalContent) {
+          viewportMeta.setAttribute("content", originalContent);
+        } else {
+          viewportMeta.setAttribute("content", "width=device-width, initial-scale=1");
+        }
+      }, 300);
+    }
+  };
+
+  useEffect(() => {
+    if (!taskSearchOpen) {
+      resetMobileZoom();
+    }
+  }, [taskSearchOpen]);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -772,6 +796,7 @@ export default function BenchmarkPage() {
                     placeholder="Search benchmarks..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onBlur={resetMobileZoom}
                     className={`w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors max-md:py-2.5 max-md:text-base ${searchQuery.trim().length > 0 ? "bg-white" : "bg-gray-100"
                       }`}
                   />
@@ -840,6 +865,7 @@ export default function BenchmarkPage() {
                             placeholder="Search tasks…"
                             value={taskSearchQuery}
                             onChange={(e) => setTaskSearchQuery(e.target.value)}
+                            onBlur={resetMobileZoom}
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
                             autoFocus
                           />
