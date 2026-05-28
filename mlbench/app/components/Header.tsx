@@ -67,7 +67,32 @@ export default function Header() {
     return () => mq.removeEventListener("change", updatePlaceholder);
   }, []);
 
+  const resetMobileZoom = () => {
+    const viewportMeta = document.querySelector('meta[name="viewport"]');
+    if (viewportMeta) {
+      const originalContent = viewportMeta.getAttribute("content");
+      viewportMeta.setAttribute(
+        "content",
+        "width=device-width, initial-scale=1, maximum-scale=1"
+      );
+      setTimeout(() => {
+        if (originalContent) {
+          viewportMeta.setAttribute("content", originalContent);
+        } else {
+          viewportMeta.setAttribute("content", "width=device-width, initial-scale=1");
+        }
+      }, 300);
+    }
+  };
+
   const submitSearch = () => {
+    if (!user) {
+      setIsAuthModalOpen(true);
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      return;
+    }
     const q = query.trim();
     if (!q) return;
     setSuggestionsOpen(false);
@@ -78,6 +103,13 @@ export default function Header() {
     // preventDefault keeps focus on the input, preventing the onFocus handler
     // from re-opening the dropdown mid-navigation. Works for mouse AND touch.
     e.preventDefault();
+    if (!user) {
+      setIsAuthModalOpen(true);
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      return;
+    }
     setSuggestionsOpen(false);
     setQuery("");
     if (h.type === "paper") router.push(`/papers/${h.id}`);
@@ -201,9 +233,13 @@ export default function Header() {
                     onFocus={() => {
                       if ((query.trim().length >= MIN_CHARS) && suggestions) setSuggestionsOpen(true);
                     }}
+                    onBlur={resetMobileZoom}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") submitSearch();
-                      if (e.key === "Escape") setSuggestionsOpen(false);
+                      if (e.key === "Escape") {
+                        setSuggestionsOpen(false);
+                        e.currentTarget.blur();
+                      }
                     }}
                     className={`w-full px-3 sm:px-4 py-1.5 sm:py-2 pr-4 text-sm border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors max-md:pl-10 max-md:pr-10 max-md:text-center max-md:placeholder:text-center md:pl-10 ${query.trim().length > 0 ? "bg-white" : "bg-gray-100"
                       }`}
