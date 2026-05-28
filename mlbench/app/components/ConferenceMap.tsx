@@ -35,7 +35,8 @@ const ConferenceMap = ({ markers }: ConferenceMapProps) => {
   ];
 
   return (
-    <div className="w-full h-[400px] rounded-xl overflow-hidden relative z-0">
+    <div className="w-full bg-gray-50 p-3 sm:p-4">
+      <div className="h-[400px] w-full rounded-lg overflow-hidden border-4 border-white shadow-sm ring-1 ring-gray-200 relative z-0">
       <MapContainer
         center={[20, 0]}
         zoom={2}
@@ -112,6 +113,7 @@ const ConferenceMap = ({ markers }: ConferenceMapProps) => {
           );
         })}
       </MapContainer>
+      </div>
     </div>
   );
 };

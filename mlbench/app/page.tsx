@@ -499,7 +499,7 @@ export default function Home() {
           </div>
         )}
 
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
+        <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
           {conferenceMarkers.length > 0 ? (
             <ConferenceMap markers={conferenceMarkers} />
           ) : (
@@ -509,7 +509,7 @@ export default function Home() {
           )}
 
           {conferenceMarkers.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-2 text-sm text-gray-600">
+            <div className="px-4 pb-4 flex flex-wrap gap-2 text-sm text-gray-600">
 
               {conferenceMarkers.slice(0, 10).map((marker) => (
                 <span key={marker.name} className="px-2 py-1 bg-gray-100 rounded">

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useSidebar } from "./LayoutContent";
 import { useAuth } from "@/lib/authContext";
 
@@ -88,21 +88,9 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
   const pathname = usePathname();
   const { isSidebarOpen, setIsSidebarOpen } = useSidebar();
   const { user } = useAuth();
-  const [isMobile, setIsMobile] = useState(
-    typeof window !== "undefined" ? window.innerWidth < 768 : false
-  );
 
   const isOpen = isSidebarOpen;
   const onClose = () => setIsSidebarOpen(false);
-
-  // Track mobile/desktop to position the toggle button safely
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
 
   // Prevent body scroll when sidebar is open on mobile
   useEffect(() => {
@@ -155,22 +143,20 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
       {/* Overlay - Only on mobile, behind sidebar but above content */}
       {isOpen && (
         <div
-          className="fixed inset-x-0 top-20 bottom-0 bg-black bg-opacity-50 z-[35] transition-opacity duration-300 md:hidden"
+          className="fixed inset-x-0 top-16 md:top-20 bottom-0 bg-black bg-opacity-50 z-[35] transition-opacity duration-300 md:hidden"
           onClick={onClose}
         />
       )}
 
-      {/* Toggle Button - Always visible at the edge, positioned based on sidebar state */}
+      {/* Desktop-only edge toggle; mobile uses the header hamburger */}
       <button
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className={`fixed z-[45] border-2 rounded-full p-2.5 transition-all duration-300 ease-in-out top-1/2 -translate-y-1/2 flex ${isOpen
+        className={`hidden md:flex fixed z-[45] border-2 rounded-full p-2.5 transition-all duration-300 ease-in-out top-1/2 -translate-y-1/2 ${isOpen
           ? 'bg-white border-gray-300 shadow-md hover:bg-gray-50'
           : 'bg-green-500 border-green-600 shadow-lg shadow-green-500/50 hover:bg-green-600 hover:shadow-xl hover:shadow-green-600/60 hover:scale-110'
           }`}
         style={{
-          left: isOpen
-            ? (isMobile ? '0.75rem' : 'calc(16rem - 0.75rem)')
-            : '0.75rem'
+          left: isOpen ? 'calc(16rem - 0.75rem)' : '0.75rem',
         }}
         aria-label="Toggle navigation menu"
       >
@@ -194,7 +180,7 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
 
       {/* Sidebar */}
       <aside
-        className="fixed left-0 top-20 h-[calc(100vh-5rem)] w-screen md:w-64 bg-gray-50 border-r border-gray-200 z-[40] transform transition-transform duration-300 ease-in-out flex flex-col"
+        className="fixed left-0 top-16 md:top-20 h-[calc(100vh-4rem)] md:h-[calc(100vh-5rem)] w-screen md:w-64 bg-gray-50 border-r border-gray-200 z-[40] transform transition-transform duration-300 ease-in-out flex flex-col"
         style={{ transform: isOpen ? 'translateX(0)' : 'translateX(-100%)' }}
       >
         <div className="flex flex-col h-full min-h-0">
