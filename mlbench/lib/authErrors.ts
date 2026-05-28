@@ -62,6 +62,10 @@ export function getUserFriendlyAuthError(error: any, context: "signup" | "login"
       : "This email is already registered. Please sign in instead.";
   }
 
+  if (code.includes("account-exists-with-different-credential") || sanitizedMessage.toLowerCase().includes("account-exists-with-different-credential")) {
+    return "An account already exists with this email address under a different sign-in method (such as Google). Please sign in using your original method.";
+  }
+
   if (code.includes("popup-closed-by-user") || code.includes("cancelled-popup-request")) {
     return "Sign in was cancelled.";
   }
