@@ -74,9 +74,9 @@ export default function Header() {
     router.push(`/search?q=${encodeURIComponent(q)}`);
   };
 
-  const navigateHit = (e: React.MouseEvent, h: FuzzyHit) => {
-    // Prevent the input from losing focus (which would trigger onFocus and
-    // re-open the dropdown mid-navigation, making the click appear to do nothing).
+  const navigateHit = (e: React.PointerEvent, h: FuzzyHit) => {
+    // preventDefault keeps focus on the input, preventing the onFocus handler
+    // from re-opening the dropdown mid-navigation. Works for mouse AND touch.
     e.preventDefault();
     setSuggestionsOpen(false);
     setQuery("");
@@ -210,7 +210,7 @@ export default function Header() {
                   />
                   <button
                     type="button"
-                    onMouseDown={(e) => { e.preventDefault(); submitSearch(); }}
+                    onPointerDown={(e) => { e.preventDefault(); submitSearch(); }}
                     className="hidden md:block absolute top-1/2 -translate-y-1/2 left-3 p-0.5 rounded-full text-gray-400 hover:text-gray-600"
                     aria-label="Search"
                   >
@@ -251,7 +251,7 @@ export default function Header() {
                                 <button
                                   key={`p-${h.id}`}
                                   className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
-                                  onMouseDown={(e) => navigateHit(e, h)}
+                                  onPointerDown={(e) => navigateHit(e, h)}
                                 >
                                   {cleanPaperTitle((h as any).title) || h.id}
                                 </button>
@@ -266,7 +266,7 @@ export default function Header() {
                                 <button
                                   key={`d-${h.id}`}
                                   className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
-                                  onMouseDown={(e) => navigateHit(e, h)}
+                                  onPointerDown={(e) => navigateHit(e, h)}
                                 >
                                   {(h as any).name || h.id}
                                 </button>
@@ -281,7 +281,7 @@ export default function Header() {
                                 <button
                                   key={`v-${h.id}`}
                                   className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
-                                  onMouseDown={(e) => navigateHit(e, h)}
+                                  onPointerDown={(e) => navigateHit(e, h)}
                                 >
                                   {h.id}
                                 </button>
@@ -294,7 +294,7 @@ export default function Header() {
                       <div className="border-t border-gray-200">
                         <button
                           className="w-full text-left px-4 py-3 text-sm font-medium text-green-700 hover:bg-green-50"
-                          onMouseDown={(e) => { e.preventDefault(); submitSearch(); }}
+                          onPointerDown={(e) => { e.preventDefault(); submitSearch(); }}
                         >
                           Search for “{query.trim()}”
                         </button>
