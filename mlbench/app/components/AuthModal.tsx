@@ -6,6 +6,7 @@ import {
   signInWithPopup,
   getAdditionalUserInfo,
   signOut,
+  linkWithCredential,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
@@ -46,6 +47,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   // Track if the current google user was newly created in Firebase during this session
   // We use this to decide whether to DELETE them or just SIGN OUT when aborting signup.
   const [isNewGoogleUser, setIsNewGoogleUser] = useState(false);
+  const [pendingCredential, setPendingCredential] = useState<any>(null);
 
   // Stage 1 (Credentials) fields
   const [email, setEmail] = useState("");
@@ -109,6 +111,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     setSignupStage(1);
     setGoogleUser(null);
     setIsNewGoogleUser(false);
+    setPendingCredential(null);
     setFirstName("");
     setLastName("");
     setAffiliation("");
@@ -266,6 +269,16 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       const userCredential = await signInWithPopup(auth, provider);
       const user = userCredential.user;
 
+      if (pendingCredential) {
+        try {
+          await linkWithCredential(user, pendingCredential);
+          alert("Successfully linked your GitHub and Google accounts! You can now log in using either method.");
+        } catch (linkErr) {
+          console.error("Failed to link credential:", linkErr);
+        }
+        setPendingCredential(null);
+      }
+
       // Verify Turnstile now (no longer on the user-gesture hot path).
       if (isLogin) {
         if (!turnstileToken || !isTurnstileSolved) {
@@ -321,6 +334,18 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       ) {
         setLoading(false);
         return;
+      }
+      if (loginError.code === "auth/account-exists-with-different-credential") {
+        const pendingCred = loginError.credential;
+        if (pendingCred) {
+          setPendingCredential(pendingCred);
+          setError(
+            "This email is already associated with another login provider (e.g. Google). " +
+            "Please sign in with that provider now to link your accounts."
+          );
+          setLoading(false);
+          return;
+        }
       }
       const expectedCodes = [
         "auth/account-exists-with-different-credential",

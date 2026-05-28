@@ -264,12 +264,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     try {
       clearCachedProfile();
+      try {
+        sessionStorage.clear();
+      } catch (e) {
+        console.warn("Failed to clear sessionStorage on logout:", e);
+      }
       await signOut(auth);
       // State will be updated by onAuthStateChanged listener
     } catch (error) {
       console.error("Logout error:", error);
       // Clear cache even if signOut fails
       clearCachedProfile();
+      try {
+        sessionStorage.clear();
+      } catch (e) {
+        console.warn("Failed to clear sessionStorage on logout:", e);
+      }
       setUser(null);
       setUserProfile(null);
       throw error;

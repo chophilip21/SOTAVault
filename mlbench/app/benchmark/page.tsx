@@ -352,7 +352,22 @@ export default function BenchmarkPage() {
 
 
           fetchPresetTasks();
-          return;
+          return () => {
+            // When unmounting, check if we are navigating away from benchmark/datasets-related routes.
+            // If we are, clear the cached page/filters.
+            const nextPath = window.location.pathname;
+            const isBenchmarkRoute =
+              nextPath.startsWith("/benchmark") ||
+              nextPath.startsWith("/dataset-series") ||
+              nextPath.startsWith("/datasets");
+            if (!isBenchmarkRoute) {
+              try {
+                sessionStorage.removeItem(BENCHMARK_STATE_KEY);
+              } catch {
+                // ignore
+              }
+            }
+          };
         }
       }
     } catch {
@@ -363,6 +378,23 @@ export default function BenchmarkPage() {
     fetchPresetTasks();
     setPrevCursors([null]);
     setCurrentCursor(null);
+
+    return () => {
+      // When unmounting, check if we are navigating away from benchmark/datasets-related routes.
+      // If we are, clear the cached page/filters.
+      const nextPath = window.location.pathname;
+      const isBenchmarkRoute =
+        nextPath.startsWith("/benchmark") ||
+        nextPath.startsWith("/dataset-series") ||
+        nextPath.startsWith("/datasets");
+      if (!isBenchmarkRoute) {
+        try {
+          sessionStorage.removeItem(BENCHMARK_STATE_KEY);
+        } catch {
+          // ignore
+        }
+      }
+    };
   }, []);
 
   // Drive the task dropdown search from taskSearchQuery changes.
