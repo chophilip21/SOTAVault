@@ -473,7 +473,11 @@ export default function PapersPage() {
   const getSelectedTaskName = () => {
     if (selectedTasks.length === 0) return "All Tasks";
     if (selectedTasks.length === 1) {
-      const task = tasks.find((t) => t.id === selectedTasks[0]);
+      const taskId = selectedTasks[0];
+      const task =
+        bulkTasksById[taskId] ||
+        presetTasks.find((t) => t.id === taskId) ||
+        tasks.find((t) => t.id === taskId);
       return task ? formatTaskName(task.name) : "1 task";
     }
     return `${selectedTasks.length} tasks`;
@@ -642,11 +646,12 @@ export default function PapersPage() {
     return ids;
   }, [filteredPapers]);
 
-  // Best-effort: fetch task names for tasks referenced by the currently displayed papers.
+  // Best-effort: fetch task names for tasks referenced by the currently displayed papers, selected, and applied tasks.
   useEffect(() => {
-    fetchTasksBulk(taskIdsForPapers);
+    const ids = Array.from(new Set([...taskIdsForPapers, ...selectedTasks, ...appliedTasks]));
+    fetchTasksBulk(ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskIdsForPapers]);
+  }, [taskIdsForPapers, selectedTasks, appliedTasks]);
 
   const taskById: Record<string, Task> = (() => {
     const out: Record<string, Task> = { ...bulkTasksById };
@@ -880,6 +885,34 @@ export default function PapersPage() {
 
                         {!taskSearchQuery.trim() ? (
                           <div className="p-3">
+                            {/* Selected Tasks section */}
+                            {selectedTasks.length > 0 && (
+                              <div className="mb-3 pb-3 border-b border-gray-100">
+                                <p className="text-xs font-semibold text-gray-500 mb-2">Selected Tasks:</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {selectedTasks.map((taskId) => {
+                                    const task =
+                                      bulkTasksById[taskId] ||
+                                      presetTasks.find((t) => t.id === taskId) ||
+                                      tasks.find((t) => t.id === taskId) ||
+                                      { id: taskId, name: taskId };
+                                    return (
+                                      <button
+                                        key={taskId}
+                                        onClick={() => toggleTask(taskId)}
+                                        className="inline-flex w-fit max-w-[9.5rem] items-center justify-between gap-1.5 px-2.5 py-1 text-xs text-left leading-tight whitespace-normal break-words rounded-full bg-green-100 text-green-800 hover:bg-green-200 transition"
+                                      >
+                                        <span className="truncate">{formatTaskName(task.name)}</span>
+                                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
                             {presetTasks.length > 0 && (
                               <>
                                 <p className="text-xs text-gray-500 mb-2">Quick select:</p>

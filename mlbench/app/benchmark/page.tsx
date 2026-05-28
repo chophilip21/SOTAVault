@@ -555,7 +555,7 @@ export default function BenchmarkPage() {
       bulkTasksById[selectedTask] ||
       presetTasks.find((t) => t.id === selectedTask) ||
       tasks.find((t) => t.id === selectedTask);
-    return task ? formatTaskName(task.name) : "All Tasks";
+    return task ? formatTaskName(task.name) : formatTaskName(selectedTask);
   };
 
   /** Tasks shown in the scrollable list of the dropdown. */
@@ -644,11 +644,14 @@ export default function BenchmarkPage() {
     return ids;
   }, [filteredBenchmarks]);
 
-  // Best-effort: fetch task names for tasks referenced by the currently displayed benchmarks.
+  // Best-effort: fetch task names for tasks referenced by the currently displayed benchmarks, selected, and applied tasks.
   useEffect(() => {
-    fetchTasksBulk(taskIdsForBenchmarks);
+    const ids = [...taskIdsForBenchmarks];
+    if (selectedTask) ids.push(selectedTask);
+    if (appliedTask) ids.push(appliedTask);
+    fetchTasksBulk(Array.from(new Set(ids)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskIdsForBenchmarks]);
+  }, [taskIdsForBenchmarks, selectedTask, appliedTask]);
 
   const taskById: Record<string, Task> = (() => {
     const out: Record<string, Task> = { ...bulkTasksById };
@@ -812,6 +815,34 @@ export default function BenchmarkPage() {
 
                         {!taskSearchQuery.trim() ? (
                           <div className="p-3">
+                            {/* Selected Task section */}
+                            {selectedTask && (
+                              <div className="mb-3 pb-3 border-b border-gray-100">
+                                <p className="text-xs font-semibold text-gray-500 mb-2">Selected Task:</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {(() => {
+                                    const task =
+                                      bulkTasksById[selectedTask] ||
+                                      presetTasks.find((t) => t.id === selectedTask) ||
+                                      tasks.find((t) => t.id === selectedTask) ||
+                                      { id: selectedTask, name: selectedTask };
+                                    return (
+                                      <button
+                                        key={selectedTask}
+                                        onClick={() => handleTaskSelect("")}
+                                        className="inline-flex w-fit max-w-[9.5rem] items-center justify-between gap-1.5 px-2.5 py-1 text-xs text-left leading-tight whitespace-normal break-words rounded-full bg-green-100 text-green-800 hover:bg-green-200 transition"
+                                      >
+                                        <span className="truncate">{formatTaskName(task.name)}</span>
+                                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                      </button>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            )}
+
                             <button
                               onClick={() => handleTaskSelect("")}
                               className="w-full px-3 py-2 mb-1 text-sm text-left rounded hover:bg-gray-50 transition"
