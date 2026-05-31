@@ -10,6 +10,7 @@ import UserAvatar from "./UserAvatar";
 import { useAuth } from "@/lib/authContext";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { cleanPaperTitle } from "@/lib/paperTitle";
+import { LOGIN_REQUIRED_EVENT } from "@/lib/routeAccess";
 import { useSidebar } from "./LayoutContent";
 
 type FuzzyHit =
@@ -56,6 +57,12 @@ export default function Header() {
       setIsAuthModalOpen(true);
     }
   }, [pendingGoogleSignup]);
+
+  useEffect(() => {
+    const openLogin = () => setIsAuthModalOpen(true);
+    window.addEventListener(LOGIN_REQUIRED_EVENT, openLogin);
+    return () => window.removeEventListener(LOGIN_REQUIRED_EVENT, openLogin);
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");

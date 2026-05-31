@@ -11,6 +11,7 @@ import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { normalizeGithubRepo, GithubRepoMetadataItem, GithubRepoMetadataResponse } from "@/lib/github";
 import { useAuth } from "@/lib/authContext";
+import { requestLogin } from "@/lib/routeAccess";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { MathText } from "@/lib/mathText";
 import { cleanPaperTitle, formatPaperAuthorsWithYear } from "@/lib/paperTitle";
@@ -397,6 +398,12 @@ export default function PapersPage() {
     searchAbortRef.current?.abort();
 
     searchDebounceRef.current = window.setTimeout(() => {
+      if (!user) {
+        requestLogin();
+        setSearchLoading(false);
+        return;
+      }
+
       const controller = new AbortController();
       searchAbortRef.current = controller;
       setSearchLoading(true);
@@ -434,7 +441,7 @@ export default function PapersPage() {
     return () => {
       if (searchDebounceRef.current) window.clearTimeout(searchDebounceRef.current);
     };
-  }, [searchQuery]);
+  }, [searchQuery, user]);
 
   const resetMobileZoom = () => {
     const viewportMeta = document.querySelector('meta[name="viewport"]');
@@ -537,6 +544,10 @@ export default function PapersPage() {
   };
 
   const handleNext = () => {
+    if (!user) {
+      requestLogin();
+      return;
+    }
     if (!hasMore || !nextCursor) return;
     // Store the *next page cursor* so "page N" corresponds to a stable cursor.
     // This makes multi-step    // Store the *next page cursor* so "page N" corresponds to a stable cursor.
@@ -546,6 +557,10 @@ export default function PapersPage() {
   };
 
   const handlePrev = () => {
+    if (!user) {
+      requestLogin();
+      return;
+    }
     if (prevCursors.length <= 1) return;
     setPrevCursors((prev) => {
       const updated = prev.slice(0, -1);

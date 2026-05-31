@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from "@/lib/authContext";
+import { requiresAuth } from "@/lib/routeAccess";
 import Link from "next/link";
 import { ReactNode, MouseEvent } from "react";
 
@@ -12,16 +13,6 @@ interface ProtectedLinkProps {
   onClick?: () => void;
 }
 
-// Routes that require authentication
-const protectedRoutes = [
-  "/papers",
-  "/benchmark",
-  "/conference",
-  "/bookmarks",
-  "/datasets",
-  "/ai-search",
-];
-
 export default function ProtectedLink({
   href,
   children,
@@ -30,10 +21,10 @@ export default function ProtectedLink({
   onClick
 }: ProtectedLinkProps) {
   const { user } = useAuth();
-  const requiresAuth = protectedRoutes.some(route => href.startsWith(route));
+  const routeRequiresAuth = requiresAuth(href);
 
   const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
-    if (requiresAuth && !user) {
+    if (routeRequiresAuth && !user) {
       e.preventDefault();
       if (onLoginRequired) {
         onLoginRequired();

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { useSidebar } from "./LayoutContent";
 import { useAuth } from "@/lib/authContext";
+import { requiresAuth } from "@/lib/routeAccess";
 
 const navItems = [
   {
@@ -68,16 +69,6 @@ const navItems = [
     ),
   },
 
-];
-
-// Essential tabs that require login
-const protectedRoutes = [
-  "/papers",
-  "/benchmark",
-  "/conference",
-  "/bookmarks",
-  "/datasets",
-  "/ai-search",
 ];
 
 interface SidebarProps {
@@ -213,11 +204,11 @@ export default function Sidebar({ onLoginRequired }: SidebarProps) {
             <ul className="space-y-2 min-h-0 overflow-y-auto flex-1">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
-                const requiresAuth = protectedRoutes.includes(item.href);
+                const routeRequiresAuth = requiresAuth(item.href);
 
                 return (
                   <li key={item.name}>
-                    {requiresAuth && !user ? (
+                    {routeRequiresAuth && !user ? (
                       <button
                         onClick={(e) => {
                           e.preventDefault();

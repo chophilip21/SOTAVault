@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from "@/lib/authContext";
-import { isAuthBypassed } from "@/lib/devFlags";
+import { requiresAuth } from "@/lib/routeAccess";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
 import AuthModal from "./AuthModal";
@@ -10,16 +10,6 @@ interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
-// Routes that require authentication
-const protectedRoutes = [
-  "/papers",
-  "/benchmark",
-  "/conference",
-  "/bookmarks",
-  "/datasets",
-  "/ai-search",
-];
-
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -27,16 +17,11 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [hasChecked, setHasChecked] = useState(false);
 
-  const bypass = isAuthBypassed();
-
-  const requiresAuth = useMemo(() =>
-    protectedRoutes.some(route => pathname.startsWith(route)),
-    [pathname]
-  );
+  const routeRequiresAuth = useMemo(() => requiresAuth(pathname), [pathname]);
 
   useEffect(() => {
     if (!loading) {
-      if (requiresAuth && !user) {
+      if (routeRequiresAuth && !user) {
         if (hasChecked) {
           // User was authenticated and just logged out — go home instead of re-prompting.
           router.push('/');
@@ -48,7 +33,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
       setHasChecked(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, loading, requiresAuth]);
+  }, [user, loading, routeRequiresAuth]);
 
   const handleModalClose = () => {
     setShowAuthModal(false);
@@ -65,7 +50,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   // If route requires auth and user is not logged in, show modal and prevent content display
-  if (requiresAuth && !user) {
+  if (routeRequiresAuth && !user) {
     return (
       <>
         <div className="min-h-screen flex items-center justify-center">

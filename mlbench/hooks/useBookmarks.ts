@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/lib/authContext";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { requestLogin } from "@/lib/routeAccess";
 
 export function useBookmarks(resourceType: "paper" | "dataset" | "dataset_series" | "venue" = "paper") {
     const { user } = useAuth();
@@ -47,6 +48,11 @@ export function useBookmarks(resourceType: "paper" | "dataset" | "dataset_series
     }, [user, resourceType]);
 
     const toggleBookmark = async (resourceId: string, title?: string) => {
+        if (!user) {
+            requestLogin();
+            return;
+        }
+
         // 1. Clear any pending timer for this item
         if (bookmarkTimersRef.current[resourceId]) {
             clearTimeout(bookmarkTimersRef.current[resourceId]);
@@ -56,8 +62,6 @@ export function useBookmarks(resourceType: "paper" | "dataset" | "dataset_series
         // 2. Optimistic UI update
         const nextState = !bookmarkedIds[resourceId];
         setBookmarkedIds((prev) => ({ ...prev, [resourceId]: nextState }));
-
-        if (!user) return; // Local toggle only if not logged in (ephemeral)
 
         // 3. Set debounce timer (coalescing)
         bookmarkTimersRef.current[resourceId] = setTimeout(async () => {

@@ -309,6 +309,7 @@ export default function PaperDetailPage() {
   const updated = paper?.updated_at
     ? new Date(paper.updated_at).toLocaleDateString()
     : null;
+  const isBookmarked = Boolean(paperId && bookmarkedIds[paperId as string]);
 
   return (
     <div className="mx-auto w-full max-w-7xl min-[1600px]:max-w-[1400px] min-[2000px]:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -331,7 +332,7 @@ export default function PaperDetailPage() {
       {!loading && !error && paper && (
         <div className="space-y-4">
           <div className="flex items-start gap-4 max-md:flex-col max-md:items-center">
-            <div className="flex-shrink-0 w-24 h-24 relative rounded border border-gray-200 overflow-hidden bg-gray-50 group max-md:w-20 max-md:h-20">
+            <div className="flex-shrink-0 w-24 h-24 relative rounded border border-gray-200 overflow-hidden bg-gray-50 max-md:w-20 max-md:h-20">
               <PaperCoverArt
                 seed={paper.arxiv_id || paper.id}
                 title={displayTitle}
@@ -340,36 +341,38 @@ export default function PaperDetailPage() {
                 className="absolute inset-0"
                 ariaLabel={displayTitle ? `Paper cover: ${displayTitle}` : "Paper cover"}
               />
-              {/* Bookmark button overlay */}
-              <button
-                onClick={() => paperId && toggleBookmark(paperId as string, displayTitle)}
-                className={`absolute top-1 right-1 p-1.5 rounded-full border transition-all shadow-sm ${paperId && bookmarkedIds[paperId as string]
-                  ? "border-green-300 bg-green-50 text-green-800 opacity-100"
-                  : "border-white bg-white/90 text-gray-600 opacity-0 group-hover:opacity-100"
-                  }`}
-                title={paperId && bookmarkedIds[paperId as string] ? "Remove bookmark" : "Add bookmark"}
-                aria-label={paperId && bookmarkedIds[paperId as string] ? "Remove bookmark" : "Add bookmark"}
-              >
-                <span aria-hidden="true" className="text-base leading-none">
-                  {paperId && bookmarkedIds[paperId as string] ? "🔖" : "📑"}
-                </span>
-              </button>
             </div>
-            <div className="flex-1 space-y-2 max-md:w-full max-md:text-center">
-              <h1 className="text-2xl font-bold text-gray-900 max-md:text-xl max-md:break-words">
-                <MathText>{displayTitle}</MathText>
-              </h1>
-              {paper.authors && paper.authors.length > 0 && (
-                <p className="text-sm text-gray-700 max-md:break-words">
-                  {paper.authors.join(", ")}
-                </p>
-              )}
-              {(paper.venue || paper.year) && (
-                <p className="text-sm text-gray-600">
-                  {[paper.venue, paper.year].filter(Boolean).join(" · ")}
-                </p>
-              )}
-
+            <div className="flex-1 min-w-0 w-full max-md:text-center md:text-left space-y-2">
+              <div className="flex flex-col max-md:items-center md:flex-row md:items-start md:justify-between gap-3 md:gap-4">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <h1 className="text-2xl font-bold text-gray-900 max-md:text-xl max-md:break-words">
+                    <MathText>{displayTitle}</MathText>
+                  </h1>
+                  {paper.authors && paper.authors.length > 0 && (
+                    <p className="text-sm text-gray-700 max-md:break-words">
+                      {paper.authors.join(", ")}
+                    </p>
+                  )}
+                  {(paper.venue || paper.year) && (
+                    <p className="text-sm text-gray-600">
+                      {[paper.venue, paper.year].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => paperId && toggleBookmark(paperId as string, displayTitle)}
+                  className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border-2 transition-all text-xs sm:text-sm font-semibold shrink-0 shadow-sm ${isBookmarked
+                    ? "border-green-600 bg-green-600 text-white hover:bg-green-700 hover:border-green-700 shadow-green-600/25"
+                    : "border-[#007a3a] bg-[#007a3a] text-white hover:bg-[#006631] hover:border-[#006631] shadow-[rgba(0,122,58,0.25)]"
+                    }`}
+                  title={isBookmarked ? "Remove bookmark" : "Bookmark this paper"}
+                  aria-pressed={isBookmarked}
+                >
+                  <span aria-hidden="true">{isBookmarked ? "🔖" : "📑"}</span>
+                  <span>{isBookmarked ? "Bookmarked" : "Bookmark"}</span>
+                </button>
+              </div>
 
               <div className="flex flex-wrap gap-1 mt-2 max-md:justify-center">
                 {paper.domain && (

@@ -571,10 +571,9 @@ export default function Home() {
               key={paper.id}
               className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 flex flex-col"
             >
-              <ProtectedLink
+              <Link
                 href={`/papers/${paper.id}`}
                 className="block p-5 pb-0 flex-1 group"
-                onLoginRequired={() => setIsAuthModalOpen(true)}
               >
                 <div className="flex items-start gap-3 mb-3">
                   <div className="flex-shrink-0 w-12 h-12 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
@@ -620,7 +619,7 @@ export default function Home() {
                     </span>
                   </div>
                 )}
-              </ProtectedLink>
+              </Link>
 
               <div className="px-5 pb-5 pt-3 flex flex-col items-center">
                 <button
@@ -668,10 +667,9 @@ export default function Home() {
                 key={series.id}
                 className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 flex flex-col"
               >
-                <ProtectedLink
+                <Link
                   href={`/dataset-series/${series.id}`}
                   className="block p-5 pb-0 flex-1 group"
-                  onLoginRequired={() => setIsAuthModalOpen(true)}
                 >
                   <div className="flex items-center gap-3">
                     <div className="flex-shrink-0 w-14 h-14 relative rounded-lg border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
@@ -708,7 +706,7 @@ export default function Home() {
                       </span>
                     </div>
                   )}
-                </ProtectedLink>
+                </Link>
 
                 <div className="px-5 pb-5 pt-3 flex flex-col items-center">
                   <button
