@@ -482,6 +482,10 @@ export default function PapersPage() {
   }, []);
 
   const handleApplyFilters = () => {
+    if (!user) {
+      requestLogin();
+      return;
+    }
     setAppliedDomain(selectedDomain);
     setAppliedTasks(selectedTasks);
     // Only refetch the paginated list when not in Meilisearch search mode.
@@ -493,6 +497,10 @@ export default function PapersPage() {
   };
 
   const handleClearFilters = () => {
+    if (!user) {
+      requestLogin();
+      return;
+    }
     setSelectedDomain("");
     setSelectedTasks([]);
     setAppliedDomain("");
@@ -676,29 +684,37 @@ export default function PapersPage() {
   const isSearchMode = searchQuery.trim().length >= MIN_CHARS;
   const listToRender = searchResults !== null ? searchResults : papers;
 
-  // Filter papers based on applied domain/tasks (always client-side).
-  const filteredPapers = listToRender.filter((paper) => {
-    if (appliedTasks.length > 0) {
-      const hasAnyTask = (paper.task_ids || []).some((id) => appliedTasks.includes(id));
-      if (!hasAnyTask) return false;
+  const taskById: Record<string, Task> = useMemo(() => {
+    const out: Record<string, Task> = { ...bulkTasksById };
+    for (const t of presetTasks) out[t.id] = t;
+    for (const t of tasks) out[t.id] = t;
+    return out;
+  }, [bulkTasksById, presetTasks, tasks]);
+
+  // In browse mode the server already applies domain/task filters via fetchPage.
+  // Client-side filtering is only needed when narrowing Meilisearch results.
+  const filteredPapers = useMemo(() => {
+    if (!isSearchMode) {
+      return listToRender;
     }
 
-    // Domain filter (client-side) - filter based on task domains
-    if (appliedDomain && paper.task_ids) {
-      const paperTasks = tasks.filter(t => paper.task_ids?.includes(t.id));
-      const hasMatchingDomain = paperTasks.some(t => t.domain === appliedDomain);
-      if (!hasMatchingDomain) return false;
-    }
+    return listToRender.filter((paper) => {
+      if (appliedTasks.length > 0) {
+        const paperTaskIds = paper.task_ids || [];
+        const hasAllTasks = appliedTasks.every((taskId) => paperTaskIds.includes(taskId));
+        if (!hasAllTasks) return false;
+      }
 
-    // Task filter (client-side AND logic) - paper must have ALL selected tasks
-    if (appliedTasks && appliedTasks.length > 0) {
-      const paperTaskIds = paper.task_ids || [];
-      const hasAllTasks = appliedTasks.every(taskId => paperTaskIds.includes(taskId));
-      if (!hasAllTasks) return false;
-    }
+      if (appliedDomain) {
+        const domainMatches =
+          paper.domain === appliedDomain ||
+          (paper.task_ids || []).some((id) => taskById[id]?.domain === appliedDomain);
+        if (!domainMatches) return false;
+      }
 
-    return true;
-  });
+      return true;
+    });
+  }, [isSearchMode, listToRender, appliedDomain, appliedTasks, taskById]);
 
   const taskIdsForPapers = useMemo(() => {
     const ids: string[] = [];
@@ -714,14 +730,6 @@ export default function PapersPage() {
     fetchTasksBulk(ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskIdsForPapers, selectedTasks, appliedTasks]);
-
-  const taskById: Record<string, Task> = (() => {
-    const out: Record<string, Task> = { ...bulkTasksById };
-    // Merge preset tasks and current search results so display names resolve.
-    for (const t of presetTasks) out[t.id] = t;
-    for (const t of tasks) out[t.id] = t;
-    return out;
-  })();
 
   const officialRepoKeys = useMemo(() => {
     const repos = new Set<string>();

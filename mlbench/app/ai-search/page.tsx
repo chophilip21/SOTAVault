@@ -4,6 +4,7 @@ import { Playfair_Display } from "next/font/google";
 import { useCallback, useState } from "react";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { useAuth } from "@/lib/authContext";
+import { requestLogin } from "@/lib/routeAccess";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { DatasetSeriesSearchResults } from "./components/DatasetSeriesSearchResults";
 import { SearchResults } from "./components/SearchResults";
@@ -184,6 +185,11 @@ export default function AiSearchPage() {
       const q = (text ?? query).trim();
       if (!q || !isModelReady) return;
 
+      if (!user) {
+        requestLogin();
+        return;
+      }
+
       setSearching(true);
       setSearchError(null);
       setHasSearched(true);
@@ -264,7 +270,7 @@ export default function AiSearchPage() {
         setSearching(false);
       }
     },
-    [query, searchMode, isModelReady, embed],
+    [query, searchMode, isModelReady, embed, user],
   );
 
   return (

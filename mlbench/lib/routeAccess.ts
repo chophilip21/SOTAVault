@@ -7,20 +7,21 @@ export function requestLogin(): void {
   }
 }
 
-/** Detail pages and the papers index visitors may open without signing in. */
+/** Detail pages and list indexes visitors may open without signing in. */
 const PUBLIC_DETAIL_PATTERNS = [
   /^\/papers$/,
   /^\/papers\/[^/]+$/,
+  /^\/benchmark$/,
+  /^\/conference$/,
+  /^\/conference\/[^/]+$/,
   /^\/datasets\/[^/]+$/,
   /^\/dataset-series\/[^/]+$/,
+  /^\/ai-search$/,
 ];
 
 /** Routes (and their sub-paths) that require authentication, except public detail pages above. */
 const PROTECTED_PREFIXES = [
-  "/benchmark",
-  "/conference",
   "/bookmarks",
-  "/ai-search",
 ];
 
 export function requiresAuth(path: string): boolean {

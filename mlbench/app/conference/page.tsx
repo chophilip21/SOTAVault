@@ -7,6 +7,8 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
+import { useAuth } from "@/lib/authContext";
+import { requestLogin } from "@/lib/routeAccess";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { useBookmarks } from "@/hooks/useBookmarks";
 
@@ -171,6 +173,7 @@ export default function ConferencePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { bookmarkedIds, toggleBookmark } = useBookmarks("venue");
+  const { user, loading: authLoading } = useAuth();
 
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -219,10 +222,6 @@ export default function ConferencePage() {
   };
 
   useEffect(() => {
-    // Allow deep-linking from global search (/conference?q=...)
-    const q = (searchParams.get("q") || "").trim();
-    if (q) setSearchQuery(q);
-
     // Fetch series first (cached), then venues
     const init = async () => {
       const series = await fetchAllSeries();
@@ -234,6 +233,24 @@ export default function ConferencePage() {
       setError("Failed to load data");
     });
   }, []);
+
+  useEffect(() => {
+    const q = (searchParams.get("q") || "").trim();
+    if (!q) return;
+    if (user) {
+      setSearchQuery(q);
+    } else if (!authLoading) {
+      requestLogin();
+    }
+  }, [searchParams, user, authLoading]);
+
+  const handleSearchChange = (value: string) => {
+    if (!user && value.trim().length > 0) {
+      requestLogin();
+      return;
+    }
+    setSearchQuery(value);
+  };
 
   // Close category dropdown when clicking outside
   useEffect(() => {
@@ -259,12 +276,20 @@ export default function ConferencePage() {
   };
 
   const handleApplyFilters = () => {
+    if (!user) {
+      requestLogin();
+      return;
+    }
     const minDateValue = selectedUpcomingOnly ? toISODate(new Date()) : null;
     setAppliedMinDate(minDateValue);
     fetchAllVenues({ minDate: minDateValue, seriesData: seriesMap });
   };
 
   const handleClearFilters = () => {
+    if (!user) {
+      requestLogin();
+      return;
+    }
     clearCategories();
     setSelectedUpcomingOnly(true);
     setSearchQuery("");
@@ -320,7 +345,7 @@ export default function ConferencePage() {
                     type="text"
                     placeholder="Search conferences..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => handleSearchChange(e.target.value)}
                     className={`w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors max-md:py-2.5 max-md:text-base ${searchQuery.trim().length > 0 ? "bg-white" : "bg-gray-100"
                       }`}
                   />

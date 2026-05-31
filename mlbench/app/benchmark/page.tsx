@@ -8,6 +8,7 @@ import { LoadingSpinner } from "../components/LoadingSpinner";
 import { config } from "@/lib/config";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import { useAuth } from "@/lib/authContext";
+import { requestLogin } from "@/lib/routeAccess";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { MathText } from "@/lib/mathText";
 import { cleanMetricDescription } from "@/lib/metricDescription";
@@ -177,6 +178,7 @@ export default function BenchmarkPage() {
   const persistTimerRef = useRef<number | null>(null);
 
   const { bookmarkedIds, toggleBookmark } = useBookmarks("dataset_series");
+  const { user } = useAuth();
 
   const fetchPage = async (cursor: string | null, task?: string, domain?: string) => {
     setLoading(true);
@@ -486,6 +488,12 @@ export default function BenchmarkPage() {
     searchAbortRef.current?.abort();
 
     searchDebounceRef.current = window.setTimeout(() => {
+      if (!user) {
+        requestLogin();
+        setSearchLoading(false);
+        return;
+      }
+
       const controller = new AbortController();
       searchAbortRef.current = controller;
       setSearchLoading(true);
@@ -523,7 +531,7 @@ export default function BenchmarkPage() {
     return () => {
       if (searchDebounceRef.current) window.clearTimeout(searchDebounceRef.current);
     };
-  }, [searchQuery]);
+  }, [searchQuery, user]);
 
   const resetMobileZoom = () => {
     const viewportMeta = document.querySelector('meta[name="viewport"]');
@@ -564,6 +572,10 @@ export default function BenchmarkPage() {
   }, []);
 
   const handleApplyFilters = () => {
+    if (!user) {
+      requestLogin();
+      return;
+    }
     setAppliedDomain(selectedDomain);
     setAppliedTask(selectedTask);
     if (searchQuery.trim().length < MIN_CHARS) {
@@ -574,6 +586,10 @@ export default function BenchmarkPage() {
   };
 
   const handleClearFilters = () => {
+    if (!user) {
+      requestLogin();
+      return;
+    }
     setSelectedDomain("");
     setSelectedTask("");
     setAppliedDomain("");
@@ -621,6 +637,10 @@ export default function BenchmarkPage() {
   };
 
   const handleNext = () => {
+    if (!user) {
+      requestLogin();
+      return;
+    }
     if (!hasMore || !nextCursor) return;
     // Store the *next page cursor* so "page N" corresponds to a stable cursor.
     setPrevCursors((prev) => [...prev, nextCursor]);
@@ -629,6 +649,10 @@ export default function BenchmarkPage() {
   };
 
   const handlePrev = () => {
+    if (!user) {
+      requestLogin();
+      return;
+    }
     if (prevCursors.length <= 1) return;
     setPrevCursors((prev) => {
       const updated = prev.slice(0, -1);
