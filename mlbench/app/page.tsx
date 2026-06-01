@@ -611,14 +611,6 @@ export default function Home() {
                     {paper.abstract}
                   </p>
                 )}
-
-                {paper.created_at && (
-                  <div className="flex items-center justify-end pt-3 border-t border-gray-100">
-                    <span className="text-xs text-gray-400">
-                      {new Date(paper.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                )}
               </Link>
 
               <div className="px-5 pb-5 pt-3 flex flex-col items-center">
@@ -697,14 +689,6 @@ export default function Home() {
                     <p className="text-sm text-gray-700 mt-3 mb-3 line-clamp-3">
                       <MathText>{cleanMetricDescription(series.description)}</MathText>
                     </p>
-                  )}
-
-                  {series.created_at && (
-                    <div className="flex items-center justify-end pt-3 border-t border-gray-100">
-                      <span className="text-xs text-gray-400">
-                        {new Date(series.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
                   )}
                 </Link>
 

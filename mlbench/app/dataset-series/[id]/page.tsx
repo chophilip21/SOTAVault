@@ -177,38 +177,40 @@ export default function DatasetSeriesDetailPage() {
         <span>←</span> Back to Benchmarks
       </Link>
 
-      <div className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm">
-        <div className="flex items-start gap-6">
-          <div className="flex-shrink-0 w-32 h-32 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="bg-white border border-gray-100 rounded-2xl p-4 md:p-8 shadow-sm">
+        <div className="flex flex-col items-center md:flex-row md:items-start gap-4 md:gap-6">
+          <div className="flex-shrink-0 w-24 h-24 md:w-32 md:h-32 relative rounded-xl border border-gray-100 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
             <Image
               src={getDomainIcon(series.domain)}
               alt={`${series.domain || 'domain'} icon`}
               fill
-              sizes="128px"
-              className="object-contain p-3"
+              sizes="(max-width: 768px) 96px, 128px"
+              className="object-contain p-2 md:p-3"
             />
           </div>
 
-          <div className="flex-1">
-            <div className="flex items-start justify-between gap-4">
-              <h1 className={`text-4xl font-bold text-gray-900 tracking-tight ${inter.className}`}>
+          <div className="flex-1 min-w-0 w-full max-md:text-center md:text-left">
+            <div className="flex flex-col max-md:items-center md:flex-row md:items-start md:justify-between gap-3 md:gap-4">
+              <h1 className={`min-w-0 flex-1 text-2xl md:text-4xl font-bold text-gray-900 tracking-tight break-words ${inter.className}`}>
                 <MathText>{capitalizeSeriesName(series.name)}</MathText>
               </h1>
               <button
+                type="button"
                 onClick={() => toggleBookmark(seriesId, series.name)}
-                className={`flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all text-xs mt-1 ${
+                className={`inline-flex w-auto items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border transition-all text-xs sm:text-sm font-semibold shrink-0 ${
                   bookmarkedIds[seriesId]
                     ? "border-teal-300 bg-teal-50 text-teal-800"
                     : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
                 }`}
                 title={bookmarkedIds[seriesId] ? "Remove bookmark" : "Bookmark this series"}
+                aria-pressed={Boolean(bookmarkedIds[seriesId])}
               >
                 <span aria-hidden="true">{bookmarkedIds[seriesId] ? "🔖" : "📑"}</span>
                 <span>{bookmarkedIds[seriesId] ? "Bookmarked" : "Bookmark Series"}</span>
               </button>
             </div>
 
-            <div className="flex flex-wrap gap-2 mt-4">
+            <div className="flex flex-wrap gap-2 mt-4 max-md:justify-center md:justify-start">
               {series.domain && (
                 <span className="px-3 py-1 text-sm bg-gray-100 text-gray-800 rounded-full">
                   {series.domain}
