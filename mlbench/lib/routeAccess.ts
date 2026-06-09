@@ -17,6 +17,7 @@ const PUBLIC_DETAIL_PATTERNS = [
   /^\/datasets\/[^/]+$/,
   /^\/dataset-series\/[^/]+$/,
   /^\/ai-search$/,
+  /^\/docs$/,
 ];
 
 /** Routes (and their sub-paths) that require authentication, except public detail pages above. */
