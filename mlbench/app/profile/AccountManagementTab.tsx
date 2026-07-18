@@ -89,6 +89,8 @@ export default function AccountManagementTab() {
   // ── Generate key ─────────────────────────────────────────────────────────
   const handleGenerateKey = async () => {
     if (!user || keyMeta) return;
+    const isDisabled = true;
+    if (isDisabled) return;
     setGenerating(true);
     setKeyError(null);
     try {
@@ -214,11 +216,14 @@ export default function AccountManagementTab() {
       <div className="mb-8 border-t border-gray-200 pt-8">
         <div className="flex items-center gap-3 mb-1">
           <h3 className="text-lg font-semibold text-gray-900">API Key</h3>
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">
+          {/* <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.347a3.75 3.75 0 01-5.303 0l-.347-.347z" />
             </svg>
             Experimental
+          </span> */}
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-200 text-black border border-yellow-300">
+            Coming Soon
           </span>
         </div>
         <p className="text-sm text-gray-500 mb-5">
@@ -240,7 +245,7 @@ export default function AccountManagementTab() {
           </div>
         ) : !keyMeta ? (
           /* ── No key: generator ── */
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 space-y-5">
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 space-y-5 pointer-events-none grayscale-[50%] opacity-75">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Token expiration</label>
               <div className="flex flex-wrap gap-2">
@@ -248,8 +253,9 @@ export default function AccountManagementTab() {
                   <button
                     key={opt.label}
                     type="button"
+                    disabled={true}
                     onClick={() => setSelectedExpiry(opt.days)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors cursor-not-allowed ${
                       selectedExpiry === opt.days
                         ? "bg-purple-600 text-white border-purple-600"
                         : "bg-white text-gray-600 border-gray-300 hover:border-purple-400 hover:text-purple-600"
@@ -272,7 +278,7 @@ export default function AccountManagementTab() {
             </div>
             <button
               onClick={handleGenerateKey}
-              disabled={generating}
+              disabled={true}
               className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {generating ? (
