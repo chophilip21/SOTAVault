@@ -3,9 +3,9 @@
  * (`GET /graph/papers`, `GET /graph/datasets` — see backend/app/routers/graph.py).
  *
  * These files are produced offline by `mlbench.graph.paper_graph` (3-D UMAP
- * "semantic galaxy" of papers) and `mlbench.graph.dataset_graph` (domain ->
- * series -> dataset tree). We decode them client-side with `apache-arrow`
- * and hand plain JS arrays to deck.gl for rendering.
+ * "semantic galaxy" of papers) and `mlbench.graph.dataset_graph` (3-D UMAP of
+ * series embeddings + series→dataset hierarchy). We decode them client-side
+ * with `apache-arrow` and hand plain JS arrays to deck.gl for rendering.
  */
 import { tableFromIPC } from "apache-arrow";
 
@@ -35,19 +35,18 @@ export interface DatasetGraphNode {
   year: number | null;
   x: number;
   y: number;
+  z: number;
 }
 
-export interface DatasetGraphEdgeSegment {
+export interface DatasetGraphEdge {
   sourceId: string;
   targetId: string;
   edgeType: string;
-  source: [number, number];
-  target: [number, number];
 }
 
 export interface DatasetGraphData {
   nodes: DatasetGraphNode[];
-  edges: DatasetGraphEdgeSegment[];
+  edges: DatasetGraphEdge[];
 }
 
 /** Arrow int64 columns decode to BigInt64Array; coerce to a plain number (or null). */
@@ -155,22 +154,20 @@ export async function fetchDatasetGraph(
   const years = nodesTable.getChild("year")?.toArray() ?? [];
   const nodeXs = nodesTable.getChild("x")?.toArray() ?? [];
   const nodeYs = nodesTable.getChild("y")?.toArray() ?? [];
+  const nodeZs = nodesTable.getChild("z")?.toArray() ?? [];
 
   const nodes: DatasetGraphNode[] = new Array(nodesTable.numRows);
-  const positionByNodeId = new Map<string, [number, number]>();
   for (let i = 0; i < nodesTable.numRows; i++) {
-    const nodeId: string = nodeIds[i];
-    const position: [number, number] = [nodeXs[i], nodeYs[i]];
-    positionByNodeId.set(nodeId, position);
     nodes[i] = {
-      nodeId,
+      nodeId: nodeIds[i],
       id: entityIds[i],
       type: nodeTypes[i] as DatasetNodeType,
       label: labels[i],
       domain: domains[i] ?? "other",
       year: toNumber(years[i]),
-      x: position[0],
-      y: position[1],
+      x: nodeXs[i] ?? 0,
+      y: nodeYs[i] ?? 0,
+      z: nodeZs[i] ?? 0,
     };
   }
 
@@ -178,14 +175,13 @@ export async function fetchDatasetGraph(
   const targetIds = edgesTable.getChild("target_id")?.toArray() ?? [];
   const edgeTypes = edgesTable.getChild("edge_type")?.toArray() ?? [];
 
-  const edges: DatasetGraphEdgeSegment[] = [];
+  const edges: DatasetGraphEdge[] = new Array(edgesTable.numRows);
   for (let i = 0; i < edgesTable.numRows; i++) {
-    const sourceId: string = sourceIds[i];
-    const targetId: string = targetIds[i];
-    const source = positionByNodeId.get(sourceId);
-    const target = positionByNodeId.get(targetId);
-    if (!source || !target) continue;
-    edges.push({ sourceId, targetId, edgeType: edgeTypes[i], source, target });
+    edges[i] = {
+      sourceId: sourceIds[i],
+      targetId: targetIds[i],
+      edgeType: edgeTypes[i],
+    };
   }
 
   return { nodes, edges };

@@ -72,7 +72,7 @@ export default function GraphExplorer() {
         <div>
           <h3 className="text-lg font-semibold text-gray-900">Semantic Graph Explorer</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Every paper and dataset, positioned by embedding similarity.
+            Papers by embedding similarity · dataset series by embedding similarity.
           </p>
         </div>
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
