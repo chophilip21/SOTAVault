@@ -19,6 +19,7 @@ import { getDomainIcon, getDomainLabel } from "@/lib/domain";
 import { useBookmarks } from "@/hooks/useBookmarks";
 
 const ConferenceMap = dynamic(() => import("./components/ConferenceMap"), { ssr: false });
+const GraphExplorer = dynamic(() => import("./components/graph/GraphExplorer"), { ssr: false });
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
 const notoSans = Noto_Sans({
@@ -441,6 +442,11 @@ export default function Home() {
         <p className="text-gray-700 text-base leading-relaxed">
           {description}
         </p>
+      </div>
+
+      {/* Semantic Graph Explorer (papers / datasets, deck.gl) */}
+      <div className="space-y-4">
+        <GraphExplorer />
       </div>
 
       {/* Upcoming Conferences Section */}
