@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DeckGL from "@deck.gl/react";
-import { COORDINATE_SYSTEM, OrthographicView, type OrthographicViewState } from "@deck.gl/core";
-import { LineLayer, ScatterplotLayer, SolidPolygonLayer, IconLayer } from "@deck.gl/layers";
+import { COORDINATE_SYSTEM, OrthographicView, LinearInterpolator, type OrthographicViewState } from "@deck.gl/core";
+import { LineLayer, ScatterplotLayer, SolidPolygonLayer, IconLayer, TextLayer } from "@deck.gl/layers";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import {
   fetchDatasetGraph,
@@ -23,6 +23,11 @@ interface HoverInfo {
 interface PositionedNode extends DatasetGraphNode {
   position: [number, number];
   radius: number;
+}
+
+interface LabeledSeries extends PositionedNode {
+  labelText: string;
+  labelSize: number;
 }
 
 interface ExpandEdge {
@@ -47,9 +52,9 @@ const SERIES_RADIUS_MAX = 3.2;
 /** Half-side of dataset squares (world units), scaled by paper count. */
 const DATASET_HALF_MIN = 0.35;
 const DATASET_HALF_MAX = 1.1;
-/** Paper triangles stay visually smaller than datasets. */
-const PAPER_HALF_MIN = 0.22;
-const PAPER_HALF_MAX = 0.48;
+/** Paper triangles stay visually smaller than datasets, but readable when zoomed in. */
+const PAPER_HALF_MIN = 0.28;
+const PAPER_HALF_MAX = 0.55;
 /** Extra gap beyond touching so shapes never occlude. */
 const COLLISION_GAP = 0.12;
 /** Soft pack: median NN before collision resolve (keeps similar nodes near). */
@@ -60,11 +65,24 @@ const BACKGROUND_DIM_ALPHA = 55;
 /** How far children sit beyond the parent edge (base + size-scaled). */
 const CHILD_RING_BASE = 2.4;
 const CHILD_RING_PER_SIZE = 6.5;
-/** Papers stay closer to their dataset than datasets do to series. */
-const PAPER_RING_BASE = 1.2;
-const PAPER_RING_PER_SIZE = 3.2;
-/** Expanded ring should fit ~this many pixels across (parent + children). */
-const FOCUS_RING_DIAMETER_PX = 340;
+/** Papers stay close to the dataset so deep zoom still keeps them on-screen. */
+const PAPER_RING_BASE = 0.18;
+const PAPER_RING_PER_SIZE = 0.85;
+/** Cap paper orbit at this multiple of the dataset half-size. */
+const PAPER_RING_MAX_PARENT_SCALE = 2.15;
+/** Series expand: fit parent + dataset ring across this many pixels. */
+const SERIES_FOCUS_DIAMETER_PX = 340;
+/**
+ * Dataset expand: zoom so the dataset square itself is about this wide —
+ * "inside" the node so paper triangles read at a usable size.
+ */
+const DATASET_INSIDE_DIAMETER_PX = 300;
+/** Camera ease when changing focus. */
+const FOCUS_TRANSITION_MS = 320;
+const FOCUS_TRANSITION = {
+  transitionDuration: FOCUS_TRANSITION_MS,
+  transitionInterpolator: new LinearInterpolator(["target", "zoom"]),
+};
 const PAPER_ICON_SIZE = 64;
 const PAPER_ICON_MAPPING = {
   triangle: {
@@ -128,10 +146,114 @@ function squarePolygon(cx: number, cy: number, half: number): [number, number, n
   ];
 }
 
+/** Short series titles; maxChars is computed from bubble size when fitting. */
+function truncateSeriesLabel(label: string, maxChars: number): string {
+  const text = label.trim();
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(1, maxChars - 1))}…`;
+}
+
+/** Prefer a space near the middle; otherwise split mid-string. */
+function splitLabelTwoLines(label: string): [string, string] | null {
+  const text = label.trim();
+  if (text.length < 8) return null;
+
+  const mid = text.length / 2;
+  let best = -1;
+  let bestDist = Infinity;
+  for (let i = 1; i < text.length - 1; i++) {
+    if (text[i] !== " ") continue;
+    const dist = Math.abs(i - mid);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = i;
+    }
+  }
+  if (best > 0) {
+    return [text.slice(0, best).trim(), text.slice(best + 1).trim()];
+  }
+
+  // No spaces (e.g. CamelCase) — break near the middle.
+  const cut = Math.round(mid);
+  return [text.slice(0, cut), text.slice(cut)];
+}
+
+/**
+ * Fit a label inside a circle. Long titles wrap to two lines so font size
+ * can stay larger; still truncate if needed to stay within the bubble.
+ */
+function seriesLabelForBubble(
+  label: string,
+  radius: number,
+): { text: string; size: number } {
+  const full = label.trim() || "?";
+  const usableW = radius * 1.5; // ~0.75 × diameter
+  const charAspect = 0.55;
+  const lineGap = 1.15; // line height relative to font size
+  const minSize = radius * 0.3;
+
+  const sizeFor = (lines: string[], maxByHeight: number) => {
+    const maxLen = Math.max(...lines.map((l) => l.length), 1);
+    const byWidth = usableW / (maxLen * charAspect);
+    const byHeight = maxByHeight / (lines.length * lineGap);
+    return Math.min(byWidth, byHeight);
+  };
+
+  // Short labels: single line.
+  if (full.length <= 10 && !full.includes(" ")) {
+    const size = sizeFor([full], radius * 0.95);
+    return { text: full, size: Math.max(radius * 0.22, size) };
+  }
+
+  const wrapped = splitLabelTwoLines(full);
+  if (wrapped) {
+    let [a, b] = wrapped;
+    let size = sizeFor([a, b], radius * 0.95);
+    if (size < minSize) {
+      // Truncate the longer line until it fits at minSize.
+      const maxChars = Math.max(3, Math.floor(usableW / (minSize * charAspect)));
+      if (a.length > maxChars) a = truncateSeriesLabel(a, maxChars);
+      if (b.length > maxChars) b = truncateSeriesLabel(b, maxChars);
+      size = sizeFor([a, b], radius * 0.95);
+    }
+    return { text: `${a}\n${b}`, size: Math.max(radius * 0.22, size) };
+  }
+
+  // Fallback: single line with truncate.
+  let text = full;
+  let size = sizeFor([text], radius * 0.85);
+  if (size < minSize) {
+    const maxChars = Math.max(3, Math.floor(usableW / (minSize * charAspect)));
+    text = truncateSeriesLabel(full, maxChars);
+    size = sizeFor([text], radius * 0.85);
+  }
+  return { text, size: Math.max(radius * 0.22, size) };
+}
+
 /** OrthographicView: world units × 2^zoom ≈ screen pixels. */
 function zoomForWorldDiameter(worldRadius: number, targetDiameterPx: number): number {
   const worldDiameter = 2 * Math.max(worldRadius, 1e-6);
   return Math.log2(targetDiameterPx / worldDiameter);
+}
+
+/**
+ * Build a viewState update targeting `target`/`zoom`.
+ *
+ * OrthographicController tracks per-axis zoom (`zoomX`/`zoomY`) alongside the
+ * uniform `zoom`. Once the controller has echoed a viewState back to us
+ * (after the first render), those fields are present and get carried along
+ * by any `...prev` spread. If we only overwrite `zoom` without also syncing
+ * `zoomX`/`zoomY`, the controller's own normalization sees the *axis* zoom as
+ * unchanged, decides the transition is a no-op, and echoes the stale
+ * viewState straight back through `onViewStateChange` — silently discarding
+ * the update. Always keep all three in lockstep.
+ */
+function focusViewState(
+  prev: OrthographicViewState,
+  target: [number, number, number],
+  zoom: number,
+): OrthographicViewState {
+  return { ...prev, target, zoom, zoomX: zoom, zoomY: zoom };
 }
 
 /**
@@ -251,6 +373,7 @@ function layoutChildrenAroundParent(
   halves: Map<string, number>,
   ringBase = CHILD_RING_BASE,
   ringPerSize = CHILD_RING_PER_SIZE,
+  maxRingRadius?: number,
 ): Map<string, [number, number]> {
   const n = children.length;
   const positions = new Map<string, [number, number]>();
@@ -262,6 +385,8 @@ function layoutChildrenAroundParent(
   });
   const weights = sizes.map((h) => Math.max(h, 1e-3));
   const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const ringCap =
+    maxRingRadius ?? Number.POSITIVE_INFINITY;
 
   // Evenly cover the full circle; start at top.
   let angle = -Math.PI / 2;
@@ -269,12 +394,14 @@ function layoutChildrenAroundParent(
     const sweep = (2 * Math.PI * weights[i]) / totalWeight;
     angle += sweep / 2;
     const half = sizes[i];
-    const r =
+    const r = Math.min(
+      ringCap,
       parentRadius +
-      half * Math.SQRT2 +
-      COLLISION_GAP * 2 +
-      ringBase +
-      half * ringPerSize;
+        half * Math.SQRT2 +
+        COLLISION_GAP * 2 +
+        ringBase +
+        half * ringPerSize,
+    );
     positions.set(children[i].nodeId, [
       parent[0] + r * Math.cos(angle),
       parent[1] + r * Math.sin(angle),
@@ -304,7 +431,7 @@ export default function DatasetGraphView() {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const overviewFitRef = useRef<Pick<OrthographicViewState, "target" | "zoom"> | null>(null);
+  const overviewFitRef = useRef<{ target: [number, number, number]; zoom: number } | null>(null);
   const [graph, setGraph] = useState<DatasetGraphData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
@@ -398,7 +525,7 @@ export default function DatasetGraphView() {
     };
     overviewFitRef.current = overview;
     if (!expandedSeriesId) {
-      setViewState((vs) => ({ ...vs, ...overview }));
+      setViewState((vs) => focusViewState(vs, overview.target, overview.zoom));
     }
   }, [seriesPositions, expandedSeriesId]);
 
@@ -407,7 +534,8 @@ export default function DatasetGraphView() {
     setExpandedDatasetId(null);
     setHover(null);
     if (overviewFitRef.current) {
-      setViewState((vs) => ({ ...vs, ...overviewFitRef.current! }));
+      const { target, zoom } = overviewFitRef.current;
+      setViewState((vs) => focusViewState(vs, target as [number, number, number], zoom));
     }
   }, []);
 
@@ -451,6 +579,15 @@ export default function DatasetGraphView() {
         radius: seriesRadii.get(node.nodeId) ?? SERIES_RADIUS_MIN,
       })),
     [seriesNodes, seriesPositions, seriesRadii],
+  );
+
+  const labeledSeries: LabeledSeries[] = useMemo(
+    () =>
+      positionedSeries.map((node) => {
+        const fitted = seriesLabelForBubble(node.label, node.radius);
+        return { ...node, labelText: fitted.text, labelSize: fitted.size };
+      }),
+    [positionedSeries],
   );
 
   const backgroundSeries = useMemo(
@@ -563,6 +700,7 @@ export default function DatasetGraphView() {
       halves,
       PAPER_RING_BASE,
       PAPER_RING_PER_SIZE,
+      parent.radius * PAPER_RING_MAX_PARENT_SCALE,
     );
     for (const child of kids) {
       const position = childPositions.get(child.nodeId) ?? parent.position;
@@ -579,7 +717,11 @@ export default function DatasetGraphView() {
     if (!expandedSeriesId) {
       setExpandedDatasetId(null);
       if (overviewFitRef.current) {
-        setViewState((vs) => ({ ...vs, ...overviewFitRef.current! }));
+        const { target, zoom } = overviewFitRef.current;
+        setViewState((vs) => ({
+          ...focusViewState(vs, target as [number, number, number], zoom),
+          ...FOCUS_TRANSITION,
+        }));
       }
       return;
     }
@@ -587,15 +729,12 @@ export default function DatasetGraphView() {
     if (expandedDatasetId) {
       const ds = datasetPositions.get(expandedDatasetId);
       if (!ds) return;
-      const paperChildren = paperMarkers.map((p) => ({
-        position: p.node.position,
-        radius: p.node.radius,
-      }));
-      const extent = ringExtentRadius(ds.position, ds.radius, paperChildren);
+
+      // Zoom into the dataset square itself so papers around it read large.
+      const zoom = zoomForWorldDiameter(ds.radius, DATASET_INSIDE_DIAMETER_PX);
       setViewState((vs) => ({
-        ...vs,
-        target: [ds.position[0], ds.position[1], 0],
-        zoom: zoomForWorldDiameter(extent, FOCUS_RING_DIAMETER_PX),
+        ...focusViewState(vs, [ds.position[0], ds.position[1], 0], zoom),
+        ...FOCUS_TRANSITION,
       }));
       return;
     }
@@ -608,10 +747,10 @@ export default function DatasetGraphView() {
       radius: d.node.radius,
     }));
     const extent = ringExtentRadius(parentPos, parentRadius, datasetChildren);
+    const zoom = zoomForWorldDiameter(extent, SERIES_FOCUS_DIAMETER_PX);
     setViewState((vs) => ({
-      ...vs,
-      target: [parentPos[0], parentPos[1], 0],
-      zoom: zoomForWorldDiameter(extent, FOCUS_RING_DIAMETER_PX),
+      ...focusViewState(vs, [parentPos[0], parentPos[1], 0], zoom),
+      ...FOCUS_TRANSITION,
     }));
   }, [
     expandedSeriesId,
@@ -620,7 +759,6 @@ export default function DatasetGraphView() {
     seriesRadii,
     datasetPositions,
     datasetSquares,
-    paperMarkers,
   ]);
 
   const layers = useMemo(() => {
@@ -827,10 +965,42 @@ export default function DatasetGraphView() {
       }
     }
 
+    // Series titles centered in each bubble; size fitted to stay inside.
+    layersOut.push(
+      new TextLayer<LabeledSeries>({
+        id: "dataset-series-labels",
+        data: labeledSeries,
+        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+        getPosition: (d) => [...d.position, 0],
+        getText: (d) => d.labelText,
+        getSize: (d) => d.labelSize,
+        sizeUnits: "common",
+        sizeMinPixels: 6,
+        sizeMaxPixels: 36,
+        getColor: (d) =>
+          dimmed && d.nodeId !== expandedSeriesId ? [0, 0, 0, 50] : [0, 0, 0, 235],
+        getTextAnchor: "middle",
+        getAlignmentBaseline: "center",
+        fontFamily: "ui-sans-serif, system-ui, sans-serif",
+        fontWeight: 600,
+        lineHeight: 1.15,
+        // Light halo so black text stays readable on domain colors.
+        outlineWidth: 2,
+        outlineColor: [255, 255, 255, 180],
+        pickable: false,
+        updateTriggers: {
+          getColor: expandedSeriesId,
+          getSize: maxSeriesPaperCount,
+          getText: maxSeriesPaperCount,
+        },
+      }),
+    );
+
     return layersOut;
   }, [
     graph,
     backgroundSeries,
+    labeledSeries,
     expandedParent,
     datasetSquares,
     datasetEdges,
