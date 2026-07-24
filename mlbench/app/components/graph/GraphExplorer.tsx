@@ -54,16 +54,13 @@ function TabButton({
 
 export default function GraphExplorer() {
   const [activeTab, setActiveTab] = useState<TabKey>("papers");
-  // Once a tab has been visited we keep it mounted (just hidden) so switching
-  // back doesn't re-fetch/re-decode the (large) Arrow file.
-  const [visited, setVisited] = useState<Record<TabKey, boolean>>({
-    papers: true,
-    datasets: false,
-  });
+  // Keep the papers galaxy mounted after first visit (large Arrow decode).
+  // Datasets remount on each visit so regenerations + WebGL state stay fresh.
+  const [papersVisited, setPapersVisited] = useState(true);
 
   const selectTab = (tab: TabKey) => {
     setActiveTab(tab);
-    setVisited((prev) => (prev[tab] ? prev : { ...prev, [tab]: true }));
+    if (tab === "papers") setPapersVisited(true);
   };
 
   return (
@@ -86,10 +83,10 @@ export default function GraphExplorer() {
 
       <div className="px-3 sm:px-4 pb-4">
         <div className={activeTab === "papers" ? "block" : "hidden"}>
-          {visited.papers && <PaperGalaxyView />}
+          {papersVisited && <PaperGalaxyView />}
         </div>
         <div className={activeTab === "datasets" ? "block" : "hidden"}>
-          {visited.datasets && <DatasetGraphView />}
+          {activeTab === "datasets" && <DatasetGraphView />}
         </div>
       </div>
     </div>

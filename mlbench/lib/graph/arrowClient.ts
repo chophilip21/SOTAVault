@@ -24,7 +24,7 @@ export interface PaperGalaxyPoint {
   z: number;
 }
 
-export type DatasetNodeType = "domain" | "series" | "dataset";
+export type DatasetNodeType = "domain" | "series" | "dataset" | "paper";
 
 export interface DatasetGraphNode {
   nodeId: string;
@@ -33,6 +33,7 @@ export interface DatasetGraphNode {
   label: string;
   domain: string;
   year: number | null;
+  paperCount: number;
   x: number;
   y: number;
   z: number;
@@ -52,12 +53,16 @@ export interface DatasetGraphData {
 /** Arrow int64 columns decode to BigInt64Array; coerce to a plain number (or null). */
 function toNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;
-  if (typeof value === "bigint") return Number(value);
-  return Number(value);
+  if (typeof value === "bigint") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 async function fetchArrayBuffer(url: string, signal?: AbortSignal): Promise<Uint8Array> {
-  const res = await fetch(url, { signal });
+  const res = await fetch(url, { signal, cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Failed to fetch ${url} (HTTP ${res.status})`);
   }
@@ -155,16 +160,18 @@ export async function fetchDatasetGraph(
   const nodeXs = nodesTable.getChild("x")?.toArray() ?? [];
   const nodeYs = nodesTable.getChild("y")?.toArray() ?? [];
   const nodeZs = nodesTable.getChild("z")?.toArray() ?? [];
+  const paperCounts = nodesTable.getChild("paper_count")?.toArray() ?? [];
 
   const nodes: DatasetGraphNode[] = new Array(nodesTable.numRows);
   for (let i = 0; i < nodesTable.numRows; i++) {
     nodes[i] = {
-      nodeId: nodeIds[i],
-      id: entityIds[i],
-      type: nodeTypes[i] as DatasetNodeType,
-      label: labels[i],
-      domain: domains[i] ?? "other",
+      nodeId: String(nodeIds[i]),
+      id: String(entityIds[i]),
+      type: String(nodeTypes[i]) as DatasetNodeType,
+      label: String(labels[i] ?? ""),
+      domain: String(domains[i] ?? "other"),
       year: toNumber(years[i]),
+      paperCount: toNumber(paperCounts[i]) ?? 0,
       x: nodeXs[i] ?? 0,
       y: nodeYs[i] ?? 0,
       z: nodeZs[i] ?? 0,
@@ -178,9 +185,9 @@ export async function fetchDatasetGraph(
   const edges: DatasetGraphEdge[] = new Array(edgesTable.numRows);
   for (let i = 0; i < edgesTable.numRows; i++) {
     edges[i] = {
-      sourceId: sourceIds[i],
-      targetId: targetIds[i],
-      edgeType: edgeTypes[i],
+      sourceId: String(sourceIds[i]),
+      targetId: String(targetIds[i]),
+      edgeType: String(edgeTypes[i]),
     };
   }
 

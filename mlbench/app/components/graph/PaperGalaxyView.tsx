@@ -45,7 +45,8 @@ function computeFitViewState(
     if (p.z > maxZ) maxZ = p.z;
   }
   const maxExtent = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1);
-  const padding = 0.75; // leave room since orbit rotation can reveal the full depth extent
+  // >1 zooms in past a full-frame fit so the cloud feels closer on load.
+  const padding = 1.2;
   const zoom = Math.log2((containerSize / maxExtent) * padding);
   const target: [number, number, number] = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
   return { target, zoom };
@@ -131,11 +132,11 @@ export default function PaperGalaxyView() {
   }
 
   return (
-    <div ref={containerRef} className="relative h-[480px] w-full rounded-lg overflow-hidden bg-[#05060a]">
+    <div ref={containerRef} className="relative h-[480px] w-full rounded-lg overflow-hidden bg-white">
       {!points && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
           <LoadingSpinner size="lg" />
-          <p className="text-gray-300 text-sm">Loading semantic galaxy…</p>
+          <p className="text-gray-500 text-sm">Loading semantic galaxy…</p>
         </div>
       )}
 
@@ -151,13 +152,13 @@ export default function PaperGalaxyView() {
 
       {points && (
         <>
-          <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-xs text-gray-200 pointer-events-none">
+          <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 text-xs text-gray-600 shadow-sm border border-gray-200 pointer-events-none">
             {points.length.toLocaleString()} papers · drag to orbit, scroll to zoom
           </div>
 
-          <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 pointer-events-none max-w-[90%]">
+          <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 shadow-sm border border-gray-200 pointer-events-none max-w-[90%]">
             {legend.map((entry) => (
-              <span key={entry.domain} className="flex items-center gap-1.5 text-[11px] text-gray-200">
+              <span key={entry.domain} className="flex items-center gap-1.5 text-[11px] text-gray-600">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
                 {entry.label}
               </span>

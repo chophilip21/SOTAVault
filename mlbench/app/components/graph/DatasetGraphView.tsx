@@ -1,19 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DeckGL from "@deck.gl/react";
-import {
-  AmbientLight,
-  COORDINATE_SYSTEM,
-  DirectionalLight,
-  LightingEffect,
-  OrbitView,
-  type OrbitViewState,
-} from "@deck.gl/core";
-import { LineLayer } from "@deck.gl/layers";
-import { SimpleMeshLayer } from "@deck.gl/mesh-layers";
-import { SphereGeometry } from "@luma.gl/engine";
+import { COORDINATE_SYSTEM, OrthographicView, type OrthographicViewState } from "@deck.gl/core";
+import { LineLayer, ScatterplotLayer, SolidPolygonLayer, IconLayer } from "@deck.gl/layers";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import {
   fetchDatasetGraph,
@@ -30,113 +21,297 @@ interface HoverInfo {
 }
 
 interface PositionedNode extends DatasetGraphNode {
-  position: [number, number, number];
+  position: [number, number];
+  radius: number;
 }
 
 interface ExpandEdge {
-  source: [number, number, number];
-  target: [number, number, number];
+  source: [number, number];
+  target: [number, number];
+  color: [number, number, number, number];
 }
 
-/** World-space sphere radii (UMAP coords are typically O(10)). */
-const SERIES_RADIUS = 0.45;
-const CHILD_RADIUS = 0.2;
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+interface ChildPolygon {
+  node: PositionedNode;
+  polygon: [number, number, number][];
+  color: [number, number, number, number];
+}
 
-const SPHERE_MESH = new SphereGeometry({
-  radius: 1,
-  nlat: 18,
-  nlong: 18,
-});
+interface PaperMarker {
+  node: PositionedNode;
+  color: [number, number, number, number];
+}
 
-const LIGHTING_EFFECT = new LightingEffect({
-  ambient: new AmbientLight({ color: [255, 255, 255], intensity: 0.55 }),
-  key: new DirectionalLight({
-    color: [255, 255, 255],
-    intensity: 0.95,
-    direction: [-1, -2.5, -1.5],
-  }),
-  fill: new DirectionalLight({
-    color: [200, 220, 255],
-    intensity: 0.35,
-    direction: [1.5, 0.5, 1],
-  }),
-});
-
-const INITIAL_VIEW_STATE: OrbitViewState = {
-  target: [0, 0, 0],
-  zoom: 0,
-  rotationX: 25,
-  rotationOrbit: -35,
-  minZoom: -4,
-  maxZoom: 8,
+const SERIES_RADIUS_MIN = 1.0;
+const SERIES_RADIUS_MAX = 3.2;
+/** Half-side of dataset squares (world units), scaled by paper count. */
+const DATASET_HALF_MIN = 0.35;
+const DATASET_HALF_MAX = 1.1;
+/** Paper triangles stay visually smaller than datasets. */
+const PAPER_HALF_MIN = 0.22;
+const PAPER_HALF_MAX = 0.48;
+/** Extra gap beyond touching so shapes never occlude. */
+const COLLISION_GAP = 0.12;
+/** Soft pack: median NN before collision resolve (keeps similar nodes near). */
+const SOFT_PACK_NN = SERIES_RADIUS_MIN * 1.8;
+/** Largest (center) series size on the default overview — not a full-cloud fit. */
+const OVERVIEW_CENTER_DIAMETER_PX = 100;
+const BACKGROUND_DIM_ALPHA = 55;
+/** How far children sit beyond the parent edge (base + size-scaled). */
+const CHILD_RING_BASE = 2.4;
+const CHILD_RING_PER_SIZE = 6.5;
+/** Papers stay closer to their dataset than datasets do to series. */
+const PAPER_RING_BASE = 1.2;
+const PAPER_RING_PER_SIZE = 3.2;
+/** Expanded ring should fit ~this many pixels across (parent + children). */
+const FOCUS_RING_DIAMETER_PX = 340;
+const PAPER_ICON_SIZE = 64;
+const PAPER_ICON_MAPPING = {
+  triangle: {
+    x: 0,
+    y: 0,
+    width: PAPER_ICON_SIZE,
+    height: PAPER_ICON_SIZE,
+    mask: true,
+  },
 };
 
-/** Place children on a small sphere around the parent series node. */
-function layoutChildrenAroundParent(
-  parent: [number, number, number],
-  children: DatasetGraphNode[],
-): Map<string, [number, number, number]> {
-  const n = children.length;
-  const radius = 1.2 + Math.sqrt(n) * 0.32;
-  const positions = new Map<string, [number, number, number]>();
+/** Build a white triangle atlas in-memory (CSP-safe; no data:/http fetch). */
+function createPaperTriangleAtlas(): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = PAPER_ICON_SIZE;
+  canvas.height = PAPER_ICON_SIZE;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.clearRect(0, 0, PAPER_ICON_SIZE, PAPER_ICON_SIZE);
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.moveTo(32, 6);
+  ctx.lineTo(58, 56);
+  ctx.lineTo(6, 56);
+  ctx.closePath();
+  ctx.fill();
+  return canvas;
+}
 
-  children.forEach((child, i) => {
-    if (n === 1) {
-      positions.set(child.nodeId, [parent[0] + radius, parent[1], parent[2]]);
-      return;
+const INITIAL_VIEW_STATE: OrthographicViewState = {
+  target: [0, 0, 0],
+  zoom: 0,
+  minZoom: -2,
+  maxZoom: 12,
+};
+
+function seriesRadiusForPaperCount(paperCount: number, maxPaperCount: number): number {
+  if (maxPaperCount <= 0) return SERIES_RADIUS_MIN;
+  const t = Math.sqrt(Math.max(0, paperCount) / maxPaperCount);
+  return SERIES_RADIUS_MIN + (SERIES_RADIUS_MAX - SERIES_RADIUS_MIN) * t;
+}
+
+function scaleHalf(
+  weight: number,
+  maxWeight: number,
+  minHalf: number,
+  maxHalf: number,
+): number {
+  if (maxWeight <= 0) return minHalf;
+  const t = Math.sqrt(Math.max(0, weight) / maxWeight);
+  return minHalf + (maxHalf - minHalf) * t;
+}
+
+function squarePolygon(cx: number, cy: number, half: number): [number, number, number][] {
+  return [
+    [cx - half, cy - half, 0],
+    [cx + half, cy - half, 0],
+    [cx + half, cy + half, 0],
+    [cx - half, cy + half, 0],
+  ];
+}
+
+/** OrthographicView: world units × 2^zoom ≈ screen pixels. */
+function zoomForWorldDiameter(worldRadius: number, targetDiameterPx: number): number {
+  const worldDiameter = 2 * Math.max(worldRadius, 1e-6);
+  return Math.log2(targetDiameterPx / worldDiameter);
+}
+
+/**
+ * Soft rescale so typical neighbors sit near each other (UMAP relative layout kept).
+ */
+function rescalePositionsForSeparation(
+  raw: Map<string, [number, number]>,
+  targetNnSeparation: number,
+): Map<string, [number, number]> {
+  const entries = Array.from(raw.entries());
+  if (entries.length < 2) return raw;
+
+  const pts = entries.map(([, p]) => p);
+  const sampleStep = Math.max(1, Math.floor(pts.length / 400));
+  const nnDists: number[] = [];
+  for (let i = 0; i < pts.length; i += sampleStep) {
+    const a = pts[i];
+    let best = Infinity;
+    for (let j = 0; j < pts.length; j++) {
+      if (j === i) continue;
+      const b = pts[j];
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      if (d > 1e-9 && d < best) best = d;
     }
-    const y = 1 - (i / (n - 1)) * 2;
-    const rAtY = Math.sqrt(Math.max(0, 1 - y * y));
-    const theta = GOLDEN_ANGLE * i;
-    positions.set(child.nodeId, [
-      parent[0] + radius * rAtY * Math.cos(theta),
-      parent[1] + radius * y,
-      parent[2] + radius * rAtY * Math.sin(theta),
-    ]);
-  });
+    if (Number.isFinite(best)) nnDists.push(best);
+  }
+  if (nnDists.length === 0) return raw;
+  nnDists.sort((a, b) => a - b);
+  const medianNn = nnDists[Math.floor(nnDists.length / 2)] || 1;
+  const scale = targetNnSeparation / medianNn;
 
+  let cx = 0;
+  let cy = 0;
+  for (const p of pts) {
+    cx += p[0];
+    cy += p[1];
+  }
+  cx /= pts.length;
+  cy /= pts.length;
+
+  const out = new Map<string, [number, number]>();
+  for (const [id, p] of entries) {
+    out.set(id, [cx + (p[0] - cx) * scale, cy + (p[1] - cy) * scale]);
+  }
+  return out;
+}
+
+/**
+ * Iteratively push overlapping circles apart using each node's radius so
+ * no two disks occlude (centers stay ≥ r_i + r_j + gap apart).
+ */
+function resolveCollisions(
+  positions: Map<string, [number, number]>,
+  radii: Map<string, number>,
+  gap = COLLISION_GAP,
+  iterations = 50,
+): Map<string, [number, number]> {
+  const ids = Array.from(positions.keys());
+  const pos = new Map(positions);
+  for (let iter = 0; iter < iterations; iter++) {
+    let moved = false;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const idA = ids[i];
+        const idB = ids[j];
+        const pa = pos.get(idA)!;
+        const pb = pos.get(idB)!;
+        const minDist = (radii.get(idA) ?? 0) + (radii.get(idB) ?? 0) + gap;
+        let dx = pb[0] - pa[0];
+        let dy = pb[1] - pa[1];
+        let dist = Math.hypot(dx, dy);
+        if (dist < 1e-9) {
+          const angle = (i * 12.9898 + j * 78.233) % (Math.PI * 2);
+          dx = Math.cos(angle);
+          dy = Math.sin(angle);
+          dist = 1;
+        }
+        if (dist >= minDist) continue;
+        const push = (minDist - dist) / 2;
+        const ux = dx / dist;
+        const uy = dy / dist;
+        pos.set(idA, [pa[0] - ux * push, pa[1] - uy * push]);
+        pos.set(idB, [pb[0] + ux * push, pb[1] + uy * push]);
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  return pos;
+}
+
+/** Translate so ``centerId`` sits at the origin. */
+function centerOnNode(
+  positions: Map<string, [number, number]>,
+  centerId: string | null,
+): Map<string, [number, number]> {
+  if (!centerId) return positions;
+  const origin = positions.get(centerId);
+  if (!origin) return positions;
+  const [ox, oy] = origin;
+  const out = new Map<string, [number, number]>();
+  for (const [id, [x, y]] of positions) {
+    out.set(id, [x - ox, y - oy]);
+  }
+  return out;
+}
+
+/**
+ * Place children in a full circle around the parent (always 360°).
+ * Angular wedges are proportional to child size; larger children also sit
+ * farther out — minimizes overlap without clustering when n is small.
+ */
+function layoutChildrenAroundParent(
+  parent: [number, number],
+  parentRadius: number,
+  children: DatasetGraphNode[],
+  halves: Map<string, number>,
+  ringBase = CHILD_RING_BASE,
+  ringPerSize = CHILD_RING_PER_SIZE,
+): Map<string, [number, number]> {
+  const n = children.length;
+  const positions = new Map<string, [number, number]>();
+  if (n === 0) return positions;
+
+  const sizes = children.map((c) => {
+    const half = halves.get(c.nodeId) ?? DATASET_HALF_MIN;
+    return Number.isFinite(half) ? half : DATASET_HALF_MIN;
+  });
+  const weights = sizes.map((h) => Math.max(h, 1e-3));
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+
+  // Evenly cover the full circle; start at top.
+  let angle = -Math.PI / 2;
+  for (let i = 0; i < n; i++) {
+    const sweep = (2 * Math.PI * weights[i]) / totalWeight;
+    angle += sweep / 2;
+    const half = sizes[i];
+    const r =
+      parentRadius +
+      half * Math.SQRT2 +
+      COLLISION_GAP * 2 +
+      ringBase +
+      half * ringPerSize;
+    positions.set(children[i].nodeId, [
+      parent[0] + r * Math.cos(angle),
+      parent[1] + r * Math.sin(angle),
+    ]);
+    angle += sweep / 2;
+  }
   return positions;
 }
 
-function computeFitViewState(
-  positions: Iterable<[number, number, number]>,
-  containerSize: number,
-): Pick<OrbitViewState, "target" | "zoom"> {
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  let minZ = Infinity;
-  let maxZ = -Infinity;
-  let count = 0;
-  for (const [x, y, z] of positions) {
-    count += 1;
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-    if (z < minZ) minZ = z;
-    if (z > maxZ) maxZ = z;
+/** Farthest reach from parent center needed to frame parent + children. */
+function ringExtentRadius(
+  parent: [number, number],
+  parentRadius: number,
+  children: Array<{ position: [number, number]; radius: number }>,
+): number {
+  let extent = parentRadius;
+  for (const child of children) {
+    const reach =
+      Math.hypot(child.position[0] - parent[0], child.position[1] - parent[1]) +
+      child.radius;
+    if (reach > extent) extent = reach;
   }
-  if (count === 0) return { target: [0, 0, 0], zoom: 0 };
-  const maxExtent = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1);
-  const zoom = Math.log2((containerSize / maxExtent) * 0.7);
-  return {
-    target: [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2],
-    zoom,
-  };
+  return extent;
 }
 
 export default function DatasetGraphView() {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const overviewFitRef = useRef<Pick<OrthographicViewState, "target" | "zoom"> | null>(null);
   const [graph, setGraph] = useState<DatasetGraphData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
-  const [viewState, setViewState] = useState<OrbitViewState>(INITIAL_VIEW_STATE);
+  const [viewState, setViewState] = useState<OrthographicViewState>(INITIAL_VIEW_STATE);
   const [expandedSeriesId, setExpandedSeriesId] = useState<string | null>(null);
+  const [expandedDatasetId, setExpandedDatasetId] = useState<string | null>(null);
+  const paperIconAtlas = useMemo(() => createPaperTriangleAtlas(), []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -147,14 +322,6 @@ export default function DatasetGraphView() {
         const url = `${getBackendBaseUrl()}/graph/datasets`;
         const data = await fetchDatasetGraph(url, controller.signal);
         setGraph(data);
-
-        const seriesPositions = data.nodes
-          .filter((n) => n.type === "series")
-          .map((n): [number, number, number] => [n.x, n.y, n.z]);
-        const rect = containerRef.current?.getBoundingClientRect();
-        const containerSize = Math.min(rect?.width || 480, rect?.height || 480);
-        const fit = computeFitViewState(seriesPositions, containerSize);
-        setViewState((vs) => ({ ...vs, ...fit }));
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== "AbortError") {
           setError(err.message || "Failed to load the dataset graph.");
@@ -170,23 +337,105 @@ export default function DatasetGraphView() {
     [graph],
   );
 
-  const seriesPositions = useMemo(() => {
-    const map = new Map<string, [number, number, number]>();
+  const datasetNodes = useMemo(
+    () => (graph ? graph.nodes.filter((n) => n.type === "dataset") : []),
+    [graph],
+  );
+
+  const paperNodes = useMemo(
+    () => (graph ? graph.nodes.filter((n) => n.type === "paper") : []),
+    [graph],
+  );
+
+  const maxSeriesPaperCount = useMemo(
+    () => seriesNodes.reduce((m, n) => Math.max(m, n.paperCount || 0), 0),
+    [seriesNodes],
+  );
+
+  const maxDatasetPaperCount = useMemo(
+    () => datasetNodes.reduce((m, n) => Math.max(m, n.paperCount || 0), 0),
+    [datasetNodes],
+  );
+
+  const maxPaperScore = useMemo(
+    () => paperNodes.reduce((m, n) => Math.max(m, n.paperCount || 0), 0),
+    [paperNodes],
+  );
+
+  const seriesRadii = useMemo(() => {
+    const map = new Map<string, number>();
     for (const node of seriesNodes) {
-      map.set(node.nodeId, [node.x, node.y, node.z]);
+      map.set(node.nodeId, seriesRadiusForPaperCount(node.paperCount, maxSeriesPaperCount));
     }
     return map;
-  }, [seriesNodes]);
+  }, [seriesNodes, maxSeriesPaperCount]);
+
+  const seriesPositions = useMemo(() => {
+    const raw = new Map<string, [number, number]>();
+    for (const node of seriesNodes) {
+      raw.set(node.nodeId, [node.x, node.y]);
+    }
+    const softPacked = rescalePositionsForSeparation(raw, SOFT_PACK_NN);
+    const separated = resolveCollisions(softPacked, seriesRadii);
+
+    let centerId: string | null = null;
+    let bestCount = -1;
+    for (const node of seriesNodes) {
+      const count = node.paperCount || 0;
+      if (count > bestCount) {
+        bestCount = count;
+        centerId = node.nodeId;
+      }
+    }
+    return centerOnNode(separated, centerId);
+  }, [seriesNodes, seriesRadii]);
+
+  useEffect(() => {
+    if (seriesPositions.size === 0) return;
+    const overview = {
+      target: [0, 0, 0] as [number, number, number],
+      zoom: zoomForWorldDiameter(SERIES_RADIUS_MAX, OVERVIEW_CENTER_DIAMETER_PX),
+    };
+    overviewFitRef.current = overview;
+    if (!expandedSeriesId) {
+      setViewState((vs) => ({ ...vs, ...overview }));
+    }
+  }, [seriesPositions, expandedSeriesId]);
+
+  const resetToOverview = useCallback(() => {
+    setExpandedSeriesId(null);
+    setExpandedDatasetId(null);
+    setHover(null);
+    if (overviewFitRef.current) {
+      setViewState((vs) => ({ ...vs, ...overviewFitRef.current! }));
+    }
+  }, []);
 
   const childrenBySeries = useMemo(() => {
     const map = new Map<string, DatasetGraphNode[]>();
     if (!graph) return map;
     const nodeById = new Map(graph.nodes.map((n) => [n.nodeId, n]));
     for (const edge of graph.edges) {
-      if (edge.edgeType !== "series_dataset") continue;
+      if (String(edge.edgeType) !== "series_dataset") continue;
       const parent = nodeById.get(edge.sourceId);
       const child = nodeById.get(edge.targetId);
       if (!parent || parent.type !== "series" || !child || child.type !== "dataset") continue;
+      const list = map.get(parent.nodeId);
+      if (list) list.push(child);
+      else map.set(parent.nodeId, [child]);
+    }
+    return map;
+  }, [graph]);
+
+  const papersByDataset = useMemo(() => {
+    const map = new Map<string, DatasetGraphNode[]>();
+    if (!graph) return map;
+    const nodeById = new Map(graph.nodes.map((n) => [n.nodeId, n]));
+    for (const edge of graph.edges) {
+      if (String(edge.edgeType) !== "dataset_paper") continue;
+      const parent = nodeById.get(String(edge.sourceId));
+      const child = nodeById.get(String(edge.targetId));
+      if (!parent || parent.type !== "dataset" || !child || child.type !== "paper") continue;
       const list = map.get(parent.nodeId);
       if (list) list.push(child);
       else map.set(parent.nodeId, [child]);
@@ -198,71 +447,206 @@ export default function DatasetGraphView() {
     () =>
       seriesNodes.map((node) => ({
         ...node,
-        position: seriesPositions.get(node.nodeId) ?? [node.x, node.y, node.z],
+        position: seriesPositions.get(node.nodeId) ?? [node.x, node.y],
+        radius: seriesRadii.get(node.nodeId) ?? SERIES_RADIUS_MIN,
       })),
-    [seriesNodes, seriesPositions],
+    [seriesNodes, seriesPositions, seriesRadii],
   );
 
-  const { childNodes, expandEdges } = useMemo(() => {
-    const children: PositionedNode[] = [];
+  const backgroundSeries = useMemo(
+    () =>
+      expandedSeriesId
+        ? positionedSeries.filter((n) => n.nodeId !== expandedSeriesId)
+        : positionedSeries,
+    [positionedSeries, expandedSeriesId],
+  );
+
+  const expandedParent = useMemo(
+    () =>
+      expandedSeriesId
+        ? positionedSeries.find((n) => n.nodeId === expandedSeriesId) ?? null
+        : null,
+    [positionedSeries, expandedSeriesId],
+  );
+
+  const { datasetSquares, datasetEdges, datasetPositions } = useMemo(() => {
+    const squares: ChildPolygon[] = [];
     const edges: ExpandEdge[] = [];
-    if (!expandedSeriesId) return { childNodes: children, expandEdges: edges };
+    const positions = new Map<string, PositionedNode>();
+    if (!expandedSeriesId || !expandedParent) {
+      return { datasetSquares: squares, datasetEdges: edges, datasetPositions: positions };
+    }
 
-    const parentPos = seriesPositions.get(expandedSeriesId);
+    const parentPos = expandedParent.position;
+    const motherColor = getDomainColorRgb(expandedParent.domain, 255);
+    const edgeColor: [number, number, number, number] = [
+      motherColor[0],
+      motherColor[1],
+      motherColor[2],
+      220,
+    ];
     const kids = childrenBySeries.get(expandedSeriesId) ?? [];
-    if (!parentPos || kids.length === 0) return { childNodes: children, expandEdges: edges };
+    if (kids.length === 0) {
+      return { datasetSquares: squares, datasetEdges: edges, datasetPositions: positions };
+    }
 
-    const childPositions = layoutChildrenAroundParent(parentPos, kids);
+    const halves = new Map<string, number>();
+    for (const child of kids) {
+      halves.set(
+        child.nodeId,
+        scaleHalf(child.paperCount || 0, maxDatasetPaperCount, DATASET_HALF_MIN, DATASET_HALF_MAX),
+      );
+    }
+
+    const childPositions = layoutChildrenAroundParent(
+      parentPos,
+      expandedParent.radius,
+      kids,
+      halves,
+    );
     for (const child of kids) {
       const position = childPositions.get(child.nodeId) ?? parentPos;
-      children.push({ ...child, position });
-      edges.push({ source: parentPos, target: position });
+      const half = halves.get(child.nodeId) ?? DATASET_HALF_MIN;
+      const positioned: PositionedNode = { ...child, position, radius: half };
+      positions.set(child.nodeId, positioned);
+      const dimmed =
+        expandedDatasetId != null && expandedDatasetId !== child.nodeId;
+      squares.push({
+        node: positioned,
+        polygon: squarePolygon(position[0], position[1], half),
+        color: getDomainColorRgb(expandedParent.domain, dimmed ? 100 : 255),
+      });
+      edges.push({ source: parentPos, target: position, color: edgeColor });
     }
-    return { childNodes: children, expandEdges: edges };
-  }, [expandedSeriesId, seriesPositions, childrenBySeries]);
+    return { datasetSquares: squares, datasetEdges: edges, datasetPositions: positions };
+  }, [
+    expandedSeriesId,
+    expandedParent,
+    childrenBySeries,
+    maxDatasetPaperCount,
+    expandedDatasetId,
+  ]);
+
+  const { paperMarkers, paperEdges } = useMemo(() => {
+    const markers: PaperMarker[] = [];
+    const edges: ExpandEdge[] = [];
+    if (!expandedDatasetId) return { paperMarkers: markers, paperEdges: edges };
+
+    const parent = datasetPositions.get(expandedDatasetId);
+    if (!parent) return { paperMarkers: markers, paperEdges: edges };
+
+    const motherColor = getDomainColorRgb(parent.domain, 255);
+    const edgeColor: [number, number, number, number] = [
+      motherColor[0],
+      motherColor[1],
+      motherColor[2],
+      200,
+    ];
+    const kids = papersByDataset.get(expandedDatasetId) ?? [];
+    if (kids.length === 0) return { paperMarkers: markers, paperEdges: edges };
+
+    const halves = new Map<string, number>();
+    for (const child of kids) {
+      const half = scaleHalf(
+        child.paperCount || 0,
+        maxPaperScore,
+        PAPER_HALF_MIN,
+        PAPER_HALF_MAX,
+      );
+      halves.set(child.nodeId, Number.isFinite(half) ? half : PAPER_HALF_MIN);
+    }
+
+    const childPositions = layoutChildrenAroundParent(
+      parent.position,
+      parent.radius,
+      kids,
+      halves,
+      PAPER_RING_BASE,
+      PAPER_RING_PER_SIZE,
+    );
+    for (const child of kids) {
+      const position = childPositions.get(child.nodeId) ?? parent.position;
+      const half = halves.get(child.nodeId) ?? PAPER_HALF_MIN;
+      if (!Number.isFinite(position[0]) || !Number.isFinite(position[1])) continue;
+      const positioned: PositionedNode = { ...child, position, radius: half };
+      markers.push({ node: positioned, color: motherColor });
+      edges.push({ source: parent.position, target: position, color: edgeColor });
+    }
+    return { paperMarkers: markers, paperEdges: edges };
+  }, [expandedDatasetId, datasetPositions, papersByDataset, maxPaperScore]);
+
+  useEffect(() => {
+    if (!expandedSeriesId) {
+      setExpandedDatasetId(null);
+      if (overviewFitRef.current) {
+        setViewState((vs) => ({ ...vs, ...overviewFitRef.current! }));
+      }
+      return;
+    }
+
+    if (expandedDatasetId) {
+      const ds = datasetPositions.get(expandedDatasetId);
+      if (!ds) return;
+      const paperChildren = paperMarkers.map((p) => ({
+        position: p.node.position,
+        radius: p.node.radius,
+      }));
+      const extent = ringExtentRadius(ds.position, ds.radius, paperChildren);
+      setViewState((vs) => ({
+        ...vs,
+        target: [ds.position[0], ds.position[1], 0],
+        zoom: zoomForWorldDiameter(extent, FOCUS_RING_DIAMETER_PX),
+      }));
+      return;
+    }
+
+    const parentPos = seriesPositions.get(expandedSeriesId);
+    const parentRadius = seriesRadii.get(expandedSeriesId) ?? SERIES_RADIUS_MIN;
+    if (!parentPos) return;
+    const datasetChildren = datasetSquares.map((d) => ({
+      position: d.node.position,
+      radius: d.node.radius,
+    }));
+    const extent = ringExtentRadius(parentPos, parentRadius, datasetChildren);
+    setViewState((vs) => ({
+      ...vs,
+      target: [parentPos[0], parentPos[1], 0],
+      zoom: zoomForWorldDiameter(extent, FOCUS_RING_DIAMETER_PX),
+    }));
+  }, [
+    expandedSeriesId,
+    expandedDatasetId,
+    seriesPositions,
+    seriesRadii,
+    datasetPositions,
+    datasetSquares,
+    paperMarkers,
+  ]);
 
   const layers = useMemo(() => {
     if (!graph) return [];
 
     const layersOut = [];
-
-    if (expandEdges.length > 0) {
-      layersOut.push(
-        new LineLayer<ExpandEdge>({
-          id: "dataset-expand-edges",
-          data: expandEdges,
-          coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-          getSourcePosition: (d) => d.source,
-          getTargetPosition: (d) => d.target,
-          getColor: [148, 163, 184, 170],
-          getWidth: 1.5,
-          widthUnits: "pixels",
-          pickable: false,
-        }),
-      );
-    }
+    const dimmed = Boolean(expandedSeriesId);
 
     layersOut.push(
-      new SimpleMeshLayer<PositionedNode>({
-        id: "dataset-series-spheres",
-        data: positionedSeries,
-        mesh: SPHERE_MESH,
+      new ScatterplotLayer<PositionedNode>({
+        id: "dataset-series-background",
+        data: backgroundSeries,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getPosition: (d) => d.position,
-        getColor: (d) =>
-          getDomainColorRgb(d.domain, d.nodeId === expandedSeriesId ? 255 : 220),
-        getScale: [SERIES_RADIUS, SERIES_RADIUS, SERIES_RADIUS],
-        material: {
-          ambient: 0.4,
-          diffuse: 0.7,
-          shininess: 32,
-          specularColor: [255, 255, 255],
-        },
+        getPosition: (d) => [...d.position, 0],
+        getRadius: (d) => d.radius,
+        radiusUnits: "common",
+        getFillColor: (d) =>
+          getDomainColorRgb(d.domain, dimmed ? BACKGROUND_DIM_ALPHA : 230),
+        stroked: false,
+        filled: true,
         pickable: true,
         autoHighlight: true,
         highlightColor: [255, 255, 255, 200],
         updateTriggers: {
-          getColor: expandedSeriesId,
+          getFillColor: expandedSeriesId,
+          getRadius: maxSeriesPaperCount,
         },
         onHover: (info) => {
           if (info.object) {
@@ -273,31 +657,89 @@ export default function DatasetGraphView() {
         },
         onClick: (info) => {
           if (!info.object) return;
-          const node = info.object as PositionedNode;
-          setExpandedSeriesId((prev) => (prev === node.nodeId ? null : node.nodeId));
+          const id = (info.object as PositionedNode).nodeId;
+          setExpandedDatasetId(null);
+          setExpandedSeriesId(id);
         },
       }),
     );
 
-    if (childNodes.length > 0) {
+    const allEdges = [...datasetEdges, ...paperEdges];
+    if (allEdges.length > 0) {
       layersOut.push(
-        new SimpleMeshLayer<PositionedNode>({
-          id: "dataset-child-spheres",
-          data: childNodes,
-          mesh: SPHERE_MESH,
+        new LineLayer<ExpandEdge>({
+          id: "dataset-expand-edges",
+          data: allEdges,
           coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-          getPosition: (d) => d.position,
-          getColor: (d) => getDomainColorRgb(d.domain, 235),
-          getScale: [CHILD_RADIUS, CHILD_RADIUS, CHILD_RADIUS],
-          material: {
-            ambient: 0.35,
-            diffuse: 0.75,
-            shininess: 24,
-            specularColor: [255, 255, 255],
+          getSourcePosition: (d) => [...d.source, 0],
+          getTargetPosition: (d) => [...d.target, 0],
+          getColor: (d) => d.color,
+          getWidth: 2.5,
+          widthUnits: "pixels",
+          pickable: false,
+          updateTriggers: {
+            getColor: `${expandedSeriesId}:${expandedDatasetId}`,
           },
+        }),
+      );
+    }
+
+    if (datasetSquares.length > 0) {
+      layersOut.push(
+        new SolidPolygonLayer<ChildPolygon>({
+          id: "dataset-child-squares",
+          data: datasetSquares,
+          coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+          getPolygon: (d) => d.polygon,
+          getFillColor: (d) => d.color,
+          stroked: false,
+          filled: true,
           pickable: true,
           autoHighlight: true,
-          highlightColor: [255, 255, 255, 200],
+          highlightColor: [255, 255, 255, 230],
+          updateTriggers: {
+            getFillColor: `${expandedSeriesId}:${expandedDatasetId}`,
+            getPolygon: maxDatasetPaperCount,
+          },
+          onHover: (info) => {
+            if (info.object) {
+              setHover({
+                node: (info.object as ChildPolygon).node,
+                x: info.x,
+                y: info.y,
+              });
+            } else {
+              setHover(null);
+            }
+          },
+          onClick: (info) => {
+            if (!info.object) return;
+            const node = (info.object as ChildPolygon).node;
+            setExpandedDatasetId((prev) => (prev === node.nodeId ? null : node.nodeId));
+          },
+        }),
+      );
+    }
+
+    // Series parent under papers so the paper ring is never covered.
+    if (expandedParent) {
+      layersOut.push(
+        new ScatterplotLayer<PositionedNode>({
+          id: "dataset-expanded-parent",
+          data: [expandedParent],
+          coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+          getPosition: (d) => [...d.position, 0],
+          getRadius: (d) => d.radius,
+          radiusUnits: "common",
+          getFillColor: (d) => getDomainColorRgb(d.domain, 255),
+          stroked: false,
+          filled: true,
+          pickable: true,
+          autoHighlight: true,
+          highlightColor: [255, 255, 255, 220],
+          updateTriggers: {
+            getFillColor: expandedSeriesId,
+          },
           onHover: (info) => {
             if (info.object) {
               setHover({ node: info.object, x: info.x, y: info.y });
@@ -305,21 +747,112 @@ export default function DatasetGraphView() {
               setHover(null);
             }
           },
-          onClick: (info) => {
-            if (!info.object) return;
-            const node = info.object as PositionedNode;
-            router.push(`/datasets/${node.id}`);
+          onClick: () => {
+            setExpandedDatasetId(null);
+            setExpandedSeriesId(null);
           },
         }),
       );
     }
 
+    if (paperMarkers.length > 0 && paperIconAtlas) {
+      layersOut.push(
+        new IconLayer<PaperMarker>({
+          id: "dataset-paper-triangles",
+          data: paperMarkers,
+          coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+          iconAtlas: paperIconAtlas,
+          iconMapping: PAPER_ICON_MAPPING,
+          getPosition: (d) => [...d.node.position, 0],
+          getIcon: () => "triangle",
+          getSize: (d) => d.node.radius * 2,
+          sizeUnits: "common",
+          getColor: (d) => d.color,
+          pickable: true,
+          autoHighlight: true,
+          highlightColor: [255, 255, 255, 230],
+          updateTriggers: {
+            getColor: expandedDatasetId,
+            getSize: maxPaperScore,
+          },
+          onHover: (info) => {
+            if (info.object) {
+              setHover({
+                node: (info.object as PaperMarker).node,
+                x: info.x,
+                y: info.y,
+              });
+            } else {
+              setHover(null);
+            }
+          },
+          onClick: (info) => {
+            if (!info.object) return;
+            router.push(`/papers/${(info.object as PaperMarker).node.id}`);
+          },
+        }),
+      );
+    }
+
+    // Focused dataset on top of its papers so click can collapse the paper ring.
+    if (expandedDatasetId) {
+      const focused = datasetSquares.find((d) => d.node.nodeId === expandedDatasetId);
+      if (focused) {
+        layersOut.push(
+          new SolidPolygonLayer<ChildPolygon>({
+            id: "dataset-expanded-dataset",
+            data: [focused],
+            coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+            getPolygon: (d) => d.polygon,
+            getFillColor: (d) => d.color,
+            stroked: false,
+            filled: true,
+            pickable: true,
+            autoHighlight: true,
+            highlightColor: [255, 255, 255, 230],
+            onHover: (info) => {
+              if (info.object) {
+                setHover({
+                  node: (info.object as ChildPolygon).node,
+                  x: info.x,
+                  y: info.y,
+                });
+              } else {
+                setHover(null);
+              }
+            },
+            onClick: () => setExpandedDatasetId(null),
+          }),
+        );
+      }
+    }
+
     return layersOut;
-  }, [graph, positionedSeries, childNodes, expandEdges, expandedSeriesId, router]);
+  }, [
+    graph,
+    backgroundSeries,
+    expandedParent,
+    datasetSquares,
+    datasetEdges,
+    paperMarkers,
+    paperEdges,
+    paperIconAtlas,
+    expandedSeriesId,
+    expandedDatasetId,
+    maxSeriesPaperCount,
+    maxDatasetPaperCount,
+    maxPaperScore,
+    router,
+  ]);
 
   const legend = useMemo(() => getDomainLegendEntries(), []);
   const seriesCount = seriesNodes.length;
-  const expandedChildCount = childNodes.length;
+  const paperNodeCount = paperNodes.length;
+  const expandedDatasetCount = datasetSquares.length;
+  const expandedPaperCount = paperMarkers.length;
+  const linkedPaperCount = expandedDatasetId
+    ? (papersByDataset.get(expandedDatasetId)?.length ?? 0)
+    : 0;
 
   if (error) {
     return (
@@ -332,44 +865,66 @@ export default function DatasetGraphView() {
   }
 
   return (
-    <div ref={containerRef} className="relative h-[480px] w-full rounded-lg overflow-hidden bg-[#05060a]">
+    <div ref={containerRef} className="relative h-[480px] w-full rounded-lg overflow-hidden bg-white">
       {!graph && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
           <LoadingSpinner size="lg" />
-          <p className="text-gray-300 text-sm">Loading dataset graph…</p>
+          <p className="text-gray-500 text-sm">Loading dataset graph…</p>
         </div>
       )}
 
       {graph && (
         <DeckGL
-          views={new OrbitView()}
+          views={new OrthographicView({ flipY: false })}
           viewState={viewState}
-          onViewStateChange={({ viewState: vs }) => setViewState(vs as OrbitViewState)}
+          onViewStateChange={({ viewState: vs }) => setViewState(vs as OrthographicViewState)}
           controller={true}
-          effects={[LIGHTING_EFFECT]}
           layers={layers}
         />
       )}
 
       {graph && (
         <>
-          <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-xs text-gray-200 pointer-events-none">
+          <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 text-xs text-gray-600 shadow-sm border border-gray-200 pointer-events-none">
             {seriesCount.toLocaleString()} series
+            {paperNodeCount > 0 ? ` · ${paperNodeCount.toLocaleString()} papers in graph` : ""}
             {expandedSeriesId
-              ? ` · ${expandedChildCount.toLocaleString()} datasets expanded`
+              ? ` · ${expandedDatasetCount.toLocaleString()} datasets`
               : " · click a series to expand"}
-            {" · drag to orbit"}
+            {expandedDatasetId
+              ? linkedPaperCount > 0
+                ? ` · ${expandedPaperCount.toLocaleString()} papers`
+                : " · no linked papers for this dataset"
+              : expandedSeriesId
+                ? " · click a dataset for papers"
+                : ""}
+            {" · drag to pan, scroll to zoom"}
           </div>
 
-          <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 pointer-events-none max-w-[90%]">
+          <button
+            type="button"
+            onClick={resetToOverview}
+            className="absolute top-3 right-3 z-10 rounded-lg border border-gray-200 bg-white/90 px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm backdrop-blur-sm hover:bg-white hover:text-gray-900"
+          >
+            Reset view
+          </button>
+
+          <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 shadow-sm border border-gray-200 pointer-events-none max-w-[90%]">
             {legend.map((entry) => (
-              <span key={entry.domain} className="flex items-center gap-1.5 text-[11px] text-gray-200">
+              <span key={entry.domain} className="flex items-center gap-1.5 text-[11px] text-gray-600">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
                 {entry.label}
               </span>
             ))}
-            <span className="flex items-center gap-1.5 text-[11px] text-gray-400 ml-1">
-              large = series · small = dataset
+            <span className="flex items-center gap-1.5 text-[11px] text-gray-500 ml-1">
+              <span className="w-2.5 h-2.5 rounded-sm bg-gray-400" />
+              dataset
+            </span>
+            <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
+              <span
+                className="inline-block w-0 h-0 border-l-[5px] border-r-[5px] border-b-[9px] border-l-transparent border-r-transparent border-b-gray-400"
+              />
+              paper
             </span>
           </div>
         </>
@@ -382,7 +937,14 @@ export default function DatasetGraphView() {
         >
           <p className="font-semibold line-clamp-2 mb-1">{hover.node.label}</p>
           <p className="text-gray-400 capitalize">
-            {hover.node.type === "series" ? "dataset series" : "dataset"}
+            {hover.node.type === "series"
+              ? "dataset series"
+              : hover.node.type === "dataset"
+                ? "dataset"
+                : "paper"}
+            {hover.node.type === "series" || hover.node.type === "dataset"
+              ? ` · ${(hover.node.paperCount || 0).toLocaleString()} papers`
+              : ""}
             {hover.node.year ? ` · ${hover.node.year}` : ""}
             {hover.node.type === "series" && expandedSeriesId !== hover.node.nodeId
               ? " · click to expand"
@@ -390,7 +952,13 @@ export default function DatasetGraphView() {
             {hover.node.type === "series" && expandedSeriesId === hover.node.nodeId
               ? " · click to collapse"
               : ""}
-            {hover.node.type === "dataset" ? " · click to open" : ""}
+            {hover.node.type === "dataset" && expandedDatasetId !== hover.node.nodeId
+              ? " · click for papers"
+              : ""}
+            {hover.node.type === "dataset" && expandedDatasetId === hover.node.nodeId
+              ? " · click to collapse papers"
+              : ""}
+            {hover.node.type === "paper" ? " · click to open" : ""}
           </p>
         </div>
       )}
