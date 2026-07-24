@@ -65,23 +65,28 @@ const BACKGROUND_DIM_ALPHA = 55;
 /** How far children sit beyond the parent edge (base + size-scaled). */
 const CHILD_RING_BASE = 2.4;
 const CHILD_RING_PER_SIZE = 6.5;
-/** Papers stay close to the dataset so deep zoom still keeps them on-screen. */
-const PAPER_RING_BASE = 0.18;
-const PAPER_RING_PER_SIZE = 0.85;
-/** Cap paper orbit at this multiple of the dataset half-size. */
-const PAPER_RING_MAX_PARENT_SCALE = 2.15;
+/** Papers: vary edge length by size so neighbors don’t stack on one ring. */
+const PAPER_RING_BASE = 0.55;
+const PAPER_RING_PER_SIZE = 2.8;
 /** Series expand: fit parent + dataset ring across this many pixels. */
 const SERIES_FOCUS_DIAMETER_PX = 340;
 /**
- * Dataset expand: zoom so the dataset square itself is about this wide —
- * "inside" the node so paper triangles read at a usable size.
+ * Dataset expand: frame dataset + paper ring only (not the parent series).
+ * Including distance-to-parent made zoom ≈ series-fan zoom, so clicks felt
+ * like a no-op. Parent may sit near/off the edge; papers stay readable.
  */
-const DATASET_INSIDE_DIAMETER_PX = 300;
+const DATASET_FOCUS_DIAMETER_PX = 360;
 /** Camera ease when changing focus. */
 const FOCUS_TRANSITION_MS = 320;
+/** Must interpolate zoomX/zoomY too — otherwise OrthographicController ignores the transition. */
 const FOCUS_TRANSITION = {
   transitionDuration: FOCUS_TRANSITION_MS,
-  transitionInterpolator: new LinearInterpolator(["target", "zoom"]),
+  transitionInterpolator: new LinearInterpolator([
+    "target",
+    "zoom",
+    "zoomX",
+    "zoomY",
+  ]),
 };
 const PAPER_ICON_SIZE = 64;
 const PAPER_ICON_MAPPING = {
@@ -700,8 +705,21 @@ export default function DatasetGraphView() {
       halves,
       PAPER_RING_BASE,
       PAPER_RING_PER_SIZE,
-      parent.radius * PAPER_RING_MAX_PARENT_SCALE,
     );
+    // Alternate edge lengths slightly so similar-sized papers don’t pile up.
+    kids.forEach((child, i) => {
+      const pos = childPositions.get(child.nodeId);
+      if (!pos) return;
+      const dx = pos[0] - parent.position[0];
+      const dy = pos[1] - parent.position[1];
+      const r = Math.hypot(dx, dy);
+      if (r < 1e-9) return;
+      const stagger = 1 + ((i % 3) - 1) * 0.22;
+      childPositions.set(child.nodeId, [
+        parent.position[0] + (dx / r) * r * stagger,
+        parent.position[1] + (dy / r) * r * stagger,
+      ]);
+    });
     for (const child of kids) {
       const position = childPositions.get(child.nodeId) ?? parent.position;
       const half = halves.get(child.nodeId) ?? PAPER_HALF_MIN;
@@ -730,8 +748,16 @@ export default function DatasetGraphView() {
       const ds = datasetPositions.get(expandedDatasetId);
       if (!ds) return;
 
-      // Zoom into the dataset square itself so papers around it read large.
-      const zoom = zoomForWorldDiameter(ds.radius, DATASET_INSIDE_DIAMETER_PX);
+      const paperChildren = paperMarkers.map((p) => ({
+        position: p.node.position,
+        radius: p.node.radius,
+      }));
+      // Frame the paper neighborhood only — do NOT pull back to the parent
+      // series distance (that cancels the zoom-in vs the series-fan view).
+      const paperExtent = ringExtentRadius(ds.position, ds.radius, paperChildren);
+      const focusRadius = Math.max(paperExtent * 1.12, ds.radius * 3.2);
+      const zoom = zoomForWorldDiameter(focusRadius, DATASET_FOCUS_DIAMETER_PX);
+
       setViewState((vs) => ({
         ...focusViewState(vs, [ds.position[0], ds.position[1], 0], zoom),
         ...FOCUS_TRANSITION,
@@ -759,6 +785,7 @@ export default function DatasetGraphView() {
     seriesRadii,
     datasetPositions,
     datasetSquares,
+    paperMarkers,
   ]);
 
   const layers = useMemo(() => {
