@@ -4,10 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DeckGL from "@deck.gl/react";
 import { COORDINATE_SYSTEM, OrbitView, type OrbitViewState } from "@deck.gl/core";
-import { ScatterplotLayer } from "@deck.gl/layers";
+import { ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
-import { fetchPaperGalaxy, type PaperGalaxyPoint } from "@/lib/graph/arrowClient";
-import { getDomainColorRgb, getDomainLegendEntries } from "@/lib/graph/domainColors";
+import {
+  fetchPaperGalaxy,
+  type PaperClusterNode,
+  type PaperGalaxyData,
+  type PaperGalaxyPoint,
+} from "@/lib/graph/arrowClient";
+import { getClusterColorRgb } from "@/lib/graph/domainColors";
 import { LoadingSpinner } from "../LoadingSpinner";
 
 interface HoverInfo {
@@ -55,7 +60,7 @@ function computeFitViewState(
 export default function PaperGalaxyView() {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [points, setPoints] = useState<PaperGalaxyPoint[] | null>(null);
+  const [data, setData] = useState<PaperGalaxyData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
   const [viewState, setViewState] = useState<OrbitViewState>(INITIAL_VIEW_STATE);
@@ -68,13 +73,13 @@ export default function PaperGalaxyView() {
     (async () => {
       try {
         const url = `${getBackendBaseUrl()}/graph/papers`;
-        const data = await fetchPaperGalaxy(url, controller.signal);
-        setPoints(data);
+        const result = await fetchPaperGalaxy(url, controller.signal);
+        setData(result);
 
-        if (data.length > 0) {
+        if (result.points.length > 0) {
           const rect = containerRef.current?.getBoundingClientRect();
           const containerSize = Math.min(rect?.width || 480, rect?.height || 480);
-          const fit = computeFitViewState(data, containerSize);
+          const fit = computeFitViewState(result.points, containerSize);
           setViewState((vs) => ({ ...vs, ...fit }));
         }
       } catch (err: unknown) {
@@ -87,19 +92,25 @@ export default function PaperGalaxyView() {
     return () => controller.abort();
   }, []);
 
+  const clusterLabelById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const c of data?.clusters ?? []) map.set(c.clusterId, c.label);
+    return map;
+  }, [data]);
+
   const layers = useMemo(() => {
-    if (!points) return [];
+    if (!data) return [];
     return [
       new ScatterplotLayer<PaperGalaxyPoint>({
         id: "paper-galaxy",
-        data: points,
+        data: data.points,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => [d.x, d.y, d.z],
         getRadius: 1,
         radiusUnits: "pixels",
         radiusMinPixels: 1.5,
         radiusMaxPixels: 6,
-        getFillColor: (d) => getDomainColorRgb(d.domain, 200),
+        getFillColor: (d) => getClusterColorRgb(d.clusterId, 200),
         pickable: true,
         autoHighlight: true,
         highlightColor: [255, 255, 255, 220],
@@ -116,10 +127,26 @@ export default function PaperGalaxyView() {
           }
         },
       }),
+      new TextLayer<PaperClusterNode>({
+        id: "paper-galaxy-cluster-labels",
+        data: data.clusters,
+        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+        getPosition: (d) => [d.x, d.y, d.z],
+        getText: (d) => d.label,
+        getSize: (d) => Math.min(22, 12 + Math.log2(d.size + 1) * 2),
+        sizeUnits: "pixels",
+        getColor: [30, 30, 40, 235],
+        background: true,
+        getBackgroundColor: [255, 255, 255, 190],
+        backgroundPadding: [4, 2],
+        fontFamily: "system-ui, sans-serif",
+        fontWeight: 600,
+        fontSettings: { sdf: true },
+        outlineWidth: 0,
+        pickable: false,
+      }),
     ];
-  }, [points, router]);
-
-  const legend = useMemo(() => getDomainLegendEntries(), []);
+  }, [data, router]);
 
   if (error) {
     return (
@@ -133,14 +160,14 @@ export default function PaperGalaxyView() {
 
   return (
     <div ref={containerRef} className="relative h-[480px] w-full rounded-lg overflow-hidden bg-white">
-      {!points && (
+      {!data && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
           <LoadingSpinner size="lg" />
           <p className="text-gray-500 text-sm">Loading semantic galaxy…</p>
         </div>
       )}
 
-      {points && (
+      {data && (
         <DeckGL
           views={new OrbitView()}
           viewState={viewState}
@@ -150,21 +177,11 @@ export default function PaperGalaxyView() {
         />
       )}
 
-      {points && (
-        <>
-          <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 text-xs text-gray-600 shadow-sm border border-gray-200 pointer-events-none">
-            {points.length.toLocaleString()} papers · drag to orbit, scroll to zoom
-          </div>
-
-          <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 shadow-sm border border-gray-200 pointer-events-none max-w-[90%]">
-            {legend.map((entry) => (
-              <span key={entry.domain} className="flex items-center gap-1.5 text-[11px] text-gray-600">
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
-                {entry.label}
-              </span>
-            ))}
-          </div>
-        </>
+      {data && (
+        <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 text-xs text-gray-600 shadow-sm border border-gray-200 pointer-events-none">
+          {data.points.length.toLocaleString()} papers · {data.clusters.length} topic clusters · drag to
+          orbit, scroll to zoom
+        </div>
       )}
 
       {hover && (
@@ -180,7 +197,9 @@ export default function PaperGalaxyView() {
             </p>
           )}
           <p className="text-gray-400">
-            {[hover.point.venue, hover.point.year].filter(Boolean).join(" · ")}
+            {[clusterLabelById.get(hover.point.clusterId), hover.point.venue, hover.point.year]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
         </div>
       )}

@@ -22,6 +22,23 @@ export interface PaperGalaxyPoint {
   x: number;
   y: number;
   z: number;
+  clusterId: number;
+}
+
+/** A discovered topic cluster (see `mlbench.graph.paper_graph._label_clusters`). */
+export interface PaperClusterNode {
+  clusterId: number;
+  label: string;
+  domain: string;
+  size: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface PaperGalaxyData {
+  points: PaperGalaxyPoint[];
+  clusters: PaperClusterNode[];
 }
 
 export type DatasetNodeType = "domain" | "series" | "dataset" | "paper";
@@ -70,50 +87,8 @@ async function fetchArrayBuffer(url: string, signal?: AbortSignal): Promise<Uint
   return new Uint8Array(buf);
 }
 
-/**
- * Parse the standard Arrow IPC file written by `paper_graph._write_arrow_ipc`
- * into a flat array of points ready for a deck.gl ScatterplotLayer.
- */
-export async function fetchPaperGalaxy(
-  url: string,
-  signal?: AbortSignal,
-): Promise<PaperGalaxyPoint[]> {
-  const bytes = await fetchArrayBuffer(url, signal);
-  const table = tableFromIPC(bytes);
-
-  const entityIds = table.getChild("entity_id")?.toArray() ?? [];
-  const titles = table.getChild("title")?.toArray() ?? [];
-  const arxivIds = table.getChild("arxiv_id")?.toArray() ?? [];
-  const domains = table.getChild("domain")?.toArray() ?? [];
-  const paperTypes = table.getChild("paper_type")?.toArray() ?? [];
-  const years = table.getChild("year")?.toArray() ?? [];
-  const scores = table.getChild("score")?.toArray() ?? [];
-  const venues = table.getChild("venue")?.toArray() ?? [];
-  const authorsCol = table.getChild("authors");
-  const xs = table.getChild("x")?.toArray() ?? [];
-  const ys = table.getChild("y")?.toArray() ?? [];
-  const zs = table.getChild("z")?.toArray() ?? [];
-
-  const points: PaperGalaxyPoint[] = new Array(table.numRows);
-  for (let i = 0; i < table.numRows; i++) {
-    points[i] = {
-      id: entityIds[i],
-      title: titles[i],
-      arxivId: arxivIds[i] ?? null,
-      domain: domains[i] ?? "other",
-      paperType: paperTypes[i] ?? null,
-      year: toNumber(years[i]),
-      score: toNumber(scores[i]) ?? 0,
-      venue: venues[i] ?? null,
-      authors: authorsCol ? Array.from(authorsCol.get(i) ?? []) : [],
-      x: xs[i],
-      y: ys[i],
-      z: zs[i],
-    };
-  }
-  return points;
-}
-
+const PAPERS_MAGIC = "PAPERS";
+const CLUSTERS_MAGIC = "CLUSTERS";
 const NODES_MAGIC = "NODES";
 const EDGES_MAGIC = "EDGES";
 
@@ -139,6 +114,77 @@ function splitGraphSections(bytes: Uint8Array): Record<string, Uint8Array> {
     offset += dataLen;
   }
   return sections;
+}
+
+/**
+ * Parse the dual-section Arrow IPC file written by
+ * `paper_graph._write_paper_ipc` (`PAPERS` then `CLUSTERS`, same framing as
+ * the dataset graph) into flat arrays ready for deck.gl.
+ */
+export async function fetchPaperGalaxy(
+  url: string,
+  signal?: AbortSignal,
+): Promise<PaperGalaxyData> {
+  const bytes = await fetchArrayBuffer(url, signal);
+  const sections = splitGraphSections(bytes);
+
+  const table = tableFromIPC(sections[PAPERS_MAGIC]);
+  const entityIds = table.getChild("entity_id")?.toArray() ?? [];
+  const titles = table.getChild("title")?.toArray() ?? [];
+  const arxivIds = table.getChild("arxiv_id")?.toArray() ?? [];
+  const domains = table.getChild("domain")?.toArray() ?? [];
+  const paperTypes = table.getChild("paper_type")?.toArray() ?? [];
+  const years = table.getChild("year")?.toArray() ?? [];
+  const scores = table.getChild("score")?.toArray() ?? [];
+  const venues = table.getChild("venue")?.toArray() ?? [];
+  const authorsCol = table.getChild("authors");
+  const xs = table.getChild("x")?.toArray() ?? [];
+  const ys = table.getChild("y")?.toArray() ?? [];
+  const zs = table.getChild("z")?.toArray() ?? [];
+  const clusterIds = table.getChild("cluster_id")?.toArray() ?? [];
+
+  const points: PaperGalaxyPoint[] = new Array(table.numRows);
+  for (let i = 0; i < table.numRows; i++) {
+    points[i] = {
+      id: entityIds[i],
+      title: titles[i],
+      arxivId: arxivIds[i] ?? null,
+      domain: domains[i] ?? "other",
+      paperType: paperTypes[i] ?? null,
+      year: toNumber(years[i]),
+      score: toNumber(scores[i]) ?? 0,
+      venue: venues[i] ?? null,
+      authors: authorsCol ? Array.from(authorsCol.get(i) ?? []) : [],
+      x: xs[i],
+      y: ys[i],
+      z: zs[i],
+      clusterId: toNumber(clusterIds[i]) ?? -1,
+    };
+  }
+
+  const clusterTable = tableFromIPC(sections[CLUSTERS_MAGIC]);
+  const clusterIdCol = clusterTable.getChild("cluster_id")?.toArray() ?? [];
+  const labelCol = clusterTable.getChild("label")?.toArray() ?? [];
+  const clusterDomainCol = clusterTable.getChild("domain")?.toArray() ?? [];
+  const sizeCol = clusterTable.getChild("size")?.toArray() ?? [];
+  const clusterXs = clusterTable.getChild("x")?.toArray() ?? [];
+  const clusterYs = clusterTable.getChild("y")?.toArray() ?? [];
+  const clusterZs = clusterTable.getChild("z")?.toArray() ?? [];
+
+  const clusters: PaperClusterNode[] = new Array(clusterTable.numRows);
+  for (let i = 0; i < clusterTable.numRows; i++) {
+    clusters[i] = {
+      clusterId: toNumber(clusterIdCol[i]) ?? -1,
+      label: labelCol[i] ?? "",
+      domain: clusterDomainCol[i] ?? "other",
+      size: toNumber(sizeCol[i]) ?? 0,
+      x: clusterXs[i],
+      y: clusterYs[i],
+      z: clusterZs[i],
+    };
+  }
+
+  return { points, clusters };
 }
 
 export async function fetchDatasetGraph(
