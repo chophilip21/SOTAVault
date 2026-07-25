@@ -2,8 +2,8 @@
  * Fetch + decode the pre-generated graph Arrow files served by the backend
  * (`GET /graph/papers`, `GET /graph/datasets` — see backend/app/routers/graph.py).
  *
- * These files are produced offline by `mlbench.graph.paper_graph` (3-D UMAP
- * "semantic galaxy" of papers) and `mlbench.graph.dataset_graph` (3-D UMAP of
+ * These files are produced offline by `mlbench.graph.paper_graph` (2-D UMAP
+ * semantic map of papers) and `mlbench.graph.dataset_graph` (UMAP of
  * series embeddings + series→dataset hierarchy). We decode them client-side
  * with `apache-arrow` and hand plain JS arrays to deck.gl for rendering.
  */

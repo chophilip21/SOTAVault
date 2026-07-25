@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DeckGL from "@deck.gl/react";
-import { COORDINATE_SYSTEM, OrbitView, type OrbitViewState } from "@deck.gl/core";
-import { ScatterplotLayer, TextLayer } from "@deck.gl/layers";
+import {
+  COORDINATE_SYSTEM,
+  OrthographicView,
+  LinearInterpolator,
+  type OrthographicViewState,
+} from "@deck.gl/core";
+import { SolidPolygonLayer, TextLayer } from "@deck.gl/layers";
 import { getBackendBaseUrl } from "@/lib/backendUrl";
 import {
   fetchPaperGalaxy,
@@ -16,55 +21,377 @@ import { getClusterColorRgb } from "@/lib/graph/domainColors";
 import { LoadingSpinner } from "../LoadingSpinner";
 
 interface HoverInfo {
-  point: PaperGalaxyPoint;
+  kind: "cluster" | "paper";
+  cluster?: PaperClusterNode;
+  paper?: PaperGalaxyPoint;
   x: number;
   y: number;
 }
 
-const INITIAL_VIEW_STATE: OrbitViewState = {
-  target: [0, 0, 0],
-  zoom: 0,
-  rotationX: 20,
-  rotationOrbit: 30,
-  minZoom: -3,
-  maxZoom: 10,
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface PositionedCluster {
+  cluster: PaperClusterNode;
+  rect: Rect;
+  labelText: string;
+  labelSize: number;
+  textColor: [number, number, number, number];
+}
+
+interface ClusterBlock {
+  cluster: PositionedCluster;
+  polygon: [number, number, number][];
+  color: [number, number, number, number];
+}
+
+interface PaperSquare {
+  paper: PaperGalaxyPoint;
+  rect: Rect;
+  polygon: [number, number, number][];
+  color: [number, number, number, number];
+}
+
+/** World size of the packed topic treemap (square canvas). */
+const TREEMAP_SIZE = 100;
+const OVERVIEW_FILL = 0.92;
+const CLUSTER_FOCUS_FILL = 0.94;
+const BACKGROUND_DIM_ALPHA = 50;
+const FOCUS_TRANSITION_MS = 320;
+const FOCUS_TRANSITION = {
+  transitionDuration: FOCUS_TRANSITION_MS,
+  transitionInterpolator: new LinearInterpolator([
+    "target",
+    "zoom",
+    "zoomX",
+    "zoomY",
+  ]),
 };
 
-/** Center + zoom the orbit camera so the whole point cloud is framed on load. */
-function computeFitViewState(
-  points: PaperGalaxyPoint[],
-  containerSize: number,
-): Pick<OrbitViewState, "target" | "zoom"> {
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  let minZ = Infinity;
-  let maxZ = -Infinity;
-  for (const p of points) {
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.y > maxY) maxY = p.y;
-    if (p.z < minZ) minZ = p.z;
-    if (p.z > maxZ) maxZ = p.z;
+const INITIAL_VIEW_STATE: OrthographicViewState = {
+  target: [TREEMAP_SIZE / 2, TREEMAP_SIZE / 2, 0],
+  zoom: 0,
+  minZoom: -2,
+  maxZoom: 14,
+};
+
+const NULLISH_AUTHOR = new Set([
+  "",
+  "none",
+  "null",
+  "n/a",
+  "na",
+  "unknown",
+  "anonymous",
+  "undefined",
+]);
+const BOGUS_TITLES = new Set([
+  "introduction",
+  "untitled",
+  "no title",
+  "n/a",
+  "none",
+  "null",
+]);
+const MAX_BOGUS_ABSTRACT_TITLE_LEN = 24;
+
+function isRealAuthor(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const cleaned = name.trim().replace(/^\*+|\*+$/g, "").trim();
+  return cleaned.length > 0 && !NULLISH_AUTHOR.has(cleaned.toLowerCase());
+}
+
+function isRealTitle(title: string | null | undefined): boolean {
+  if (!title) return false;
+  const cleaned = title.trim().replace(/^\*+|\*+$/g, "").trim();
+  if (!cleaned || BOGUS_TITLES.has(cleaned.toLowerCase())) return false;
+  if (
+    cleaned.length <= MAX_BOGUS_ABSTRACT_TITLE_LEN &&
+    cleaned.toLowerCase().includes("abstract")
+  ) {
+    return false;
   }
-  const maxExtent = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1);
-  // >1 zooms in past a full-frame fit so the cloud feels closer on load.
-  const padding = 1.2;
-  const zoom = Math.log2((containerSize / maxExtent) * padding);
-  const target: [number, number, number] = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
-  return { target, zoom };
+  return true;
+}
+
+function filterValidPapers(data: PaperGalaxyData): PaperGalaxyData {
+  const points = data.points.filter(
+    (p) => isRealTitle(p.title) && p.authors.some(isRealAuthor),
+  );
+  if (points.length === data.points.length) {
+    return {
+      points,
+      clusters: data.clusters.filter((c) => c.clusterId >= 0),
+    };
+  }
+  const live = new Set(points.map((p) => p.clusterId));
+  const clusters = data.clusters.filter(
+    (c) => c.clusterId >= 0 && live.has(c.clusterId),
+  );
+  return { points, clusters };
+}
+
+function rectPolygon(r: Rect): [number, number, number][] {
+  return [
+    [r.x, r.y, 0],
+    [r.x + r.w, r.y, 0],
+    [r.x + r.w, r.y + r.h, 0],
+    [r.x, r.y + r.h, 0],
+  ];
+}
+
+function focusViewState(
+  prev: OrthographicViewState,
+  target: [number, number, number],
+  zoom: number,
+): OrthographicViewState {
+  return { ...prev, target, zoom, zoomX: zoom, zoomY: zoom };
+}
+
+/** Zoom so a world width/height fills the viewport (with fill factor). */
+function zoomToFitRect(
+  rect: Rect,
+  containerW: number,
+  containerH: number,
+  fill: number,
+): { target: [number, number, number]; zoom: number } {
+  const zoom = Math.min(
+    Math.log2((containerW * fill) / Math.max(rect.w, 1e-6)),
+    Math.log2((containerH * fill) / Math.max(rect.h, 1e-6)),
+  );
+  return {
+    target: [rect.x + rect.w / 2, rect.y + rect.h / 2, 0],
+    zoom,
+  };
+}
+
+function relativeLuminance(r: number, g: number, b: number): number {
+  const toLin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * toLin(r) + 0.7152 * toLin(g) + 0.0722 * toLin(b);
+}
+
+/** Black text on light fills, white on dark fills. */
+function contrastingTextColor(
+  fill: [number, number, number, number],
+): [number, number, number, number] {
+  return relativeLuminance(fill[0], fill[1], fill[2]) > 0.45
+    ? [15, 15, 20, 245]
+    : [255, 255, 255, 245];
+}
+
+/**
+ * Squarified treemap (Bruls et al.). Items should already be ordered so
+ * neighbors in the list stay spatially close (similarity order).
+ */
+function squarifyLayout<T extends { value: number }>(
+  items: T[],
+  bounds: Rect,
+): Array<T & { rect: Rect }> {
+  if (items.length === 0) return [];
+  const total = items.reduce((s, it) => s + Math.max(it.value, 1e-9), 0);
+  if (total <= 0) return [];
+
+  type Node = T & { value: number };
+  const nodes: Node[] = items.map((it) => ({
+    ...it,
+    value: Math.max(it.value, 1e-9),
+  }));
+  const out: Array<T & { rect: Rect }> = [];
+
+  const worst = (row: Node[], length: number, rowArea: number): number => {
+    if (row.length === 0 || length <= 0) return Infinity;
+    let min = Infinity;
+    let max = 0;
+    for (const n of row) {
+      if (n.value < min) min = n.value;
+      if (n.value > max) max = n.value;
+    }
+    const s = rowArea;
+    const s2 = s * s;
+    const l2 = length * length;
+    return Math.max((l2 * max) / s2, s2 / (l2 * min));
+  };
+
+  const layoutRow = (row: Node[], rect: Rect, horizontal: boolean): Rect => {
+    const rowArea = row.reduce((s, n) => s + n.value, 0);
+    if (horizontal) {
+      const rowH = rowArea / rect.w;
+      let x = rect.x;
+      for (const n of row) {
+        const w = n.value / rowH;
+        out.push({ ...n, rect: { x, y: rect.y, w, h: rowH } });
+        x += w;
+      }
+      return { x: rect.x, y: rect.y + rowH, w: rect.w, h: rect.h - rowH };
+    }
+    const rowW = rowArea / rect.h;
+    let y = rect.y;
+    for (const n of row) {
+      const h = n.value / rowW;
+      out.push({ ...n, rect: { x: rect.x, y, w: rowW, h } });
+      y += h;
+    }
+    return { x: rect.x + rowW, y: rect.y, w: rect.w - rowW, h: rect.h };
+  };
+
+  // Scale values so sum(value) == bounds.w * bounds.h
+  const scale = (bounds.w * bounds.h) / total;
+  for (const n of nodes) n.value *= scale;
+
+  let remaining = [...nodes];
+  let rect = { ...bounds };
+
+  while (remaining.length > 0) {
+    const horizontal = rect.w >= rect.h;
+    const length = horizontal ? rect.w : rect.h;
+    const row: Node[] = [];
+    let rowArea = 0;
+    let bestWorst = Infinity;
+
+    while (remaining.length > 0) {
+      const next = remaining[0];
+      const trial = [...row, next];
+      const trialArea = rowArea + next.value;
+      const score = worst(trial, length, trialArea);
+      if (row.length > 0 && score > bestWorst) break;
+      row.push(remaining.shift()!);
+      rowArea = trialArea;
+      bestWorst = score;
+    }
+
+    rect = layoutRow(row, rect, horizontal);
+  }
+
+  return out;
+}
+
+/** Order clusters so UMAP-neighbors stay adjacent in the treemap strip. */
+function orderClustersBySimilarity(clusters: PaperClusterNode[]): PaperClusterNode[] {
+  if (clusters.length <= 1) return [...clusters];
+  let cx = 0;
+  let cy = 0;
+  for (const c of clusters) {
+    cx += c.x;
+    cy += c.y;
+  }
+  cx /= clusters.length;
+  cy /= clusters.length;
+  return [...clusters].sort(
+    (a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx),
+  );
+}
+
+function wrapWords(text: string, maxCharsPerLine: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (next.length <= maxCharsPerLine || !cur) {
+      cur = next.length <= maxCharsPerLine ? next : w;
+      if (next.length > maxCharsPerLine && w.length > maxCharsPerLine) {
+        // Hard-break an oversized token.
+        lines.push(w.slice(0, maxCharsPerLine));
+        cur = w.slice(maxCharsPerLine);
+      }
+    } else {
+      lines.push(cur);
+      cur = w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+/**
+ * Fit a multi-line label strictly inside ``rect`` (world units). Never wider /
+ * taller than the block, so labels cannot spill onto neighbors at any zoom
+ * (TextLayer uses sizeUnits: "common" with no pixel floor).
+ */
+function clusterLabelForRect(
+  label: string,
+  count: number,
+  rect: Rect,
+): { text: string; size: number } {
+  const padX = Math.max(rect.w * 0.06, 0.15);
+  const padY = Math.max(rect.h * 0.06, 0.15);
+  const usableW = rect.w - 2 * padX;
+  const usableH = rect.h - 2 * padY;
+  if (usableW < 0.4 || usableH < 0.4) return { text: "", size: 0 };
+
+  const charAspect = 0.56;
+  const lineHeight = 1.2;
+  const countSuffix = `(${count.toLocaleString()})`;
+
+  let bestText = "";
+  let bestSize = 0;
+
+  const maxCharsCap = Math.max(label.length, countSuffix.length, 4);
+  for (let maxChars = maxCharsCap; maxChars >= 3; maxChars--) {
+    const labelLines = wrapWords(label, maxChars);
+    if (labelLines.length === 0) continue;
+
+    // Prefer count on its own last line when wrapping, else same line if short.
+    const lines =
+      labelLines.length === 1 &&
+      `${labelLines[0]} ${countSuffix}`.length <= maxChars + countSuffix.length + 1
+        ? [`${labelLines[0]} ${countSuffix}`]
+        : [...labelLines, countSuffix];
+
+    const longest = Math.max(...lines.map((l) => l.length), 1);
+    const sizeByW = usableW / (longest * charAspect);
+    const sizeByH = usableH / (lines.length * lineHeight);
+    const size = Math.min(sizeByW, sizeByH);
+    if (size > bestSize) {
+      bestSize = size;
+      bestText = lines.join("\n");
+    }
+  }
+
+  // Tiny blocks: drop the count and try label-only wrap.
+  if (bestSize < usableH * 0.12) {
+    bestText = "";
+    bestSize = 0;
+    for (let maxChars = Math.max(label.length, 3); maxChars >= 3; maxChars--) {
+      const lines = wrapWords(label, maxChars);
+      if (lines.length === 0) continue;
+      const longest = Math.max(...lines.map((l) => l.length), 1);
+      const size = Math.min(
+        usableW / (longest * charAspect),
+        usableH / (lines.length * lineHeight),
+      );
+      if (size > bestSize) {
+        bestSize = size;
+        bestText = lines.join("\n");
+      }
+    }
+  }
+
+  if (bestSize < 0.35 || !bestText) return { text: "", size: 0 };
+  return { text: bestText, size: bestSize };
 }
 
 export default function PaperGalaxyView() {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  const overviewFitRef = useRef<{ target: [number, number, number]; zoom: number } | null>(
+    null,
+  );
+  const abortRef = useRef<AbortController | null>(null);
+
   const [data, setData] = useState<PaperGalaxyData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
-  const [viewState, setViewState] = useState<OrbitViewState>(INITIAL_VIEW_STATE);
-  const abortRef = useRef<AbortController | null>(null);
+  const [viewState, setViewState] = useState<OrthographicViewState>(INITIAL_VIEW_STATE);
+  const [expandedClusterId, setExpandedClusterId] = useState<number | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -73,18 +400,11 @@ export default function PaperGalaxyView() {
     (async () => {
       try {
         const url = `${getBackendBaseUrl()}/graph/papers`;
-        const result = await fetchPaperGalaxy(url, controller.signal);
+        const result = filterValidPapers(await fetchPaperGalaxy(url, controller.signal));
         setData(result);
-
-        if (result.points.length > 0) {
-          const rect = containerRef.current?.getBoundingClientRect();
-          const containerSize = Math.min(rect?.width || 480, rect?.height || 480);
-          const fit = computeFitViewState(result.points, containerSize);
-          setViewState((vs) => ({ ...vs, ...fit }));
-        }
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== "AbortError") {
-          setError(err.message || "Failed to load the paper galaxy.");
+          setError(err.message || "Failed to load the paper map.");
         }
       }
     })();
@@ -92,61 +412,275 @@ export default function PaperGalaxyView() {
     return () => controller.abort();
   }, []);
 
-  const clusterLabelById = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const c of data?.clusters ?? []) map.set(c.clusterId, c.label);
+  const clusters = useMemo(
+    () => (data ? data.clusters.filter((c) => c.clusterId >= 0) : []),
+    [data],
+  );
+
+  const points = useMemo(() => data?.points ?? [], [data]);
+
+  const papersByCluster = useMemo(() => {
+    const map = new Map<number, PaperGalaxyPoint[]>();
+    for (const p of points) {
+      if (p.clusterId < 0) continue;
+      const list = map.get(p.clusterId);
+      if (list) list.push(p);
+      else map.set(p.clusterId, [p]);
+    }
+    for (const [, list] of map) {
+      list.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    }
     return map;
-  }, [data]);
+  }, [points]);
+
+  const positionedClusters: PositionedCluster[] = useMemo(() => {
+    const ordered = orderClustersBySimilarity(clusters);
+    const laid = squarifyLayout(
+      ordered.map((c) => ({ cluster: c, value: Math.max(c.size, 1) })),
+      { x: 0, y: 0, w: TREEMAP_SIZE, h: TREEMAP_SIZE },
+    );
+    return laid.map(({ cluster, rect }) => {
+      const fill = getClusterColorRgb(cluster.clusterId, 255);
+      const fitted = clusterLabelForRect(cluster.label, cluster.size, rect);
+      return {
+        cluster,
+        rect,
+        labelText: fitted.text,
+        labelSize: fitted.size,
+        textColor: contrastingTextColor(fill),
+      };
+    });
+  }, [clusters]);
+
+  const containerSize = useCallback(() => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    return { w: rect?.width || 480, h: rect?.height || 480 };
+  }, []);
+
+  useEffect(() => {
+    if (positionedClusters.length === 0) return;
+    const { w, h } = containerSize();
+    const fit = zoomToFitRect(
+      { x: 0, y: 0, w: TREEMAP_SIZE, h: TREEMAP_SIZE },
+      w,
+      h,
+      OVERVIEW_FILL,
+    );
+    overviewFitRef.current = fit;
+    if (expandedClusterId == null) {
+      setViewState((vs) => focusViewState(vs, fit.target, fit.zoom));
+    }
+  }, [positionedClusters, expandedClusterId, containerSize]);
+
+  const resetToOverview = useCallback(() => {
+    setExpandedClusterId(null);
+    setHover(null);
+    if (overviewFitRef.current) {
+      const { target, zoom } = overviewFitRef.current;
+      setViewState((vs) => ({
+        ...focusViewState(vs, target, zoom),
+        ...FOCUS_TRANSITION,
+      }));
+    }
+  }, []);
+
+  const expandedParent = useMemo(
+    () =>
+      expandedClusterId != null
+        ? positionedClusters.find((c) => c.cluster.clusterId === expandedClusterId) ??
+          null
+        : null,
+    [positionedClusters, expandedClusterId],
+  );
+
+  /** Pack every paper in the focused cluster as tiny squares filling the block. */
+  const paperSquares: PaperSquare[] = useMemo(() => {
+    if (expandedClusterId == null || !expandedParent) return [];
+    const kids = papersByCluster.get(expandedClusterId) ?? [];
+    if (kids.length === 0) return [];
+
+    const { rect } = expandedParent;
+    const laid = squarifyLayout(
+      kids.map((paper) => ({ paper, value: 1 })),
+      rect,
+    );
+    const mother = getClusterColorRgb(expandedClusterId, 255);
+    return laid.map(({ paper, rect: cell }, i) => {
+      const t = kids.length <= 1 ? 0 : i / (kids.length - 1);
+      const shade = 0.82 + 0.18 * (1 - t);
+      const color: [number, number, number, number] = [
+        Math.round(mother[0] * shade),
+        Math.round(mother[1] * shade),
+        Math.round(mother[2] * shade),
+        255,
+      ];
+      return {
+        paper,
+        rect: cell,
+        polygon: rectPolygon(cell),
+        color,
+      };
+    });
+  }, [expandedClusterId, expandedParent, papersByCluster]);
+
+  useEffect(() => {
+    if (expandedClusterId == null) {
+      if (overviewFitRef.current) {
+        const { target, zoom } = overviewFitRef.current;
+        setViewState((vs) => ({
+          ...focusViewState(vs, target, zoom),
+          ...FOCUS_TRANSITION,
+        }));
+      }
+      return;
+    }
+    if (!expandedParent) return;
+    const { w, h } = containerSize();
+    const fit = zoomToFitRect(expandedParent.rect, w, h, CLUSTER_FOCUS_FILL);
+    setViewState((vs) => ({
+      ...focusViewState(vs, fit.target, fit.zoom),
+      ...FOCUS_TRANSITION,
+    }));
+  }, [expandedClusterId, expandedParent, paperSquares.length, containerSize]);
+
+  const clusterBlocks: ClusterBlock[] = useMemo(() => {
+    const dimmed = expandedClusterId != null;
+    return positionedClusters
+      // Focused cluster has no pickable block — title is TextLayer-only (not clickable).
+      .filter((pc) => pc.cluster.clusterId !== expandedClusterId)
+      .map((pc) => ({
+        cluster: pc,
+        polygon: rectPolygon(pc.rect),
+        color: getClusterColorRgb(
+          pc.cluster.clusterId,
+          dimmed ? BACKGROUND_DIM_ALPHA : 230,
+        ),
+      }));
+  }, [positionedClusters, expandedClusterId]);
+
+  const labeledClusters = useMemo(
+    () => positionedClusters.filter((c) => c.labelText && c.labelSize > 0),
+    [positionedClusters],
+  );
 
   const layers = useMemo(() => {
-    if (!data) return [];
-    return [
-      new ScatterplotLayer<PaperGalaxyPoint>({
-        id: "paper-galaxy",
-        data: data.points,
+    const out = [];
+
+    out.push(
+      new SolidPolygonLayer<ClusterBlock>({
+        id: "paper-topic-blocks",
+        data: clusterBlocks,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getPosition: (d) => [d.x, d.y, d.z],
-        getRadius: 1,
-        radiusUnits: "pixels",
-        radiusMinPixels: 1.5,
-        radiusMaxPixels: 6,
-        getFillColor: (d) => getClusterColorRgb(d.clusterId, 200),
+        getPolygon: (d) => d.polygon,
+        getFillColor: (d) => d.color,
+        stroked: true,
+        getLineColor: [255, 255, 255, 255],
+        getLineWidth: 1.5,
+        lineWidthUnits: "pixels",
+        filled: true,
         pickable: true,
         autoHighlight: true,
-        highlightColor: [255, 255, 255, 220],
+        highlightColor: [255, 255, 255, 200],
+        updateTriggers: {
+          getFillColor: expandedClusterId,
+        },
         onHover: (info) => {
           if (info.object) {
-            setHover({ point: info.object, x: info.x, y: info.y });
+            const block = info.object as ClusterBlock;
+            setHover({
+              kind: "cluster",
+              cluster: block.cluster.cluster,
+              x: info.x,
+              y: info.y,
+            });
           } else {
             setHover(null);
           }
         },
         onClick: (info) => {
-          if (info.object) {
-            router.push(`/papers/${info.object.id}`);
+          if (!info.object) {
+            // Empty canvas while zoomed: stay put (use Reset view to leave).
+            return;
           }
+          const id = (info.object as ClusterBlock).cluster.cluster.clusterId;
+          // Already inside this cluster — title/block must not be a toggle target.
+          if (expandedClusterId === id) return;
+          setExpandedClusterId(id);
         },
       }),
-      new TextLayer<PaperClusterNode>({
-        id: "paper-galaxy-cluster-labels",
-        data: data.clusters,
+    );
+
+    if (paperSquares.length > 0) {
+      out.push(
+        new SolidPolygonLayer<PaperSquare>({
+          id: "paper-member-squares",
+          data: paperSquares,
+          coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+          getPolygon: (d) => d.polygon,
+          getFillColor: (d) => d.color,
+          stroked: true,
+          getLineColor: [255, 255, 255, 220],
+          getLineWidth: 1,
+          lineWidthMinPixels: 0.5,
+          lineWidthUnits: "pixels",
+          filled: true,
+          pickable: true,
+          autoHighlight: true,
+          highlightColor: [255, 255, 255, 230],
+          onHover: (info) => {
+            if (info.object) {
+              setHover({
+                kind: "paper",
+                paper: (info.object as PaperSquare).paper,
+                x: info.x,
+                y: info.y,
+              });
+            } else {
+              setHover(null);
+            }
+          },
+          onClick: (info) => {
+            if (info.object) {
+              router.push(`/papers/${(info.object as PaperSquare).paper.id}`);
+            }
+          },
+        }),
+      );
+    }
+
+    out.push(
+      new TextLayer<PositionedCluster>({
+        id: "paper-topic-labels",
+        data: labeledClusters,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getPosition: (d) => [d.x, d.y, d.z],
-        getText: (d) => d.label,
-        getSize: (d) => Math.min(22, 12 + Math.log2(d.size + 1) * 2),
-        sizeUnits: "pixels",
-        getColor: [30, 30, 40, 235],
-        background: true,
-        getBackgroundColor: [255, 255, 255, 190],
-        backgroundPadding: [4, 2],
-        fontFamily: "system-ui, sans-serif",
+        // Always centered in the block — including when zoomed into a cluster.
+        getPosition: (d) => [d.rect.x + d.rect.w / 2, d.rect.y + d.rect.h / 2, 0],
+        getText: (d) => d.labelText,
+        getSize: (d) => d.labelSize,
+        sizeUnits: "common",
+        sizeMaxPixels: 48,
+        getColor: (d) => d.textColor,
+        getTextAnchor: "middle",
+        getAlignmentBaseline: "center",
+        lineHeight: 1.2,
+        fontFamily: "ui-sans-serif, system-ui, sans-serif",
         fontWeight: 600,
-        fontSettings: { sdf: true },
-        outlineWidth: 0,
+        // Never pickable — especially when zoomed in, the title is display-only.
         pickable: false,
+        updateTriggers: {
+          getColor: expandedClusterId,
+        },
       }),
-    ];
-  }, [data, router]);
+    );
+
+    return out;
+  }, [
+    clusterBlocks,
+    labeledClusters,
+    paperSquares,
+    expandedClusterId,
+    router,
+  ]);
 
   if (error) {
     return (
@@ -158,30 +692,46 @@ export default function PaperGalaxyView() {
     );
   }
 
+  const totalPapersInClusters = points.filter((p) => p.clusterId >= 0).length;
+
   return (
     <div ref={containerRef} className="relative h-[480px] w-full rounded-lg overflow-hidden bg-white">
       {!data && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
           <LoadingSpinner size="lg" />
-          <p className="text-gray-500 text-sm">Loading semantic galaxy…</p>
+          <p className="text-gray-500 text-sm">Loading topic map…</p>
         </div>
       )}
 
       {data && (
         <DeckGL
-          views={new OrbitView()}
+          views={new OrthographicView({ flipY: false })}
           viewState={viewState}
-          onViewStateChange={({ viewState: vs }) => setViewState(vs as OrbitViewState)}
+          onViewStateChange={({ viewState: vs }) => setViewState(vs as OrthographicViewState)}
           controller={true}
           layers={layers}
         />
       )}
 
       {data && (
-        <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 text-xs text-gray-600 shadow-sm border border-gray-200 pointer-events-none">
-          {data.points.length.toLocaleString()} papers · {data.clusters.length} topic clusters · drag to
-          orbit, scroll to zoom
-        </div>
+        <>
+          <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 text-xs text-gray-600 shadow-sm border border-gray-200 pointer-events-none max-w-[75%]">
+            {clusters.length.toLocaleString()} topics ·{" "}
+            {totalPapersInClusters.toLocaleString()} papers
+            {expandedClusterId != null
+              ? ` · ${paperSquares.length.toLocaleString()} papers in topic · click a square to open`
+              : " · click a topic block to zoom in"}
+            {" · drag to pan, scroll to zoom"}
+          </div>
+
+          <button
+            type="button"
+            onClick={resetToOverview}
+            className="absolute top-3 right-3 z-10 rounded-lg border-2 border-green-600 bg-green-600 px-3.5 py-2 text-xs font-semibold text-white shadow-md hover:bg-green-700 hover:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1"
+          >
+            Reset view
+          </button>
+        </>
       )}
 
       {hover && (
@@ -189,18 +739,28 @@ export default function PaperGalaxyView() {
           className="absolute z-20 pointer-events-none bg-white text-gray-900 rounded-lg shadow-lg border border-gray-200 px-3 py-2 max-w-xs text-xs"
           style={{ left: hover.x + 12, top: hover.y + 12 }}
         >
-          <p className="font-semibold line-clamp-2 mb-1">{hover.point.title}</p>
-          {hover.point.authors.length > 0 && (
-            <p className="text-gray-500 line-clamp-1 mb-1">
-              {hover.point.authors.slice(0, 3).join(", ")}
-              {hover.point.authors.length > 3 && " et al."}
-            </p>
+          {hover.kind === "cluster" && hover.cluster && (
+            <>
+              <p className="font-semibold mb-1">{hover.cluster.label}</p>
+              <p className="text-gray-500">
+                {hover.cluster.size.toLocaleString()} papers · click to zoom in
+              </p>
+            </>
           )}
-          <p className="text-gray-400">
-            {[clusterLabelById.get(hover.point.clusterId), hover.point.venue, hover.point.year]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
+          {hover.kind === "paper" && hover.paper && (
+            <>
+              <p className="font-semibold line-clamp-2 mb-1">{hover.paper.title}</p>
+              {hover.paper.authors.length > 0 && (
+                <p className="text-gray-500 line-clamp-1 mb-1">
+                  {hover.paper.authors.slice(0, 3).join(", ")}
+                  {hover.paper.authors.length > 3 && " et al."}
+                </p>
+              )}
+              <p className="text-gray-400">
+                {[hover.paper.venue, hover.paper.year].filter(Boolean).join(" · ")}
+              </p>
+            </>
+          )}
         </div>
       )}
     </div>

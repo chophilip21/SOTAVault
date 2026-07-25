@@ -43,8 +43,8 @@ export function getDomainColorRgb(domain?: string | null, alpha = 255): RgbaColo
 
 export const KNOWN_DOMAINS = Object.keys(DOMAIN_COLOR_HEX);
 
-/** Neutral color for unclustered ("noise") points. */
-const CLUSTER_NOISE_RGB: [number, number, number] = [107, 114, 128];
+/** Soft gray connective tissue for unclustered ("noise") points. */
+const CLUSTER_NOISE_RGB: [number, number, number] = [180, 184, 190];
 
 function hslToRgb(h: number, s: number, l: number): [number, number, number] {
   const a = s * Math.min(l, 1 - l);
@@ -61,9 +61,9 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
  * Hue is rotated by the golden angle so adjacent cluster ids never look alike.
  */
 export function getClusterColorRgb(clusterId: number, alpha = 255): RgbaColor {
-  if (clusterId < 0) return [...CLUSTER_NOISE_RGB, alpha * 0.5];
+  if (clusterId < 0) return [...CLUSTER_NOISE_RGB, Math.round(alpha * 0.35)];
   const hue = (clusterId * 137.508) % 360;
-  const [r, g, b] = hslToRgb(hue, 0.65, 0.55);
+  const [r, g, b] = hslToRgb(hue, 0.72, 0.48);
   return [r, g, b, alpha];
 }
 

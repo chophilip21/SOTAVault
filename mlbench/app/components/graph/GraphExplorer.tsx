@@ -16,7 +16,7 @@ function GraphLoadingPlaceholder({ label }: { label: string }) {
 // deck.gl needs WebGL, so both views are client-only and only bundled/mounted on demand.
 const PaperGalaxyView = dynamic(() => import("./PaperGalaxyView"), {
   ssr: false,
-  loading: () => <GraphLoadingPlaceholder label="Loading paper galaxy…" />,
+  loading: () => <GraphLoadingPlaceholder label="Loading topic map…" />,
 });
 const DatasetGraphView = dynamic(() => import("./DatasetGraphView"), {
   ssr: false,
@@ -54,7 +54,7 @@ function TabButton({
 
 export default function GraphExplorer() {
   const [activeTab, setActiveTab] = useState<TabKey>("papers");
-  // Keep the papers galaxy mounted after first visit (large Arrow decode).
+  // Keep the papers topic map mounted after first visit (large Arrow decode).
   // Datasets remount on each visit so regenerations + WebGL state stay fresh.
   const [papersVisited, setPapersVisited] = useState(true);
 
@@ -69,7 +69,7 @@ export default function GraphExplorer() {
         <div>
           <h3 className="text-lg font-semibold text-gray-900">Semantic Graph Explorer</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Papers by embedding similarity · dataset series by embedding similarity.
+            Papers by topic clusters · dataset series by embedding similarity.
           </p>
         </div>
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
