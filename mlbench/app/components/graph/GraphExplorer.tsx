@@ -65,14 +65,14 @@ export default function GraphExplorer() {
 
   return (
     <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-      <div className="flex flex-wrap items-start sm:items-center justify-between gap-3 px-4 sm:px-5 pt-4 pb-3">
-        <div>
+      <div className="flex flex-col items-center gap-3 px-4 pt-4 pb-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="w-full text-center sm:w-auto sm:text-left">
           <h3 className="text-lg font-semibold text-gray-900">Semantic Graph Explorer</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="mt-0.5 text-xs text-gray-500">
             Papers by topic clusters · dataset series by embedding similarity.
           </p>
         </div>
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+        <div className="flex shrink-0 gap-1 rounded-lg bg-gray-100 p-1">
           {TABS.map((tab) => (
             <TabButton key={tab.key} active={activeTab === tab.key} onClick={() => selectTab(tab.key)}>
               {tab.label}

@@ -56,9 +56,11 @@ interface PaperSquare {
   color: [number, number, number, number];
 }
 
-/** World size of the packed topic treemap (square canvas). */
-const TREEMAP_SIZE = 100;
-const OVERVIEW_FILL = 0.92;
+/** World height of the topic treemap; width follows the explorer viewport aspect. */
+const TREEMAP_HEIGHT = 80;
+/** Fallback aspect before the container is measured (wide landing strip). */
+const DEFAULT_VIEWPORT_ASPECT = 2.4;
+const OVERVIEW_FILL = 0.94;
 const CLUSTER_FOCUS_FILL = 0.94;
 const BACKGROUND_DIM_ALPHA = 50;
 const FOCUS_TRANSITION_MS = 320;
@@ -73,7 +75,7 @@ const FOCUS_TRANSITION = {
 };
 
 const INITIAL_VIEW_STATE: OrthographicViewState = {
-  target: [TREEMAP_SIZE / 2, TREEMAP_SIZE / 2, 0],
+  target: [(TREEMAP_HEIGHT * DEFAULT_VIEWPORT_ASPECT) / 2, TREEMAP_HEIGHT / 2, 0],
   zoom: 0,
   minZoom: -2,
   maxZoom: 14,
@@ -392,6 +394,41 @@ export default function PaperGalaxyView() {
   const [hover, setHover] = useState<HoverInfo | null>(null);
   const [viewState, setViewState] = useState<OrthographicViewState>(INITIAL_VIEW_STATE);
   const [expandedClusterId, setExpandedClusterId] = useState<number | null>(null);
+  /** Pixel size of the explorer canvas — drives treemap aspect + DeckGL size. */
+  const [viewportPx, setViewportPx] = useState({ w: 960, h: 400 });
+  const prevExpandedRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    let raf = 0;
+    const apply = (width: number, height: number) => {
+      const w = Math.max(1, Math.round(width));
+      const h = Math.max(1, Math.round(height));
+      if (w <= 0 || h <= 0) return;
+      setViewportPx((prev) =>
+        Math.abs(prev.w - w) < 1 && Math.abs(prev.h - h) < 1 ? prev : { w, h },
+      );
+    };
+    apply(el.clientWidth, el.clientHeight);
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect;
+      if (!cr) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => apply(cr.width, cr.height));
+    });
+    ro.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, []);
+
+  /** Wide rectangle matching Semantic Graph Explorer (not a square). */
+  const treemapBounds: Rect = useMemo(() => {
+    const aspect = Math.max(viewportPx.w / Math.max(viewportPx.h, 1), 1.15);
+    return { x: 0, y: 0, w: TREEMAP_HEIGHT * aspect, h: TREEMAP_HEIGHT };
+  }, [viewportPx]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -437,7 +474,7 @@ export default function PaperGalaxyView() {
     const ordered = orderClustersBySimilarity(clusters);
     const laid = squarifyLayout(
       ordered.map((c) => ({ cluster: c, value: Math.max(c.size, 1) })),
-      { x: 0, y: 0, w: TREEMAP_SIZE, h: TREEMAP_SIZE },
+      treemapBounds,
     );
     return laid.map(({ cluster, rect }) => {
       const fill = getClusterColorRgb(cluster.clusterId, 255);
@@ -450,27 +487,23 @@ export default function PaperGalaxyView() {
         textColor: contrastingTextColor(fill),
       };
     });
-  }, [clusters]);
+  }, [clusters, treemapBounds]);
 
   const containerSize = useCallback(() => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    return { w: rect?.width || 480, h: rect?.height || 480 };
-  }, []);
+    return { w: viewportPx.w || 480, h: viewportPx.h || 480 };
+  }, [viewportPx]);
 
   useEffect(() => {
     if (positionedClusters.length === 0) return;
     const { w, h } = containerSize();
-    const fit = zoomToFitRect(
-      { x: 0, y: 0, w: TREEMAP_SIZE, h: TREEMAP_SIZE },
-      w,
-      h,
-      OVERVIEW_FILL,
-    );
+    if (w < 2 || h < 2) return;
+    const fit = zoomToFitRect(treemapBounds, w, h, OVERVIEW_FILL);
     overviewFitRef.current = fit;
     if (expandedClusterId == null) {
+      // Resize refits immediately (no camera ease); expand/collapse still animates below.
       setViewState((vs) => focusViewState(vs, fit.target, fit.zoom));
     }
-  }, [positionedClusters, expandedClusterId, containerSize]);
+  }, [positionedClusters, expandedClusterId, containerSize, treemapBounds]);
 
   const resetToOverview = useCallback(() => {
     setExpandedClusterId(null);
@@ -524,22 +557,27 @@ export default function PaperGalaxyView() {
   }, [expandedClusterId, expandedParent, papersByCluster]);
 
   useEffect(() => {
+    const expandedChanged = prevExpandedRef.current !== expandedClusterId;
+    prevExpandedRef.current = expandedClusterId;
+    const transition = expandedChanged ? FOCUS_TRANSITION : {};
+
     if (expandedClusterId == null) {
       if (overviewFitRef.current) {
         const { target, zoom } = overviewFitRef.current;
         setViewState((vs) => ({
           ...focusViewState(vs, target, zoom),
-          ...FOCUS_TRANSITION,
+          ...transition,
         }));
       }
       return;
     }
     if (!expandedParent) return;
     const { w, h } = containerSize();
+    if (w < 2 || h < 2) return;
     const fit = zoomToFitRect(expandedParent.rect, w, h, CLUSTER_FOCUS_FILL);
     setViewState((vs) => ({
       ...focusViewState(vs, fit.target, fit.zoom),
-      ...FOCUS_TRANSITION,
+      ...transition,
     }));
   }, [expandedClusterId, expandedParent, paperSquares.length, containerSize]);
 
@@ -695,74 +733,84 @@ export default function PaperGalaxyView() {
   const totalPapersInClusters = points.filter((p) => p.clusterId >= 0).length;
 
   return (
-    <div ref={containerRef} className="relative h-[480px] w-full rounded-lg overflow-hidden bg-white">
-      {!data && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
-          <LoadingSpinner size="lg" />
-          <p className="text-gray-500 text-sm">Loading topic map…</p>
-        </div>
-      )}
-
+    <div className="flex w-full flex-col gap-2">
       {data && (
-        <DeckGL
-          views={new OrthographicView({ flipY: false })}
-          viewState={viewState}
-          onViewStateChange={({ viewState: vs }) => setViewState(vs as OrthographicViewState)}
-          controller={true}
-          layers={layers}
-        />
-      )}
-
-      {data && (
-        <>
-          <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 text-xs text-gray-600 shadow-sm border border-gray-200 pointer-events-none max-w-[75%]">
+        <div className="flex flex-col gap-2 px-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+          <button
+            type="button"
+            onClick={resetToOverview}
+            className="order-1 self-center rounded-lg border-2 border-green-600 bg-green-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md hover:bg-green-700 hover:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 sm:order-2 sm:shrink-0 sm:self-auto"
+          >
+            Reset view
+          </button>
+          <p className="order-2 min-w-0 text-center text-xs leading-relaxed text-gray-500 sm:order-1 sm:text-left">
             {clusters.length.toLocaleString()} topics ·{" "}
             {totalPapersInClusters.toLocaleString()} papers
             {expandedClusterId != null
               ? ` · ${paperSquares.length.toLocaleString()} papers in topic · click a square to open`
               : " · click a topic block to zoom in"}
             {" · drag to pan, scroll to zoom"}
-          </div>
-
-          <button
-            type="button"
-            onClick={resetToOverview}
-            className="absolute top-3 right-3 z-10 rounded-lg border-2 border-green-600 bg-green-600 px-3.5 py-2 text-xs font-semibold text-white shadow-md hover:bg-green-700 hover:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1"
-          >
-            Reset view
-          </button>
-        </>
-      )}
-
-      {hover && (
-        <div
-          className="absolute z-20 pointer-events-none bg-white text-gray-900 rounded-lg shadow-lg border border-gray-200 px-3 py-2 max-w-xs text-xs"
-          style={{ left: hover.x + 12, top: hover.y + 12 }}
-        >
-          {hover.kind === "cluster" && hover.cluster && (
-            <>
-              <p className="font-semibold mb-1">{hover.cluster.label}</p>
-              <p className="text-gray-500">
-                {hover.cluster.size.toLocaleString()} papers · click to zoom in
-              </p>
-            </>
-          )}
-          {hover.kind === "paper" && hover.paper && (
-            <>
-              <p className="font-semibold line-clamp-2 mb-1">{hover.paper.title}</p>
-              {hover.paper.authors.length > 0 && (
-                <p className="text-gray-500 line-clamp-1 mb-1">
-                  {hover.paper.authors.slice(0, 3).join(", ")}
-                  {hover.paper.authors.length > 3 && " et al."}
-                </p>
-              )}
-              <p className="text-gray-400">
-                {[hover.paper.venue, hover.paper.year].filter(Boolean).join(" · ")}
-              </p>
-            </>
-          )}
+          </p>
         </div>
       )}
+
+      <div
+        ref={containerRef}
+        className="relative h-[min(480px,70vh)] min-h-[280px] w-full overflow-hidden rounded-lg bg-white"
+      >
+        {!data && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
+            <LoadingSpinner size="lg" />
+            <p className="text-sm text-gray-500">Loading topic map…</p>
+          </div>
+        )}
+
+        {data && viewportPx.w > 1 && viewportPx.h > 1 && (
+          <DeckGL
+            width={viewportPx.w}
+            height={viewportPx.h}
+            views={new OrthographicView({ flipY: false })}
+            viewState={viewState}
+            onViewStateChange={({ viewState: vs }) => setViewState(vs as OrthographicViewState)}
+            controller={true}
+            layers={layers}
+            style={{ width: "100%", height: "100%" }}
+          />
+        )}
+
+        {hover && (
+          <div
+            className="pointer-events-none absolute z-20 max-w-xs rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-900 shadow-lg"
+            style={{
+              left: Math.min(hover.x + 12, Math.max(8, viewportPx.w - 220)),
+              top: Math.min(hover.y + 12, Math.max(8, viewportPx.h - 80)),
+            }}
+          >
+            {hover.kind === "cluster" && hover.cluster && (
+              <>
+                <p className="mb-1 font-semibold">{hover.cluster.label}</p>
+                <p className="text-gray-500">
+                  {hover.cluster.size.toLocaleString()} papers · click to zoom in
+                </p>
+              </>
+            )}
+            {hover.kind === "paper" && hover.paper && (
+              <>
+                <p className="mb-1 line-clamp-2 font-semibold">{hover.paper.title}</p>
+                {hover.paper.authors.length > 0 && (
+                  <p className="mb-1 line-clamp-1 text-gray-500">
+                    {hover.paper.authors.slice(0, 3).join(", ")}
+                    {hover.paper.authors.length > 3 && " et al."}
+                  </p>
+                )}
+                <p className="text-gray-400">
+                  {[hover.paper.venue, hover.paper.year].filter(Boolean).join(" · ")}
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

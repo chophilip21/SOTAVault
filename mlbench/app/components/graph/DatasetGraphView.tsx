@@ -59,8 +59,6 @@ const PAPER_HALF_MAX = 0.55;
 const COLLISION_GAP = 0.12;
 /** Soft pack: median NN before collision resolve (keeps similar nodes near). */
 const SOFT_PACK_NN = SERIES_RADIUS_MIN * 1.8;
-/** Largest (center) series size on the default overview — not a full-cloud fit. */
-const OVERVIEW_CENTER_DIAMETER_PX = 100;
 const BACKGROUND_DIM_ALPHA = 55;
 /** How far children sit beyond the parent edge (base + size-scaled). */
 const CHILD_RING_BASE = 2.4;
@@ -68,14 +66,6 @@ const CHILD_RING_PER_SIZE = 6.5;
 /** Papers: vary edge length by size so neighbors don’t stack on one ring. */
 const PAPER_RING_BASE = 0.55;
 const PAPER_RING_PER_SIZE = 2.8;
-/** Series expand: fit parent + dataset ring across this many pixels. */
-const SERIES_FOCUS_DIAMETER_PX = 340;
-/**
- * Dataset expand: frame dataset + paper ring only (not the parent series).
- * Including distance-to-parent made zoom ≈ series-fan zoom, so clicks felt
- * like a no-op. Parent may sit near/off the edge; papers stay readable.
- */
-const DATASET_FOCUS_DIAMETER_PX = 360;
 /** Camera ease when changing focus. */
 const FOCUS_TRANSITION_MS = 320;
 /** Must interpolate zoomX/zoomY too — otherwise OrthographicController ignores the transition. */
@@ -241,18 +231,6 @@ function zoomForWorldDiameter(worldRadius: number, targetDiameterPx: number): nu
   return Math.log2(targetDiameterPx / worldDiameter);
 }
 
-/**
- * Build a viewState update targeting `target`/`zoom`.
- *
- * OrthographicController tracks per-axis zoom (`zoomX`/`zoomY`) alongside the
- * uniform `zoom`. Once the controller has echoed a viewState back to us
- * (after the first render), those fields are present and get carried along
- * by any `...prev` spread. If we only overwrite `zoom` without also syncing
- * `zoomX`/`zoomY`, the controller's own normalization sees the *axis* zoom as
- * unchanged, decides the transition is a no-op, and echoes the stale
- * viewState straight back through `onViewStateChange` — silently discarding
- * the update. Always keep all three in lockstep.
- */
 function focusViewState(
   prev: OrthographicViewState,
   target: [number, number, number],
@@ -443,7 +421,33 @@ export default function DatasetGraphView() {
   const [viewState, setViewState] = useState<OrthographicViewState>(INITIAL_VIEW_STATE);
   const [expandedSeriesId, setExpandedSeriesId] = useState<string | null>(null);
   const [expandedDatasetId, setExpandedDatasetId] = useState<string | null>(null);
+  const [viewportPx, setViewportPx] = useState({ w: 960, h: 400 });
   const paperIconAtlas = useMemo(() => createPaperTriangleAtlas(), []);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    let raf = 0;
+    const apply = (width: number, height: number) => {
+      const w = Math.max(1, Math.round(width));
+      const h = Math.max(1, Math.round(height));
+      setViewportPx((prev) =>
+        Math.abs(prev.w - w) < 1 && Math.abs(prev.h - h) < 1 ? prev : { w, h },
+      );
+    };
+    apply(el.clientWidth, el.clientHeight);
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect;
+      if (!cr) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => apply(cr.width, cr.height));
+    });
+    ro.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -523,16 +527,25 @@ export default function DatasetGraphView() {
   }, [seriesNodes, seriesRadii]);
 
   useEffect(() => {
-    if (seriesPositions.size === 0) return;
-    const overview = {
-      target: [0, 0, 0] as [number, number, number],
-      zoom: zoomForWorldDiameter(SERIES_RADIUS_MAX, OVERVIEW_CENTER_DIAMETER_PX),
-    };
-    overviewFitRef.current = overview;
-    if (!expandedSeriesId) {
-      setViewState((vs) => focusViewState(vs, overview.target, overview.zoom));
+    if (seriesPositions.size === 0 || viewportPx.w < 2 || viewportPx.h < 2) return;
+    // Largest series is centered at origin (see centerOnNode). Frame that node
+    // so it reads as the landing focus — not a fit of the entire cloud.
+    let centerRadius = SERIES_RADIUS_MAX;
+    for (const r of seriesRadii.values()) {
+      if (r > centerRadius) centerRadius = r;
     }
-  }, [seriesPositions, expandedSeriesId]);
+    // ~100px on a typical desktop strip; scales gently with the canvas.
+    const centerDiameterPx = Math.min(
+      140,
+      Math.max(72, Math.min(viewportPx.w, viewportPx.h) * 0.24),
+    );
+    const zoom = zoomForWorldDiameter(centerRadius, centerDiameterPx);
+    const target: [number, number, number] = [0, 0, 0];
+    overviewFitRef.current = { target, zoom };
+    if (!expandedSeriesId) {
+      setViewState((vs) => focusViewState(vs, target, zoom));
+    }
+  }, [seriesPositions, seriesRadii, expandedSeriesId, viewportPx]);
 
   const resetToOverview = useCallback(() => {
     setExpandedSeriesId(null);
@@ -732,6 +745,8 @@ export default function DatasetGraphView() {
   }, [expandedDatasetId, datasetPositions, papersByDataset, maxPaperScore]);
 
   useEffect(() => {
+    const focusPx = Math.max(200, Math.min(viewportPx.w, viewportPx.h) * 0.78);
+
     if (!expandedSeriesId) {
       setExpandedDatasetId(null);
       if (overviewFitRef.current) {
@@ -752,11 +767,9 @@ export default function DatasetGraphView() {
         position: p.node.position,
         radius: p.node.radius,
       }));
-      // Frame the paper neighborhood only — do NOT pull back to the parent
-      // series distance (that cancels the zoom-in vs the series-fan view).
       const paperExtent = ringExtentRadius(ds.position, ds.radius, paperChildren);
       const focusRadius = Math.max(paperExtent * 1.12, ds.radius * 3.2);
-      const zoom = zoomForWorldDiameter(focusRadius, DATASET_FOCUS_DIAMETER_PX);
+      const zoom = zoomForWorldDiameter(focusRadius, focusPx);
 
       setViewState((vs) => ({
         ...focusViewState(vs, [ds.position[0], ds.position[1], 0], zoom),
@@ -773,7 +786,7 @@ export default function DatasetGraphView() {
       radius: d.node.radius,
     }));
     const extent = ringExtentRadius(parentPos, parentRadius, datasetChildren);
-    const zoom = zoomForWorldDiameter(extent, SERIES_FOCUS_DIAMETER_PX);
+    const zoom = zoomForWorldDiameter(extent, focusPx);
     setViewState((vs) => ({
       ...focusViewState(vs, [parentPos[0], parentPos[1], 0], zoom),
       ...FOCUS_TRANSITION,
@@ -786,6 +799,7 @@ export default function DatasetGraphView() {
     datasetPositions,
     datasetSquares,
     paperMarkers,
+    viewportPx,
   ]);
 
   const layers = useMemo(() => {
@@ -1062,27 +1076,17 @@ export default function DatasetGraphView() {
   }
 
   return (
-    <div ref={containerRef} className="relative h-[480px] w-full rounded-lg overflow-hidden bg-white">
-      {!graph && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
-          <LoadingSpinner size="lg" />
-          <p className="text-gray-500 text-sm">Loading dataset graph…</p>
-        </div>
-      )}
-
+    <div className="flex w-full flex-col gap-2">
       {graph && (
-        <DeckGL
-          views={new OrthographicView({ flipY: false })}
-          viewState={viewState}
-          onViewStateChange={({ viewState: vs }) => setViewState(vs as OrthographicViewState)}
-          controller={true}
-          layers={layers}
-        />
-      )}
-
-      {graph && (
-        <>
-          <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 text-xs text-gray-600 shadow-sm border border-gray-200 pointer-events-none">
+        <div className="flex flex-col gap-2 px-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+          <button
+            type="button"
+            onClick={resetToOverview}
+            className="order-1 self-center rounded-lg border-2 border-green-600 bg-green-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md hover:bg-green-700 hover:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 sm:order-2 sm:shrink-0 sm:self-auto"
+          >
+            Reset view
+          </button>
+          <p className="order-2 min-w-0 text-center text-xs leading-relaxed text-gray-500 sm:order-1 sm:text-left">
             {seriesCount.toLocaleString()} series
             {paperNodeCount > 0 ? ` · ${paperNodeCount.toLocaleString()} papers in graph` : ""}
             {expandedSeriesId
@@ -1096,69 +1100,78 @@ export default function DatasetGraphView() {
                 ? " · click a dataset for papers"
                 : ""}
             {" · drag to pan, scroll to zoom"}
-          </div>
-
-          <button
-            type="button"
-            onClick={resetToOverview}
-            className="absolute top-3 right-3 z-10 rounded-lg border border-gray-200 bg-white/90 px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm backdrop-blur-sm hover:bg-white hover:text-gray-900"
-          >
-            Reset view
-          </button>
-
-          <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 shadow-sm border border-gray-200 pointer-events-none max-w-[90%]">
-            {legend.map((entry) => (
-              <span key={entry.domain} className="flex items-center gap-1.5 text-[11px] text-gray-600">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
-                {entry.label}
-              </span>
-            ))}
-            <span className="flex items-center gap-1.5 text-[11px] text-gray-500 ml-1">
-              <span className="w-2.5 h-2.5 rounded-sm bg-gray-400" />
-              dataset
-            </span>
-            <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
-              <span
-                className="inline-block w-0 h-0 border-l-[5px] border-r-[5px] border-b-[9px] border-l-transparent border-r-transparent border-b-gray-400"
-              />
-              paper
-            </span>
-          </div>
-        </>
-      )}
-
-      {hover && (
-        <div
-          className="absolute z-20 pointer-events-none bg-white text-gray-900 rounded-lg shadow-lg border border-gray-200 px-3 py-2 max-w-xs text-xs"
-          style={{ left: hover.x + 12, top: hover.y + 12 }}
-        >
-          <p className="font-semibold line-clamp-2 mb-1">{hover.node.label}</p>
-          <p className="text-gray-400 capitalize">
-            {hover.node.type === "series"
-              ? "dataset series"
-              : hover.node.type === "dataset"
-                ? "dataset"
-                : "paper"}
-            {hover.node.type === "series" || hover.node.type === "dataset"
-              ? ` · ${(hover.node.paperCount || 0).toLocaleString()} papers`
-              : ""}
-            {hover.node.year ? ` · ${hover.node.year}` : ""}
-            {hover.node.type === "series" && expandedSeriesId !== hover.node.nodeId
-              ? " · click to expand"
-              : ""}
-            {hover.node.type === "series" && expandedSeriesId === hover.node.nodeId
-              ? " · click to collapse"
-              : ""}
-            {hover.node.type === "dataset" && expandedDatasetId !== hover.node.nodeId
-              ? " · click for papers"
-              : ""}
-            {hover.node.type === "dataset" && expandedDatasetId === hover.node.nodeId
-              ? " · click to collapse papers"
-              : ""}
-            {hover.node.type === "paper" ? " · click to open" : ""}
           </p>
         </div>
       )}
+
+      <div
+        ref={containerRef}
+        className="relative h-[min(480px,70vh)] min-h-[280px] w-full overflow-hidden rounded-lg bg-white"
+      >
+        {!graph && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
+            <LoadingSpinner size="lg" />
+            <p className="text-sm text-gray-500">Loading dataset graph…</p>
+          </div>
+        )}
+
+        {graph && viewportPx.w > 1 && viewportPx.h > 1 && (
+          <DeckGL
+            width={viewportPx.w}
+            height={viewportPx.h}
+            views={new OrthographicView({ flipY: false })}
+            viewState={viewState}
+            onViewStateChange={({ viewState: vs }) => setViewState(vs as OrthographicViewState)}
+            controller={true}
+            layers={layers}
+            style={{ width: "100%", height: "100%" }}
+          />
+        )}
+
+        {graph && (
+          <div className="pointer-events-none absolute bottom-3 left-3 flex max-w-[90%] flex-wrap gap-x-3 gap-y-1 rounded-lg border border-gray-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur-sm">
+            {legend.map((entry) => (
+              <span key={entry.domain} className="flex items-center gap-1.5 text-[11px] text-gray-600">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                {entry.label}
+              </span>
+            ))}
+            <span className="ml-1 flex items-center gap-1.5 text-[11px] text-gray-500">
+              <span className="h-2.5 w-2.5 rounded-sm bg-gray-400" />
+              dataset
+            </span>
+            <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
+              <span className="inline-block h-0 w-0 border-b-[9px] border-l-[5px] border-r-[5px] border-l-transparent border-r-transparent border-b-gray-400" />
+              paper
+            </span>
+          </div>
+        )}
+
+        {hover && (
+          <div
+            className="pointer-events-none absolute z-20 max-w-xs rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-900 shadow-lg"
+            style={{
+              left: Math.min(hover.x + 12, Math.max(8, viewportPx.w - 220)),
+              top: Math.min(hover.y + 12, Math.max(8, viewportPx.h - 80)),
+            }}
+          >
+            <p className="mb-1 font-semibold line-clamp-2">{hover.node.label}</p>
+            {hover.node.type === "series" && expandedSeriesId !== hover.node.nodeId
+              ? "Click to expand datasets"
+              : null}
+            {hover.node.type === "series" && expandedSeriesId === hover.node.nodeId
+              ? "Expanded · click a dataset for papers"
+              : null}
+            {hover.node.type === "dataset" && expandedDatasetId !== hover.node.nodeId
+              ? "Click to show papers"
+              : null}
+            {hover.node.type === "dataset" && expandedDatasetId === hover.node.nodeId
+              ? "Showing linked papers"
+              : null}
+            {hover.node.type === "paper" ? "Click to open paper" : null}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
