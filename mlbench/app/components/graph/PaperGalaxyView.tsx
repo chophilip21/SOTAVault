@@ -10,7 +10,6 @@ import {
   type OrthographicViewState,
 } from "@deck.gl/core";
 import { SolidPolygonLayer, TextLayer } from "@deck.gl/layers";
-import { getBackendBaseUrl } from "@/lib/backendUrl";
 import {
   fetchPaperGalaxy,
   type PaperClusterNode,
@@ -381,7 +380,11 @@ function clusterLabelForRect(
   return { text: bestText, size: bestSize };
 }
 
-export default function PaperGalaxyView() {
+interface PaperGalaxyViewProps {
+  onResetRef?: React.MutableRefObject<(() => void) | null>;
+}
+
+export default function PaperGalaxyView({ onResetRef }: PaperGalaxyViewProps = {}) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const overviewFitRef = useRef<{ target: [number, number, number]; zoom: number } | null>(
@@ -436,8 +439,7 @@ export default function PaperGalaxyView() {
 
     (async () => {
       try {
-        const url = `${getBackendBaseUrl()}/graph/papers`;
-        const result = filterValidPapers(await fetchPaperGalaxy(url, controller.signal));
+        const result = filterValidPapers(await fetchPaperGalaxy(controller.signal));
         setData(result);
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== "AbortError") {
@@ -516,6 +518,12 @@ export default function PaperGalaxyView() {
       }));
     }
   }, []);
+
+  useEffect(() => {
+    if (onResetRef) {
+      onResetRef.current = resetToOverview;
+    }
+  }, [resetToOverview, onResetRef]);
 
   const expandedParent = useMemo(
     () =>
@@ -730,26 +738,12 @@ export default function PaperGalaxyView() {
     );
   }
 
-  const totalPapersInClusters = points.filter((p) => p.clusterId >= 0).length;
-
   return (
-    <div className="flex w-full flex-col gap-2">
-      {data && (
-        <div className="flex flex-col gap-2 px-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-          <button
-            type="button"
-            onClick={resetToOverview}
-            className="order-1 self-center rounded-lg border-2 border-green-600 bg-green-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md hover:bg-green-700 hover:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 sm:order-2 sm:shrink-0 sm:self-auto"
-          >
-            Reset view
-          </button>
-          <p className="order-2 min-w-0 text-center text-xs leading-relaxed text-gray-500 sm:order-1 sm:text-left">
-            {clusters.length.toLocaleString()} topics ·{" "}
-            {totalPapersInClusters.toLocaleString()} papers
-            {expandedClusterId != null
-              ? ` · ${paperSquares.length.toLocaleString()} papers in topic · click a square to open`
-              : " · click a topic block to zoom in"}
-            {" · drag to pan, scroll to zoom"}
+    <div className="flex w-full flex-col gap-2.5">
+      {data && expandedClusterId != null && (
+        <div className="flex flex-col items-center justify-center px-1">
+          <p className="text-center text-xs leading-relaxed text-gray-500">
+            {`${paperSquares.length.toLocaleString()} papers in topic · click a square to open · drag to pan, scroll to zoom`}
           </p>
         </div>
       )}

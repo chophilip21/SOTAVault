@@ -25,6 +25,7 @@ const contentSecurityPolicy = [
     "https://*.gstatic.com",
     "https://challenges.cloudflare.com",
     "https://tiles.openfreemap.org",
+    "https://cdn.sotavault.ai",
   ].join(" "),
   "frame-src 'self' https://*.firebaseapp.com https://*.google.com https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",

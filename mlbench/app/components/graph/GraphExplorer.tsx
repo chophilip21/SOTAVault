@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { LoadingSpinner } from "../LoadingSpinner";
 
@@ -58,9 +58,20 @@ export default function GraphExplorer() {
   // Datasets remount on each visit so regenerations + WebGL state stay fresh.
   const [papersVisited, setPapersVisited] = useState(true);
 
+  const paperResetRef = useRef<(() => void) | null>(null);
+  const datasetResetRef = useRef<(() => void) | null>(null);
+
   const selectTab = (tab: TabKey) => {
     setActiveTab(tab);
     if (tab === "papers") setPapersVisited(true);
+  };
+
+  const handleResetView = () => {
+    if (activeTab === "papers") {
+      paperResetRef.current?.();
+    } else if (activeTab === "datasets") {
+      datasetResetRef.current?.();
+    }
   };
 
   return (
@@ -72,21 +83,30 @@ export default function GraphExplorer() {
             Papers by topic clusters · dataset series by embedding similarity.
           </p>
         </div>
-        <div className="flex shrink-0 gap-1 rounded-lg bg-gray-100 p-1">
-          {TABS.map((tab) => (
-            <TabButton key={tab.key} active={activeTab === tab.key} onClick={() => selectTab(tab.key)}>
-              {tab.label}
-            </TabButton>
-          ))}
+        <div className="flex items-center gap-2.5 shrink-0 flex-wrap justify-center sm:justify-end">
+          <button
+            type="button"
+            onClick={handleResetView}
+            className="rounded-lg border-2 border-green-600 bg-green-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-green-700 hover:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 transition-all"
+          >
+            Reset view
+          </button>
+          <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
+            {TABS.map((tab) => (
+              <TabButton key={tab.key} active={activeTab === tab.key} onClick={() => selectTab(tab.key)}>
+                {tab.label}
+              </TabButton>
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="px-3 sm:px-4 pb-4">
         <div className={activeTab === "papers" ? "block" : "hidden"}>
-          {papersVisited && <PaperGalaxyView />}
+          {papersVisited && <PaperGalaxyView onResetRef={paperResetRef} />}
         </div>
         <div className={activeTab === "datasets" ? "block" : "hidden"}>
-          {activeTab === "datasets" && <DatasetGraphView />}
+          {activeTab === "datasets" && <DatasetGraphView onResetRef={datasetResetRef} />}
         </div>
       </div>
     </div>

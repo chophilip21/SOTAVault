@@ -1,13 +1,15 @@
 /**
- * Fetch + decode the pre-generated graph Arrow files served by the backend
- * (`GET /graph/papers`, `GET /graph/datasets` — see backend/app/routers/graph.py).
+ * Decode the pre-generated graph Arrow files (paper + dataset).
  *
- * These files are produced offline by `mlbench.graph.paper_graph` (2-D UMAP
- * semantic map of papers) and `mlbench.graph.dataset_graph` (UMAP of
- * series embeddings + series→dataset hierarchy). We decode them client-side
- * with `apache-arrow` and hand plain JS arrays to deck.gl for rendering.
+ * Fetching is delegated to `graphUrl.ts`, which handles local-vs-CDN routing:
+ *   - local  → FastAPI /api/graph/* (local file), fallback to CDN on 404
+ *   - prod   → cdn.sotavault.ai directly
+ *
+ * We decode the raw bytes client-side with `apache-arrow` and hand plain JS
+ * arrays to deck.gl for rendering.
  */
 import { tableFromIPC } from "apache-arrow";
+import { fetchGraphBytes } from "./graphUrl";
 
 export interface PaperGalaxyPoint {
   id: string;
@@ -78,14 +80,8 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-async function fetchArrayBuffer(url: string, signal?: AbortSignal): Promise<Uint8Array> {
-  const res = await fetch(url, { signal, cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`Failed to fetch ${url} (HTTP ${res.status})`);
-  }
-  const buf = await res.arrayBuffer();
-  return new Uint8Array(buf);
-}
+// fetchArrayBuffer is replaced by fetchGraphBytes in graphUrl.ts, which
+// handles local-vs-CDN routing. No direct fetch calls remain here.
 
 const PAPERS_MAGIC = "PAPERS";
 const CLUSTERS_MAGIC = "CLUSTERS";
@@ -122,10 +118,9 @@ function splitGraphSections(bytes: Uint8Array): Record<string, Uint8Array> {
  * the dataset graph) into flat arrays ready for deck.gl.
  */
 export async function fetchPaperGalaxy(
-  url: string,
   signal?: AbortSignal,
 ): Promise<PaperGalaxyData> {
-  const bytes = await fetchArrayBuffer(url, signal);
+  const bytes = await fetchGraphBytes("paper", signal);
   const sections = splitGraphSections(bytes);
 
   const table = tableFromIPC(sections[PAPERS_MAGIC]);
@@ -188,10 +183,9 @@ export async function fetchPaperGalaxy(
 }
 
 export async function fetchDatasetGraph(
-  url: string,
   signal?: AbortSignal,
 ): Promise<DatasetGraphData> {
-  const bytes = await fetchArrayBuffer(url, signal);
+  const bytes = await fetchGraphBytes("dataset", signal);
   const sections = splitGraphSections(bytes);
 
   const nodesTable = tableFromIPC(sections[NODES_MAGIC]);

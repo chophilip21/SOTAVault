@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import DeckGL from "@deck.gl/react";
 import { COORDINATE_SYSTEM, OrthographicView, LinearInterpolator, type OrthographicViewState } from "@deck.gl/core";
 import { LineLayer, ScatterplotLayer, SolidPolygonLayer, IconLayer, TextLayer } from "@deck.gl/layers";
-import { getBackendBaseUrl } from "@/lib/backendUrl";
 import {
   fetchDatasetGraph,
   type DatasetGraphData,
@@ -410,7 +409,11 @@ function ringExtentRadius(
   return extent;
 }
 
-export default function DatasetGraphView() {
+interface DatasetGraphViewProps {
+  onResetRef?: React.MutableRefObject<(() => void) | null>;
+}
+
+export default function DatasetGraphView({ onResetRef }: DatasetGraphViewProps = {}) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -455,8 +458,7 @@ export default function DatasetGraphView() {
 
     (async () => {
       try {
-        const url = `${getBackendBaseUrl()}/graph/datasets`;
-        const data = await fetchDatasetGraph(url, controller.signal);
+        const data = await fetchDatasetGraph(controller.signal);
         setGraph(data);
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== "AbortError") {
@@ -556,6 +558,12 @@ export default function DatasetGraphView() {
       setViewState((vs) => focusViewState(vs, target as [number, number, number], zoom));
     }
   }, []);
+
+  useEffect(() => {
+    if (onResetRef) {
+      onResetRef.current = resetToOverview;
+    }
+  }, [resetToOverview, onResetRef]);
 
   const childrenBySeries = useMemo(() => {
     const map = new Map<string, DatasetGraphNode[]>();
@@ -1057,8 +1065,6 @@ export default function DatasetGraphView() {
   ]);
 
   const legend = useMemo(() => getDomainLegendEntries(), []);
-  const seriesCount = seriesNodes.length;
-  const paperNodeCount = paperNodes.length;
   const expandedDatasetCount = datasetSquares.length;
   const expandedPaperCount = paperMarkers.length;
   const linkedPaperCount = expandedDatasetId
@@ -1076,30 +1082,15 @@ export default function DatasetGraphView() {
   }
 
   return (
-    <div className="flex w-full flex-col gap-2">
-      {graph && (
-        <div className="flex flex-col gap-2 px-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-          <button
-            type="button"
-            onClick={resetToOverview}
-            className="order-1 self-center rounded-lg border-2 border-green-600 bg-green-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md hover:bg-green-700 hover:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 sm:order-2 sm:shrink-0 sm:self-auto"
-          >
-            Reset view
-          </button>
-          <p className="order-2 min-w-0 text-center text-xs leading-relaxed text-gray-500 sm:order-1 sm:text-left">
-            {seriesCount.toLocaleString()} series
-            {paperNodeCount > 0 ? ` · ${paperNodeCount.toLocaleString()} papers in graph` : ""}
-            {expandedSeriesId
-              ? ` · ${expandedDatasetCount.toLocaleString()} datasets`
-              : " · click a series to expand"}
+    <div className="flex w-full flex-col gap-2.5">
+      {graph && (expandedSeriesId || expandedDatasetId) && (
+        <div className="flex flex-col items-center justify-center px-1">
+          <p className="text-center text-xs leading-relaxed text-gray-500">
             {expandedDatasetId
               ? linkedPaperCount > 0
-                ? ` · ${expandedPaperCount.toLocaleString()} papers`
-                : " · no linked papers for this dataset"
-              : expandedSeriesId
-                ? " · click a dataset for papers"
-                : ""}
-            {" · drag to pan, scroll to zoom"}
+                ? `${expandedPaperCount.toLocaleString()} papers · drag to pan, scroll to zoom`
+                : "No linked papers for this dataset"
+              : `${expandedDatasetCount.toLocaleString()} datasets · click a dataset for papers`}
           </p>
         </div>
       )}
