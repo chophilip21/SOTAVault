@@ -9,7 +9,7 @@ import {
   LinearInterpolator,
   type OrthographicViewState,
 } from "@deck.gl/core";
-import { SolidPolygonLayer, TextLayer } from "@deck.gl/layers";
+import { PolygonLayer, TextLayer } from "@deck.gl/layers";
 import {
   fetchPaperGalaxy,
   type PaperClusterNode,
@@ -613,7 +613,7 @@ export default function PaperGalaxyView({ onResetRef }: PaperGalaxyViewProps = {
     const out = [];
 
     out.push(
-      new SolidPolygonLayer<ClusterBlock>({
+      new PolygonLayer<ClusterBlock>({
         id: "paper-topic-blocks",
         data: clusterBlocks,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
@@ -658,7 +658,7 @@ export default function PaperGalaxyView({ onResetRef }: PaperGalaxyViewProps = {
 
     if (paperSquares.length > 0) {
       out.push(
-        new SolidPolygonLayer<PaperSquare>({
+        new PolygonLayer<PaperSquare>({
           id: "paper-member-squares",
           data: paperSquares,
           coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
