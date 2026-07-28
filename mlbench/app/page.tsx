@@ -27,9 +27,9 @@ const notoSans = Noto_Sans({
   weight: "600",
 });
 
-const annoucement_header = `Welcome to SotaVault `;
+const annoucement_header = `Welcome to SotaVault (Beta) `;
 const description = `
-SotaVault is a non-commercial project to help researchers and machine learning enthusiasts discover machine learning conferences, research papers, and benchmark scores on various datasets.
+SotaVault is built to help researchers and machine learning enthusiasts discover machine learning conferences, research papers, and benchmark scores on various datasets.
 Stay up-to-date with upcoming deadlines, explore venues worldwide, and access a curated collection
 of impactful research from the ML community.
 `;

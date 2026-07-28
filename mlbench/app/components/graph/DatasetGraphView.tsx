@@ -1093,39 +1093,63 @@ export default function DatasetGraphView({ onResetRef }: DatasetGraphViewProps =
         </div>
       )}
 
-      <div
-        ref={containerRef}
-        className="relative h-[min(480px,70vh)] min-h-[280px] w-full overflow-hidden rounded-lg bg-white"
-      >
-        {!graph && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
-            <LoadingSpinner size="lg" />
-            <p className="text-sm text-gray-500">Loading dataset graph…</p>
-          </div>
-        )}
+      <div className="flex h-[min(480px,70vh)] min-h-[280px] w-full flex-col overflow-hidden rounded-lg bg-white">
+        <div ref={containerRef} className="relative min-h-0 w-full flex-1">
+          {!graph && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
+              <LoadingSpinner size="lg" />
+              <p className="text-sm text-gray-500">Loading dataset graph…</p>
+            </div>
+          )}
 
-        {graph && viewportPx.w > 1 && viewportPx.h > 1 && (
-          <DeckGL
-            width={viewportPx.w}
-            height={viewportPx.h}
-            views={new OrthographicView({ flipY: false })}
-            viewState={viewState}
-            onViewStateChange={({ viewState: vs }) => setViewState(vs as OrthographicViewState)}
-            controller={true}
-            layers={layers}
-            style={{ width: "100%", height: "100%" }}
-          />
-        )}
+          {graph && viewportPx.w > 1 && viewportPx.h > 1 && (
+            <DeckGL
+              width={viewportPx.w}
+              height={viewportPx.h}
+              views={new OrthographicView({ flipY: false })}
+              viewState={viewState}
+              onViewStateChange={({ viewState: vs }) => setViewState(vs as OrthographicViewState)}
+              controller={true}
+              layers={layers}
+              style={{ position: "absolute", inset: "0", width: "100%", height: "100%" }}
+            />
+          )}
+
+          {hover && (
+            <div
+              className="pointer-events-none absolute z-20 max-w-xs rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-900 shadow-lg"
+              style={{
+                left: Math.min(hover.x + 12, Math.max(8, viewportPx.w - 220)),
+                top: Math.min(hover.y + 12, Math.max(8, viewportPx.h - 80)),
+              }}
+            >
+              <p className="mb-1 font-semibold line-clamp-2">{hover.node.label}</p>
+              {hover.node.type === "series" && expandedSeriesId !== hover.node.nodeId
+                ? "Click to expand datasets"
+                : null}
+              {hover.node.type === "series" && expandedSeriesId === hover.node.nodeId
+                ? "Expanded · click a dataset for papers"
+                : null}
+              {hover.node.type === "dataset" && expandedDatasetId !== hover.node.nodeId
+                ? "Click to show papers"
+                : null}
+              {hover.node.type === "dataset" && expandedDatasetId === hover.node.nodeId
+                ? "Showing linked papers"
+                : null}
+              {hover.node.type === "paper" ? "Click to open paper" : null}
+            </div>
+          )}
+        </div>
 
         {graph && (
-          <div className="pointer-events-none absolute bottom-3 left-3 flex max-w-[90%] flex-wrap gap-x-3 gap-y-1 rounded-lg border border-gray-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur-sm">
+          <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-gray-200 bg-white px-3 py-2">
             {legend.map((entry) => (
               <span key={entry.domain} className="flex items-center gap-1.5 text-[11px] text-gray-600">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
                 {entry.label}
               </span>
             ))}
-            <span className="ml-1 flex items-center gap-1.5 text-[11px] text-gray-500">
+            <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
               <span className="h-2.5 w-2.5 rounded-sm bg-gray-400" />
               dataset
             </span>
@@ -1133,31 +1157,6 @@ export default function DatasetGraphView({ onResetRef }: DatasetGraphViewProps =
               <span className="inline-block h-0 w-0 border-b-[9px] border-l-[5px] border-r-[5px] border-l-transparent border-r-transparent border-b-gray-400" />
               paper
             </span>
-          </div>
-        )}
-
-        {hover && (
-          <div
-            className="pointer-events-none absolute z-20 max-w-xs rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-900 shadow-lg"
-            style={{
-              left: Math.min(hover.x + 12, Math.max(8, viewportPx.w - 220)),
-              top: Math.min(hover.y + 12, Math.max(8, viewportPx.h - 80)),
-            }}
-          >
-            <p className="mb-1 font-semibold line-clamp-2">{hover.node.label}</p>
-            {hover.node.type === "series" && expandedSeriesId !== hover.node.nodeId
-              ? "Click to expand datasets"
-              : null}
-            {hover.node.type === "series" && expandedSeriesId === hover.node.nodeId
-              ? "Expanded · click a dataset for papers"
-              : null}
-            {hover.node.type === "dataset" && expandedDatasetId !== hover.node.nodeId
-              ? "Click to show papers"
-              : null}
-            {hover.node.type === "dataset" && expandedDatasetId === hover.node.nodeId
-              ? "Showing linked papers"
-              : null}
-            {hover.node.type === "paper" ? "Click to open paper" : null}
           </div>
         )}
       </div>

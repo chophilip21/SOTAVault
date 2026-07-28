@@ -5,7 +5,7 @@
 <h1 align="center">SotaVault</h1>
 
 <p align="center">
-  <strong>A non-commercial machine learning benchmark archive for researchers and enthusiasts.</strong>
+  <strong>A Machine learning benchmark archive for researchers and enthusiasts.</strong>
 </p>
 
 <p align="center">
