@@ -18,6 +18,13 @@ const contentSecurityPolicy = [
     "https://huggingface.co",
     "https://*.huggingface.co",
     "https://*.xethub.hf.co",
+    // HF's newer Xet storage backend resolves large files (e.g. the
+    // quantized ONNX model) through a CDN redirect to *.cdn.hf.co
+    // (observed: us.aws.cdn.hf.co) rather than *.xethub.hf.co -- without
+    // this, the browser's CSP blocks the redirect target with
+    // "Failed to fetch" even though the file itself downloads fine
+    // (verified server-side: public repo, no CORS issue, no rate limit).
+    "https://*.cdn.hf.co",
     "https://cdn.jsdelivr.net",
     "https://apis.google.com",
     "https://*.googleapis.com",
