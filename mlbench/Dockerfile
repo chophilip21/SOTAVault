@@ -7,7 +7,15 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 # ── Stage 2: build ────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+# Pinned to the native build platform, not the final target -- `npm run build`
+# doesn't need to run under QEMU emulation. It never executes sharp (no local
+# image imports/blur placeholders, and sharp$ is aliased to false client-side
+# in next.config.ts) so copying deps' target-arch node_modules in here is
+# harmless; the output is pure JS/CSS either way. This was previously
+# unpinned and ran under arm64 emulation for the arm64 leg of the multi-arch
+# build, where `next/font`'s Google Fonts fetch intermittently failed with
+# ETIMEDOUT/ENETUNREACH -- a QEMU network-stack issue, not a real outage.
+FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
