@@ -33,6 +33,10 @@ const contentSecurityPolicy = [
     "https://challenges.cloudflare.com",
     "https://tiles.openfreemap.org",
     "https://cdn.sotavault.ai",
+    // Graph Arrow host baked in at build time (e.g. OCI Object Storage).
+    ...(process.env.NEXT_PUBLIC_GRAPH_CDN_URL
+      ? [new URL(process.env.NEXT_PUBLIC_GRAPH_CDN_URL).origin]
+      : []),
   ].join(" "),
   "frame-src 'self' https://*.firebaseapp.com https://*.google.com https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
