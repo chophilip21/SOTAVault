@@ -12,15 +12,16 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-# ── Stage 1b: runtime deps (target arch) ──────────────────────────────────────
-# Only used to source sharp's native binary for the final image (stage 3) --
-# sharp is genuinely build-time-inert here (no local image imports/blur
-# placeholders, and sharp$ is aliased to false client-side in next.config.ts).
-FROM node:20-alpine AS deps-runtime
-RUN apk add --no-cache libc6-compat
+# ── Stage 1b: runtime sharp (target arch, installed natively) ─────────────────
+# Only sharp's native binary is needed in the final image (stage 3). Fetch the
+# target-arch prebuilt natively instead of a full `npm ci` under QEMU (~5min).
+FROM --platform=$BUILDPLATFORM node:20-alpine AS deps-runtime
+ARG TARGETARCH
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci
+COPY package-lock.json ./
+RUN SHARP_VERSION=$(node -p "require('./package-lock.json').packages['node_modules/sharp'].version") \
+ && CPU=$([ "$TARGETARCH" = "amd64" ] && echo x64 || echo "$TARGETARCH") \
+ && npm install --no-save --no-package-lock --os=linux --cpu="$CPU" --libc=musl "sharp@$SHARP_VERSION"
 
 # ── Stage 2: build ────────────────────────────────────────────────────────────
 # Pinned to the native build platform, not the final target -- `npm run build`
