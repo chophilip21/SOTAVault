@@ -1,6 +1,22 @@
 # syntax=docker/dockerfile:1
-# ── Stage 1: install dependencies ─────────────────────────────────────────────
-FROM node:20-alpine AS deps
+# ── Stage 1a: build-time deps (native) ────────────────────────────────────────
+# Pinned to the native build platform -- `builder` below actually executes
+# native code from here during `npm run build` (Tailwind v4's lightningcss
+# engine), unlike sharp, which is build-time-inert. Installing target-arch
+# (e.g. arm64) node_modules and then running them natively (e.g. amd64)
+# fails with "Cannot find module '../lightningcss.linux-x64-musl.node'" --
+# the native binary present doesn't match the host actually executing it.
+FROM --platform=$BUILDPLATFORM node:20-alpine AS deps-build
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+# ── Stage 1b: runtime deps (target arch) ──────────────────────────────────────
+# Only used to source sharp's native binary for the final image (stage 3) --
+# sharp is genuinely build-time-inert here (no local image imports/blur
+# placeholders, and sharp$ is aliased to false client-side in next.config.ts).
+FROM node:20-alpine AS deps-runtime
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json package-lock.json* ./
@@ -8,16 +24,13 @@ RUN npm ci
 
 # ── Stage 2: build ────────────────────────────────────────────────────────────
 # Pinned to the native build platform, not the final target -- `npm run build`
-# doesn't need to run under QEMU emulation. It never executes sharp (no local
-# image imports/blur placeholders, and sharp$ is aliased to false client-side
-# in next.config.ts) so copying deps' target-arch node_modules in here is
-# harmless; the output is pure JS/CSS either way. This was previously
-# unpinned and ran under arm64 emulation for the arm64 leg of the multi-arch
-# build, where `next/font`'s Google Fonts fetch intermittently failed with
+# doesn't need to run under QEMU emulation. This was previously unpinned and
+# ran under arm64 emulation for the arm64 leg of the multi-arch build, where
+# `next/font`'s Google Fonts fetch intermittently failed with
 # ETIMEDOUT/ENETUNREACH -- a QEMU network-stack issue, not a real outage.
 FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps-build /app/node_modules ./node_modules
 COPY . .
 
 # NEXT_PUBLIC_* vars are baked into the JS bundle at build time.
@@ -60,8 +73,8 @@ COPY --from=builder /app/public                        ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static     ./.next/static
 # next/image optimization requires sharp native bindings (not always traced into standalone)
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/sharp ./node_modules/sharp
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@img ./node_modules/@img
+COPY --from=deps-runtime --chown=nextjs:nodejs /app/node_modules/sharp ./node_modules/sharp
+COPY --from=deps-runtime --chown=nextjs:nodejs /app/node_modules/@img ./node_modules/@img
 
 USER nextjs
 EXPOSE 3000
