@@ -11,10 +11,10 @@
  *       URL is injected at build/deploy time via NEXT_PUBLIC_GRAPH_CDN_URL.
  */
 
-/** Base URL for the graph asset CDN (cdn.sotavault.ai in production). */
+/** Base URL for graph assets (public OCI Object Storage bucket by default). */
 const GRAPH_CDN_BASE =
   process.env.NEXT_PUBLIC_GRAPH_CDN_URL?.replace(/\/$/, "") ||
-  "https://cdn.sotavault.ai";
+  "https://objectstorage.us-sanjose-1.oraclecloud.com/n/axpbtlzv2zpr/b/sotavault-graph-assets/o";
 
 const GRAPH_FILENAMES: Record<"paper" | "dataset", string> = {
   paper: "paper.arrow",

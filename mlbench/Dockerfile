@@ -46,7 +46,7 @@ ARG NEXT_PUBLIC_ENV="production"
 # Unset in production (same-origin ingress routing); only used for local
 # container testing where frontend/API run on different ports.
 ARG NEXT_PUBLIC_BACKEND_URL=""
-# Empty falls back to https://cdn.sotavault.ai (lib/graph/graphUrl.ts).
+# Empty falls back to the OCI graph bucket URL (lib/graph/graphUrl.ts).
 ARG NEXT_PUBLIC_GRAPH_CDN_URL=""
 
 ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL

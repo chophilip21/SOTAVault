@@ -32,8 +32,8 @@ const contentSecurityPolicy = [
     "https://*.gstatic.com",
     "https://challenges.cloudflare.com",
     "https://tiles.openfreemap.org",
-    "https://cdn.sotavault.ai",
-    // Graph Arrow host baked in at build time (e.g. OCI Object Storage).
+    // Graph Arrow host: OCI Object Storage default, or the build-time override.
+    "https://objectstorage.us-sanjose-1.oraclecloud.com",
     ...(process.env.NEXT_PUBLIC_GRAPH_CDN_URL
       ? [new URL(process.env.NEXT_PUBLIC_GRAPH_CDN_URL).origin]
       : []),
